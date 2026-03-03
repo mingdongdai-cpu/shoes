@@ -17,7 +17,9 @@ import { db, auth } from './firebase';
 import { 
   signInWithEmailAndPassword, 
   signOut, 
-  onAuthStateChanged 
+  onAuthStateChanged,
+  setPersistence,
+  browserSessionPersistence
 } from 'firebase/auth';
 import { 
   collection, 
@@ -61,9 +63,9 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>('home');
   const [reportPeriod, setReportPeriod] = useState<'day' | 'week' | 'month'>('day');
   
-  // 使用系统提供的当前时间: 2026-03-02
-  const [selectedDate, setSelectedDate] = useState('2026-03-02');
-  const [selectedWeek, setSelectedWeek] = useState('2026-W10'); // 2026-03-02 is in W10
+  // 使用系统提供的当前时间: 2026-03-03
+  const [selectedDate, setSelectedDate] = useState('2026-03-03');
+  const [selectedWeek, setSelectedWeek] = useState('2026-W10'); 
   const [selectedMonth, setSelectedMonth] = useState('2026-03');
   
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -90,19 +92,31 @@ export default function App() {
 
   // --- Firebase Auth & Persistence ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        setUser({ 
-          username: firebaseUser.email?.split('@')[0] || '', 
-          role: firebaseUser.email === 'admin@topstar.com' ? 'admin' : 'staff' 
-        });
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
+    let unsubscribe: (() => void) | undefined;
 
-    return () => unsubscribe();
+    // Set persistence to session-based (requires re-login after closing browser)
+    setPersistence(auth, browserSessionPersistence)
+      .then(() => {
+        unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+          if (firebaseUser) {
+            setUser({ 
+              username: firebaseUser.email?.split('@')[0] || '', 
+              role: firebaseUser.email === 'admin@topstar.com' ? 'admin' : 'staff' 
+            });
+          } else {
+            setUser(null);
+          }
+          setLoading(false);
+        });
+      })
+      .catch((error) => {
+        console.error("Auth persistence error:", error);
+        setLoading(false);
+      });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
   // --- Firebase Data Sync ---
@@ -314,8 +328,6 @@ export default function App() {
 
   const deleteTransaction = async (id: string) => {
     try {
-      console.log("Attempting to delete transaction:", id);
-      
       if (user?.role !== 'admin') {
         showToast('权限不足：只有管理员可以删除流水', 'error');
         return;
@@ -323,50 +335,39 @@ export default function App() {
       
       const t = transactions.find(trans => trans.id === id);
       if (!t) {
-        console.error("Transaction not found in state. Current transactions:", transactions);
-        showToast('错误：在当前列表中找不到该流水记录', 'error');
+        showToast('错误：找不到该流水记录', 'error');
         return;
       }
 
       const product = products.find(p => p.id === t.productId);
       if (!product) {
-        console.error("Product not found for transaction. ProductID:", t.productId);
-        showToast('错误：找不到该流水关联的商品信息', 'error');
+        showToast('错误：找不到关联商品', 'error');
         return;
       }
 
       // 1. Revert Product Stock calculation
-      const newStock = t.type === 'in' ? product.stock - t.quantity : product.stock + t.quantity;
+      const currentStock = product.stock || 0;
+      const newStock = t.type === 'in' ? currentStock - t.quantity : currentStock + t.quantity;
       if (newStock < 0) {
         showToast('删除失败：回滚后库存将变为负数，操作已取消', 'error');
         return;
       }
 
-      showToast('正在同步数据库...', 'success');
+      if (window.confirm('确定要彻底删除此流水记录吗？')) {
+        showToast('正在同步数据库...', 'success');
 
-      // 2. Update Product Stock FIRST
-      const productRef = doc(db, 'products', t.productId);
-      await updateDoc(productRef, {
-        stock: newStock
-      });
-      console.log("Product stock updated successfully to:", newStock);
+        // 2. Update Product Stock FIRST
+        await updateDoc(doc(db, 'products', t.productId), {
+          stock: newStock
+        });
 
-      // 3. Delete Transaction document
-      const transactionRef = doc(db, 'transactions', id);
-      await deleteDoc(transactionRef);
-      console.log("Transaction document deleted successfully:", id);
-      
-      showToast('流水已成功删除，库存已回滚', 'success');
-    } catch (error: any) {
-      console.error("Delete transaction error detail:", error);
-      const errorMsg = error.code === 'permission-denied' 
-        ? '数据库权限拒绝：请检查 Firebase 规则' 
-        : (error.message || '未知错误');
-      showToast(`删除失败: ${errorMsg}`, 'error');
-      // 使用 alert 确保用户看到严重错误
-      if (error.code === 'permission-denied') {
-        alert('删除失败：您的账号没有删除权限。请联系管理员检查 Firebase Firestore 的安全规则。');
+        // 3. Delete Transaction document
+        await deleteDoc(doc(db, 'transactions', id));
+        showToast('流水已成功删除，库存已回滚', 'success');
       }
+    } catch (error: any) {
+      console.error("Delete transaction error:", error);
+      showToast('删除失败', 'error');
     }
   };
 
@@ -403,7 +404,8 @@ export default function App() {
       });
 
       // 2. Update Product Stock
-      const newStock = type === 'in' ? product.stock + totalQuantity : product.stock - totalQuantity;
+      const currentStock = product.stock || 0;
+      const newStock = type === 'in' ? currentStock + totalQuantity : currentStock - totalQuantity;
       await updateDoc(doc(db, 'products', productId), {
         stock: newStock
       });
@@ -511,7 +513,7 @@ export default function App() {
       showToast('正在同步库存...', 'success');
 
       // 1. Revert Old Product Stock
-      let oldProductFinalStock = oldProduct.stock;
+      let oldProductFinalStock = oldProduct.stock || 0;
       if (t.type === 'in') {
         oldProductFinalStock -= t.quantity;
       } else {
@@ -520,6 +522,7 @@ export default function App() {
 
       // 2. Calculate New Product Stock
       let newProductFinalStock;
+      const newProductCurrentStock = newProduct.stock || 0;
       if (oldProduct.id === newProduct.id) {
         // Same product: apply new change to the reverted stock
         newProductFinalStock = newType === 'in' 
@@ -539,8 +542,8 @@ export default function App() {
         // Different products: 
         // a) Check if new product has enough stock for 'out'
         newProductFinalStock = newType === 'in'
-          ? newProduct.stock + newQuantity
-          : newProduct.stock - newQuantity;
+          ? newProductCurrentStock + newQuantity
+          : newProductCurrentStock - newQuantity;
 
         if (newProductFinalStock < 0) {
           showToast(`修改失败：${newProduct.name} 库存不足`, 'error');

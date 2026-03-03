@@ -784,14 +784,24 @@ export const StockView = ({
                       <td className="py-4 text-sm text-slate-400">{t.remark || '-'}</td>
                       <td className="py-4 text-right">
                         {user?.role === 'admin' && (
-                          <button
-                            type="button"
-                            onClick={() => startEditing(t)}
-                            className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
-                            title="修改流水"
-                          >
-                            <Pencil size={16} />
-                          </button>
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => startEditing(t)}
+                              className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
+                              title="修改流水"
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteTransaction(t.id)}
+                              className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
+                              title="删除流水"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>

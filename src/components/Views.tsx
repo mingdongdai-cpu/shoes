@@ -715,7 +715,7 @@ export const StockView = ({
               <input
                 type="text"
                 disabled
-                value={new Date().toLocaleString()}
+                value={new Date().toISOString().replace('T', ' ').slice(0, 19)}
                 className="w-full rounded-xl border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
               />
             </div>

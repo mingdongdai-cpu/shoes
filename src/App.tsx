@@ -55,6 +55,19 @@ const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('zh-CN').format(amount) + ' 西法';
 };
 
+const getTogoDate = () => new Date().toISOString().split('T')[0];
+const getTogoMonth = () => new Date().toISOString().slice(0, 7);
+const getTogoWeek = () => {
+  const now = new Date();
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`;
+};
+
+const getTogoDateTime = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
+
 export default function App() {
   // --- State ---
   const [user, setUser] = useState<User | null>(null);
@@ -63,10 +76,9 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>('home');
   const [reportPeriod, setReportPeriod] = useState<'day' | 'week' | 'month'>('day');
   
-  // 使用系统提供的当前时间: 2026-03-03
-  const [selectedDate, setSelectedDate] = useState('2026-03-03');
-  const [selectedWeek, setSelectedWeek] = useState('2026-W10'); 
-  const [selectedMonth, setSelectedMonth] = useState('2026-03');
+  const [selectedDate, setSelectedDate] = useState(getTogoDate());
+  const [selectedWeek, setSelectedWeek] = useState(getTogoWeek()); 
+  const [selectedMonth, setSelectedMonth] = useState(getTogoMonth());
   
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [loading, setLoading] = useState(true);
@@ -399,7 +411,7 @@ export default function App() {
         type,
         quantity: totalQuantity,
         price: product.price,
-        date: new Date().toLocaleString(),
+        date: getTogoDateTime(),
         remark
       });
 
@@ -469,7 +481,7 @@ export default function App() {
             type: 'in',
             quantity: pStock,
             price: pPrice,
-            date: new Date().toLocaleString(),
+            date: getTogoDateTime(),
             remark: '系统批量导入初始库存'
           });
         }

@@ -162,6 +162,12 @@ export default function App() {
         snapshot.forEach((doc) => {
           transactionsData.push({ id: doc.id, ...doc.data() } as Transaction);
         });
+        // Ensure descending order even if backend sorting has issues
+        transactionsData.sort((a, b) => {
+          const dateA = new Date(a.date.replace(/-/g, '/')).getTime();
+          const dateB = new Date(b.date.replace(/-/g, '/')).getTime();
+          return dateB - dateA;
+        });
         setTransactions(transactionsData);
       },
       (error) => {
@@ -612,7 +618,7 @@ export default function App() {
                 <Package className="text-white" size={24} />
               </div>
               <div>
-                <h1 className="text-xl font-black tracking-tight text-slate-900">TOP STAR 鞋店</h1>
+                <h1 className="text-xl font-black tracking-tight text-slate-900">TOP STAR SHOES</h1>
                 <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                   <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                   {user.role === 'admin' ? '管理员' : '查询员'} · {user.username}

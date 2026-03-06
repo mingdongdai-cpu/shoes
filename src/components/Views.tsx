@@ -57,7 +57,7 @@ export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string)
           <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-xl shadow-indigo-200 mb-4">
             <Package className="text-white" size={32} />
           </div>
-          <h1 className="text-2xl font-black text-slate-900">TOP STAR 鞋店</h1>
+          <h1 className="text-2xl font-black text-slate-900">TOP STAR SHOES</h1>
           <p className="text-slate-400 text-sm mt-1">进销存管理系统</p>
         </div>
 

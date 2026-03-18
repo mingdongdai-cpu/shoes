@@ -3,14 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Component } from 'react';
 import { 
   LayoutDashboard, 
   Package, 
   ArrowLeftRight, 
   XCircle,
   CheckCircle2,
-  Pencil
+  Pencil,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth } from './firebase';
@@ -29,7 +30,8 @@ import {
   deleteDoc, 
   doc, 
   query, 
-  orderBy
+  orderBy,
+  getDocFromServer
 } from 'firebase/firestore';
 import { Product, Transaction, User, View, Toast } from './types';
 import { LoginView, HomeView, StockView, ProductsView } from './components/Views';
@@ -40,6 +42,110 @@ const ACCOUNTS = [
   { username: 'admin', password: '340822', role: 'admin' },
   { username: 'check', password: '123', role: 'staff' }
 ] as const;
+
+// --- Error Handling ---
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "发生了一些错误。";
+      try {
+        const parsed = JSON.parse(this.state.error?.message || "{}");
+        if (parsed.error) {
+          errorMessage = `数据库错误: ${parsed.error} (${parsed.operationType} at ${parsed.path})`;
+        }
+      } catch (e) {
+        errorMessage = this.state.error?.message || errorMessage;
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+          <div className="bg-white p-8 rounded-3xl shadow-xl border border-rose-100 max-w-md w-full text-center">
+            <XCircle className="text-rose-500 mx-auto mb-4" size={48} />
+            <h2 className="text-xl font-black text-slate-900 mb-2">出错了</h2>
+            <p className="text-slate-600 mb-6">{errorMessage}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all"
+            >
+              刷新页面
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // --- Helper Functions ---
 
@@ -82,6 +188,7 @@ export default function App() {
   
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // --- StockView State (Persistent) ---
   const [stockType, setStockType] = useState<'in' | 'out'>('in');
@@ -104,6 +211,17 @@ export default function App() {
 
   // --- Firebase Auth & Persistence ---
   useEffect(() => {
+    async function testConnection() {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. ");
+        }
+      }
+    }
+    testConnection();
+
     let unsubscribe: (() => void) | undefined;
 
     // Set persistence to session-based (requires re-login after closing browser)
@@ -147,10 +265,7 @@ export default function App() {
         setProducts(productsData);
       },
       (error) => {
-        console.error("Products sync error:", error);
-        if (error.code === 'permission-denied') {
-          showToast('数据库访问受限，请检查 Firebase 安全规则', 'error');
-        }
+        handleFirestoreError(error, OperationType.GET, 'products');
       }
     );
 
@@ -171,7 +286,7 @@ export default function App() {
         setTransactions(transactionsData);
       },
       (error) => {
-        console.error("Transactions sync error:", error);
+        handleFirestoreError(error, OperationType.GET, 'transactions');
       }
     );
 
@@ -321,7 +436,7 @@ export default function App() {
       showToast('商品添加成功');
       return true;
     } catch (error) {
-      showToast('添加失败', 'error');
+      handleFirestoreError(error, OperationType.CREATE, 'products');
       return false;
     }
   };
@@ -340,7 +455,7 @@ export default function App() {
       await deleteDoc(doc(db, 'products', id));
       showToast('商品已删除');
     } catch (error) {
-      showToast('删除失败', 'error');
+      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
     }
   };
 
@@ -371,21 +486,19 @@ export default function App() {
         return;
       }
 
-      if (window.confirm('确定要彻底删除此流水记录吗？')) {
-        showToast('正在同步数据库...', 'success');
+      showToast('正在同步数据库...', 'success');
 
-        // 2. Update Product Stock FIRST
-        await updateDoc(doc(db, 'products', t.productId), {
-          stock: newStock
-        });
+      // 2. Update Product Stock FIRST
+      await updateDoc(doc(db, 'products', t.productId), {
+        stock: newStock
+      });
 
-        // 3. Delete Transaction document
-        await deleteDoc(doc(db, 'transactions', id));
-        showToast('流水已成功删除，库存已回滚', 'success');
-      }
+      // 3. Delete Transaction document
+      await deleteDoc(doc(db, 'transactions', id));
+      showToast('流水已成功删除，库存已回滚', 'success');
+      setConfirmDeleteId(null);
     } catch (error: any) {
-      console.error("Delete transaction error:", error);
-      showToast('删除失败', 'error');
+      handleFirestoreError(error, OperationType.DELETE, `transactions/${id}`);
     }
   };
 
@@ -431,7 +544,7 @@ export default function App() {
       showToast(type === 'in' ? '入库成功' : '出库成功');
       return true;
     } catch (error) {
-      showToast('操作失败', 'error');
+      handleFirestoreError(error, OperationType.WRITE, 'transactions/products');
       return false;
     }
   };
@@ -493,6 +606,7 @@ export default function App() {
         }
         successCount++;
       } catch (e) {
+        handleFirestoreError(e, OperationType.WRITE, 'batch_import');
         errorCount++;
       }
     }
@@ -589,8 +703,7 @@ export default function App() {
       setEditingTransaction(null);
       return true;
     } catch (error) {
-      console.error("Update transaction error:", error);
-      showToast('修改失败', 'error');
+      handleFirestoreError(error, OperationType.UPDATE, `transactions/${transactionId}`);
       return false;
     }
   };
@@ -608,8 +721,9 @@ export default function App() {
   if (!user) return <LoginView handleLogin={handleLogin} />;
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
-      {/* Header & Nav */}
+    <ErrorBoundary>
+      <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
+        {/* Header & Nav */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between py-4 gap-4">
@@ -692,7 +806,7 @@ export default function App() {
                 products={products}
                 transactions={transactions}
                 handleTransaction={handleTransaction}
-                deleteTransaction={deleteTransaction}
+                deleteTransaction={setConfirmDeleteId}
                 updateTransaction={updateTransaction}
                 editingTransaction={editingTransaction}
                 setEditingTransaction={setEditingTransaction}
@@ -741,6 +855,40 @@ export default function App() {
         </AnimatePresence>
       </main>
 
+      {/* Confirm Delete Modal */}
+      <AnimatePresence>
+        {confirmDeleteId && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center"
+            >
+              <div className="w-16 h-16 bg-rose-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="text-rose-500" size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-800 mb-2">确认删除？</h3>
+              <p className="text-slate-500 mb-8">确定要彻底删除此流水记录吗？此操作不可撤销，库存将自动回滚。</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmDeleteId(null)}
+                  className="flex-1 py-3 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-all"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => deleteTransaction(confirmDeleteId)}
+                  className="flex-1 py-3 rounded-xl font-bold text-white bg-rose-500 hover:bg-rose-600 shadow-lg shadow-rose-200 transition-all"
+                >
+                  确认删除
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Toasts */}
       <div className="fixed bottom-8 right-8 z-50 flex flex-col gap-3">
         <AnimatePresence>
@@ -763,7 +911,8 @@ export default function App() {
         </AnimatePresence>
       </div>
     </div>
-  );
+  </ErrorBoundary>
+);
 }
 
 // --- Components ---

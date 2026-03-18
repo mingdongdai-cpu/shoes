@@ -1,0 +1,115 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: products
+// Document ID: auto-generated
+// Fields:
+//   - name: string (required, unique) - Name of the product
+//   - spec: number (required, positive) - Items per box
+//   - price: number (required, positive) - Price per item
+//   - stock: number (required, non-negative) - Total items in stock
+//
+// Collection: transactions
+// Document ID: auto-generated
+// Fields:
+//   - productId: string (required) - ID of the related product
+//   - type: string (required, 'in' or 'out') - Type of transaction
+//   - quantity: number (required, positive) - Total items moved
+//   - price: number (required, positive) - Price at time of transaction
+//   - date: string (required, ISO 8601 format) - Timestamp of the transaction
+//   - remark: string (optional) - Optional note
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (request.auth.token.email == "mingdongdai@gmail.com" && request.auth.token.email_verified == true) ||
+        (request.auth.token.email == "admin@topstar.com" && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isStaff() {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff' ||
+        request.auth.token.email.matches(".*@topstar.com$")
+      );
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidProduct(data) {
+      return hasOnlyAllowedFields(['name', 'spec', 'price', 'stock']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.spec is number && data.spec > 0 &&
+             data.price is number && data.price >= 0 &&
+             data.stock is number && data.stock >= 0;
+    }
+
+    function isValidTransaction(data) {
+      return hasOnlyAllowedFields(['productId', 'type', 'quantity', 'price', 'date', 'remark']) &&
+             data.productId is string &&
+             data.type in ['in', 'out'] &&
+             data.quantity is number && data.quantity > 0 &&
+             data.price is number && data.price >= 0 &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}.*") &&
+             (!('remark' in data) || (data.remark is string && data.remark.size() < 500));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Products collection
+    match /products/{productId} {
+      // All authenticated users can read products
+      allow read: if isAuthenticated();
+      
+      // Only admins can create, update, or delete products
+      allow create: if isAdmin() && isValidProduct(request.resource.data);
+      allow update: if isAdmin() && isValidProduct(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Transactions collection
+    match /transactions/{transactionId} {
+      // All authenticated users can read transactions
+      allow read: if isAuthenticated();
+      
+      // Only admins can create, update, or delete transactions
+      allow create: if isAdmin() && isValidTransaction(request.resource.data);
+      allow update: if isAdmin() && isValidTransaction(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Users collection (for role-based access)
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin();
+    }
+  }
+}

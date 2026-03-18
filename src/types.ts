@@ -21,7 +21,17 @@ export interface User {
   role: 'admin' | 'staff';
 }
 
-export type View = 'home' | 'stock' | 'products';
+export interface Vehicle {
+  id: string;
+  name: string;
+  lastUpdate: string;
+  location: string;
+  status: 'moving' | 'stopped' | 'offline';
+  lat: number;
+  lng: number;
+}
+
+export type View = 'home' | 'stock' | 'products' | 'gps';
 
 export interface Toast {
   id: number;

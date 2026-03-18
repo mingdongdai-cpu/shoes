@@ -1,5 +1,5 @@
 {
-  "name": "TOP STAR SHOES",
-  "description": "一个专为鞋店设计的现代化进销存管理系统，支持库存预警、财务看板及本地数据持久化。",
+  "name": "Top Star Shoes Inventory",
+  "description": "A professional inventory management system for Top Star Shoes, featuring real-time stock tracking and transaction history.",
   "requestFramePermissions": []
 }

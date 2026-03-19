@@ -20,6 +20,14 @@
 //   - date: string (required, ISO 8601 format) - Timestamp of the transaction
 //   - remark: string (optional) - Optional note
 //
+// Collection: expenses
+// Document ID: auto-generated
+// Fields:
+//   - date: string (required, ISO 8601 format) - Date of expense
+//   - amount: number (required, positive) - Amount spent
+//   - category: string (required) - Expense item/category
+//   - remark: string (optional) - Optional remark
+//
 // ===============================================================
 
 rules_version = '2';
@@ -75,6 +83,14 @@ service cloud.firestore {
              (!('remark' in data) || (data.remark is string && data.remark.size() < 500));
     }
 
+    function isValidExpense(data) {
+      return hasOnlyAllowedFields(['date', 'amount', 'category', 'remark']) &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}.*") &&
+             data.amount is number && data.amount >= 0 &&
+             data.category is string && data.category.size() > 0 && data.category.size() < 100 &&
+             (!('remark' in data) || (data.remark is string && data.remark.size() < 500));
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -103,6 +119,17 @@ service cloud.firestore {
       // Only admins can create, update, or delete transactions
       allow create: if isAdmin() && isValidTransaction(request.resource.data);
       allow update: if isAdmin() && isValidTransaction(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Expenses collection
+    match /expenses/{expenseId} {
+      // All authenticated users can read expenses
+      allow read: if isAuthenticated();
+      
+      // Only admins can create, update, or delete expenses
+      allow create: if isAdmin() && isValidExpense(request.resource.data);
+      allow update: if isAdmin() && isValidExpense(request.resource.data);
       allow delete: if isAdmin();
     }
 

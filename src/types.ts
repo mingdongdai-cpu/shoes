@@ -31,7 +31,15 @@ export interface Vehicle {
   lng: number;
 }
 
-export type View = 'home' | 'stock' | 'products' | 'gps';
+export interface Expense {
+  id: string;
+  date: string;
+  amount: number;
+  category: string;
+  remark: string;
+}
+
+export type View = 'home' | 'stock' | 'products' | 'gps' | 'expenses';
 
 export interface Toast {
   id: number;

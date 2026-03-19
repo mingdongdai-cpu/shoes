@@ -11,7 +11,8 @@ import {
   XCircle,
   CheckCircle2,
   Pencil,
-  AlertTriangle
+  AlertTriangle,
+  Wallet
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth } from './firebase';
@@ -33,8 +34,8 @@ import {
   orderBy,
   getDocFromServer
 } from 'firebase/firestore';
-import { Product, Transaction, User, View, Toast } from './types';
-import { LoginView, HomeView, StockView, ProductsView } from './components/Views';
+import { Product, Transaction, User, View, Toast, Expense } from './types';
+import { LoginView, HomeView, StockView, ProductsView, ExpensesView } from './components/Views';
 
 // --- Constants ---
 
@@ -158,7 +159,7 @@ const formatStock = (total: number, spec: number) => {
 };
 
 const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('zh-CN').format(amount) + ' 西法';
+  return new Intl.NumberFormat('zh-CN').format(amount) + ' XOF';
 };
 
 const getTogoDate = () => new Date().toISOString().split('T')[0];
@@ -179,6 +180,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [currentView, setCurrentView] = useState<View>('home');
   const [reportPeriod, setReportPeriod] = useState<'day' | 'week' | 'month'>('day');
   
@@ -189,6 +191,7 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteExpenseId, setConfirmDeleteExpenseId] = useState<string | null>(null);
 
   // --- StockView State (Persistent) ---
   const [stockType, setStockType] = useState<'in' | 'out'>('in');
@@ -290,9 +293,25 @@ export default function App() {
       }
     );
 
+    // Sync Expenses
+    const qExpenses = query(collection(db, 'expenses'), orderBy('date', 'desc'));
+    const unsubscribeExpenses = onSnapshot(qExpenses,
+      (snapshot) => {
+        const expensesData: Expense[] = [];
+        snapshot.forEach((doc) => {
+          expensesData.push({ id: doc.id, ...doc.data() } as Expense);
+        });
+        setExpenses(expensesData);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, 'expenses');
+      }
+    );
+
     return () => {
       unsubscribeProducts();
       unsubscribeTransactions();
+      unsubscribeExpenses();
     };
   }, [user]);
 
@@ -383,12 +402,18 @@ export default function App() {
       reportMap[t.productId].amount += t.quantity * t.price;
     });
 
+    const totalExpenses = expenses.filter(e => {
+      const eDate = new Date(e.date);
+      return eDate >= start && eDate <= end;
+    }).reduce((sum, e) => sum + e.amount, 0);
+
     return {
       items: Object.values(reportMap).sort((a, b) => b.amount - a.amount),
       totalAmount: filtered.reduce((sum, t) => sum + t.quantity * t.price, 0),
-      totalQuantity: filtered.reduce((sum, t) => sum + t.quantity, 0)
+      totalQuantity: filtered.reduce((sum, t) => sum + t.quantity, 0),
+      totalExpenses
     };
-  }, [transactions, products, reportPeriod, selectedDate, selectedWeek, selectedMonth]);
+  }, [transactions, products, expenses, reportPeriod, selectedDate, selectedWeek, selectedMonth]);
 
   // --- Actions ---
   const handleLogin = async (username: string, pass: string) => {
@@ -708,6 +733,40 @@ export default function App() {
     }
   };
 
+  const addExpense = async (amount: number, category: string, remark: string, date: string) => {
+    if (user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    try {
+      await addDoc(collection(db, 'expenses'), {
+        amount,
+        category,
+        remark,
+        date
+      });
+      showToast('记账成功');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'expenses');
+      return false;
+    }
+  };
+
+  const deleteExpense = async (id: string) => {
+    if (user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return;
+    }
+    try {
+      await deleteDoc(doc(db, 'expenses', id));
+      showToast('记录已删除');
+      setConfirmDeleteExpenseId(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `expenses/${id}`);
+    }
+  };
+
   // --- Render Logic ---
 
   if (loading) {
@@ -759,6 +818,12 @@ export default function App() {
                   onClick={() => setCurrentView('products')}
                   icon={<Package size={18} />}
                   label="商品管理"
+                />
+                <NavButton 
+                  active={currentView === 'expenses'} 
+                  onClick={() => setCurrentView('expenses')}
+                  icon={<Wallet size={18} />}
+                  label="记账管理"
                 />
               </nav>
               <button 
@@ -851,6 +916,15 @@ export default function App() {
                 handleBatchImport={handleBatchImport}
               />
             )}
+            {currentView === 'expenses' && (
+              <ExpensesView 
+                expenses={expenses}
+                addExpense={addExpense}
+                deleteExpense={setConfirmDeleteExpenseId}
+                formatCurrency={formatCurrency}
+                user={user}
+              />
+            )}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -879,6 +953,40 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => deleteTransaction(confirmDeleteId)}
+                  className="flex-1 py-3 rounded-xl font-bold text-white bg-rose-500 hover:bg-rose-600 shadow-lg shadow-rose-200 transition-all"
+                >
+                  确认删除
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Confirm Delete Expense Modal */}
+      <AnimatePresence>
+        {confirmDeleteExpenseId && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center"
+            >
+              <div className="w-16 h-16 bg-rose-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="text-rose-500" size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-800 mb-2">确认删除？</h3>
+              <p className="text-slate-500 mb-8">确定要彻底删除此支出明细吗？此操作不可撤销。</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmDeleteExpenseId(null)}
+                  className="flex-1 py-3 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-all"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => deleteExpense(confirmDeleteExpenseId)}
                   className="flex-1 py-3 rounded-xl font-bold text-white bg-rose-500 hover:bg-rose-600 shadow-lg shadow-rose-200 transition-all"
                 >
                   确认删除

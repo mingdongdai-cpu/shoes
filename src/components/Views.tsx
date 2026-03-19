@@ -18,7 +18,7 @@ import {
   X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, Transaction, User } from '../types';
+import { Product, Transaction, User, Expense } from '../types';
 
 // --- Components ---
 
@@ -106,26 +106,64 @@ export const HomeView = ({
 }: any) => (
   <div className="space-y-8">
     {/* Finance Dashboard */}
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <StatCard 
-        title="入库总成本" 
-        value={formatCurrency(stats.inTotal)} 
-        icon={<TrendingDown className="text-rose-500" />}
-        bgColor="bg-rose-50"
-      />
-      <StatCard 
-        title="出库销售总额" 
-        value={formatCurrency(stats.outTotal)} 
-        icon={<TrendingUp className="text-emerald-500" />}
-        bgColor="bg-emerald-50"
-      />
-      <StatCard 
-        title="结余金额" 
-        value={formatCurrency(stats.balance)} 
-        icon={<Wallet className="text-indigo-500" />}
-        bgColor="bg-indigo-50"
-        subtitle="(入库成本 - 出库销售)"
-      />
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
+        <div className="absolute -right-6 -top-6 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl group-hover:bg-rose-500/10 transition-colors" />
+        <div className="flex items-center gap-4 mb-4">
+          <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100/50">
+            <TrendingDown className="text-rose-500" size={24} />
+          </div>
+          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">入库总成本</div>
+        </div>
+        <div className="text-xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
+          {formatCurrency(stats.inTotal).split(' ')[0]}
+          <span className="text-xs font-bold text-slate-400 uppercase">XOF</span>
+        </div>
+      </div>
+
+      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
+        <div className="absolute -right-6 -top-6 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-colors" />
+        <div className="flex items-center gap-4 mb-4">
+          <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100/50">
+            <TrendingUp className="text-emerald-500" size={24} />
+          </div>
+          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">出库销售总额</div>
+        </div>
+        <div className="text-xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
+          {formatCurrency(stats.outTotal).split(' ')[0]}
+          <span className="text-xs font-bold text-slate-400 uppercase">XOF</span>
+        </div>
+      </div>
+
+      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
+        <div className="absolute -right-6 -top-6 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl group-hover:bg-rose-500/10 transition-colors" />
+        <div className="flex items-center gap-4 mb-4">
+          <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100/50">
+            <Wallet className="text-rose-500" size={24} />
+          </div>
+          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">本期支出</div>
+        </div>
+        <div className="text-xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
+          {formatCurrency(salesReport.totalExpenses).split(' ')[0]}
+          <span className="text-xs font-bold text-slate-400 uppercase">XOF</span>
+        </div>
+        <div className="text-[10px] font-bold text-slate-400 mt-2">记账管理中的支出</div>
+      </div>
+
+      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
+        <div className="absolute -right-6 -top-6 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-colors" />
+        <div className="flex items-center gap-4 mb-4 relative z-10">
+          <div className="p-3 bg-indigo-50 rounded-2xl border border-indigo-100/50">
+            <Wallet className="text-indigo-500" size={24} />
+          </div>
+          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">结余金额</div>
+        </div>
+        <div className="text-xl font-black text-slate-900 tracking-tight relative z-10 flex items-baseline gap-1">
+          {formatCurrency(stats.balance).split(' ')[0]}
+          <span className="text-xs font-bold text-slate-400 uppercase">XOF</span>
+        </div>
+        <div className="text-[10px] font-bold text-slate-400 mt-2 relative z-10">(入库成本 - 出库销售)</div>
+      </div>
     </div>
 
     {/* Sales Report Section */}
@@ -308,7 +346,7 @@ export const HomeView = ({
                   <div className="text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1">{p.name}</div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-white/40 px-2 py-0.5 rounded border border-white/20">规格: {p.spec}</span>
-                    <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest bg-indigo-50/50 px-2 py-0.5 rounded border border-indigo-100/30">{p.price} 西法</span>
+                    <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest bg-indigo-50/50 px-2 py-0.5 rounded border border-indigo-100/30">{p.price} XOF</span>
                   </div>
                 </div>
 
@@ -913,7 +951,7 @@ export const ProductsView = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">单价 (西法/个)</label>
+              <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">单价 (XOF/个)</label>
               <input
                 type="number"
                 min="0"
@@ -985,6 +1023,289 @@ export const ProductsView = ({
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const ExpensesView = ({
+  expenses, addExpense, deleteExpense, formatCurrency, user
+}: {
+  expenses: Expense[],
+  addExpense: (amount: number, category: string, remark: string, date: string) => Promise<boolean>,
+  deleteExpense: (id: string | null) => void,
+  formatCurrency: (val: number) => string,
+  user: User | null
+}) => {
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
+  const [remark, setRemark] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(amount);
+    if (isNaN(val) || val <= 0) return;
+    if (!category) return;
+
+    const success = await addExpense(val, category, remark, date);
+    if (success) {
+      setAmount('');
+      setCategory('');
+      setRemark('');
+    }
+  };
+
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter(e => e.date.startsWith(filterMonth));
+  }, [expenses, filterMonth]);
+
+  const monthlyTotal = useMemo(() => {
+    return filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+  }, [filteredExpenses]);
+
+  const categoryBreakdown = useMemo(() => {
+    const breakdown: Record<string, number> = {};
+    filteredExpenses.forEach(e => {
+      breakdown[e.category] = (breakdown[e.category] || 0) + e.amount;
+    });
+    return Object.entries(breakdown)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => ({ name, value, percent: (value / (monthlyTotal || 1)) * 100 }));
+  }, [filteredExpenses, monthlyTotal]);
+
+  const dailyAverage = useMemo(() => {
+    if (filteredExpenses.length === 0) return 0;
+    const daysInMonth = new Date(
+      parseInt(filterMonth.split('-')[0]),
+      parseInt(filterMonth.split('-')[1]),
+      0
+    ).getDate();
+    return monthlyTotal / daysInMonth;
+  }, [monthlyTotal, filterMonth, filteredExpenses.length]);
+
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Add Expense Form */}
+        <div className="lg:col-span-1">
+          <div className="glass rounded-3xl p-8 shadow-xl border-white/30 sticky top-24">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-rose-50/50 backdrop-blur-md rounded-xl border border-rose-100/30">
+                  <Plus size={20} className="text-rose-600" />
+                </div>
+                <h2 className="text-xl font-black text-slate-800 tracking-tight">新增支出</h2>
+              </div>
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-wider border border-emerald-100">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                已连数据库
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">金额 (XOF)</label>
+                <input
+                  type="number"
+                  required
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0"
+                  className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-rose-500 focus:border-rose-500 py-3 font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">支出项目/类别</label>
+                <input
+                  type="text"
+                  required
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder="例如：房租、运费、餐费"
+                  className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-rose-500 focus:border-rose-500 py-3 font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">日期</label>
+                <input
+                  type="date"
+                  required
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-rose-500 focus:border-rose-500 py-3 font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">备注</label>
+                <textarea
+                  value={remark}
+                  onChange={(e) => setRemark(e.target.value)}
+                  placeholder="选填..."
+                  className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-rose-500 focus:border-rose-500 h-24 font-bold"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={user?.role !== 'admin'}
+                className={`w-full font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 backdrop-blur-md ${
+                  user?.role !== 'admin'
+                    ? 'bg-slate-200/50 text-slate-400 cursor-not-allowed shadow-none'
+                    : 'bg-rose-600/90 hover:bg-rose-700 text-white shadow-rose-200/50'
+                }`}
+              >
+                <Save size={20} />
+                {user?.role !== 'admin' ? '无权限' : '确认记账'}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* Expense List & Summary */}
+        <div className="lg:col-span-2 space-y-8">
+          {/* Monthly Summary Card - Improved Visibility */}
+          <div className="rounded-3xl p-8 shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white overflow-hidden relative border border-slate-700">
+            {/* Decorative background elements */}
+            <div className="absolute -right-10 -top-10 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl" />
+            <div className="absolute -left-10 -bottom-10 w-64 h-64 bg-rose-500/10 rounded-full blur-3xl" />
+            
+            <div className="relative z-10 space-y-8">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-indigo-300 text-xs font-black uppercase tracking-[0.2em] mb-2">
+                    <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                    月度支出总计
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-6xl font-black tracking-tighter text-white drop-shadow-lg">
+                      {formatCurrency(monthlyTotal).replace(' XOF', '')}
+                    </span>
+                    <span className="text-2xl font-bold text-indigo-300/80">XOF</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 bg-white/5 backdrop-blur-xl p-4 rounded-2xl border border-white/10 shadow-inner">
+                  <div className="p-2 bg-indigo-500/20 rounded-lg">
+                    <Calendar size={20} className="text-indigo-300" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-indigo-300/60 uppercase tracking-wider">选择月份</span>
+                    <input 
+                      type="month"
+                      value={filterMonth}
+                      onChange={(e) => setFilterMonth(e.target.value)}
+                      className="bg-transparent border-none text-white font-black focus:ring-0 p-0 text-lg cursor-pointer [color-scheme:dark]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Stats Grid */}
+              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
+                <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">日均支出</div>
+                  <div className="text-xl font-black text-indigo-300">{formatCurrency(dailyAverage)}</div>
+                </div>
+                <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">本月记录</div>
+                  <div className="text-xl font-black text-rose-400">{filteredExpenses.length} 笔</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Category Breakdown Card */}
+          {categoryBreakdown.length > 0 && (
+            <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
+              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+                <TrendingUp size={16} className="text-indigo-500" />
+                支出分类统计
+              </h3>
+              <div className="space-y-4">
+                {categoryBreakdown.map((item) => (
+                  <div key={item.name} className="space-y-2">
+                    <div className="flex justify-between text-sm font-bold">
+                      <span className="text-slate-700">{item.name}</span>
+                      <span className="text-slate-900">{formatCurrency(item.value)} ({item.percent.toFixed(1)}%)</span>
+                    </div>
+                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${item.percent}%` }}
+                        className="h-full bg-indigo-500 rounded-full"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Detailed List */}
+          <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                <History size={24} className="text-slate-600" />
+                支出明细
+              </h2>
+              <div className="text-sm font-bold text-slate-400 bg-white/30 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20">
+                本月 {filteredExpenses.length} 笔记录
+              </div>
+            </div>
+
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">日期</th>
+                    <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">项目</th>
+                    <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">金额</th>
+                    <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">备注</th>
+                    <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {filteredExpenses.map((e: Expense) => (
+                    <tr key={e.id} className="hover:bg-white/20 transition-colors">
+                      <td className="py-4 text-sm font-medium text-slate-500">{e.date}</td>
+                      <td className="py-4">
+                        <span className="px-3 py-1 bg-white/50 backdrop-blur-sm border border-white/30 rounded-lg text-sm font-bold text-slate-700">
+                          {e.category}
+                        </span>
+                      </td>
+                      <td className="py-4 text-sm font-black text-rose-600">{formatCurrency(e.amount)}</td>
+                      <td className="py-4 text-sm text-slate-400 font-medium max-w-[200px] truncate" title={e.remark}>
+                        {e.remark || '-'}
+                      </td>
+                      <td className="py-4 text-right">
+                        {user?.role === 'admin' && (
+                          <button
+                            onClick={() => deleteExpense(e.id)}
+                            className="p-2 text-rose-500 hover:bg-rose-50/50 rounded-lg transition-all backdrop-blur-sm"
+                            title="删除记录"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredExpenses.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-20 text-center">
+                        <div className="flex flex-col items-center gap-2 text-slate-400">
+                          <Wallet size={48} className="opacity-20 mb-2" />
+                          <div className="font-bold">该月份暂无支出记录</div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     </div>

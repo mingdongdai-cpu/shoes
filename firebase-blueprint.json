@@ -57,6 +57,31 @@
         }
       },
       "required": ["productId", "type", "quantity", "price", "date"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Bookkeeping record",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date of expense"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Amount spent"
+        },
+        "category": {
+          "type": "string",
+          "description": "Expense item/category"
+        },
+        "remark": {
+          "type": "string",
+          "description": "Optional remark"
+        }
+      },
+      "required": ["date", "amount", "category"]
     }
   },
   "firestore": {
@@ -67,6 +92,10 @@
     "transactions": {
       "schema": "Transaction",
       "description": "Collection of stock movements"
+    },
+    "expenses": {
+      "schema": "Expense",
+      "description": "Collection of bookkeeping records"
     }
   }
 }

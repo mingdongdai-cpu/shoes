@@ -123,14 +123,14 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       }
 
       return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-          <div className="bg-white p-8 rounded-3xl shadow-xl border border-rose-100 max-w-md w-full text-center">
+        <div className="ios-shell min-h-screen flex items-center justify-center p-4">
+          <div className="glass p-8 rounded-3xl border border-white/60 max-w-md w-full text-center">
             <XCircle className="text-rose-500 mx-auto mb-4" size={48} />
             <h2 className="text-xl font-black text-slate-900 mb-2">出错了</h2>
             <p className="text-slate-600 mb-6">{errorMessage}</p>
             <button 
               onClick={() => window.location.reload()}
-              className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all"
+              className="w-full py-3 rounded-xl font-bold ios-primary hover:brightness-105 transition-all"
             >
               刷新页面
             </button>
@@ -765,8 +765,8 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      <div className="ios-shell min-h-screen flex items-center justify-center">
+        <div className="h-12 w-12 animate-spin rounded-full border-[3px] border-sky-100 border-t-sky-500"></div>
       </div>
     );
   }
@@ -775,13 +775,13 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
+      <div className="ios-shell min-h-screen font-sans text-slate-900 pb-20">
         {/* Header & Nav */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
+      <header className="glass sticky top-0 z-20 border-b border-white/55">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row md:items-center justify-between py-4 gap-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between py-3.5 gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
+              <div className="w-11 h-11 rounded-2xl ios-primary flex items-center justify-center border border-white/30">
                 <Package className="text-white" size={24} />
               </div>
               <div>
@@ -793,8 +793,8 @@ export default function App() {
               </div>
             </div>
             
-            <div className="flex items-center gap-4">
-              <nav className="flex bg-slate-100 p-1 rounded-2xl">
+            <div className="flex w-full md:w-auto items-center justify-between md:justify-end gap-3">
+              <nav className="ios-segmented flex flex-wrap items-center gap-1">
                 <NavButton 
                   active={currentView === 'home'} 
                   onClick={() => setCurrentView('home')}
@@ -822,7 +822,7 @@ export default function App() {
               </nav>
               <button 
                 onClick={handleLogout}
-                className="p-2.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all"
+                className="ios-float-button p-2.5 rounded-xl text-slate-500 hover:text-rose-500 transition-all"
                 title="退出登录"
               >
                 <XCircle size={20} />
@@ -833,7 +833,7 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentView}
@@ -913,6 +913,7 @@ export default function App() {
             {currentView === 'expenses' && (
               <ExpensesView 
                 expenses={expenses}
+                salesTotal={stats.outTotal}
                 addExpense={addExpense}
                 deleteExpense={setConfirmDeleteExpenseId}
                 formatCurrency={formatCurrency}
@@ -926,12 +927,12 @@ export default function App() {
       {/* Confirm Delete Modal */}
       <AnimatePresence>
         {confirmDeleteId && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/25 backdrop-blur-lg z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center"
+              className="glass rounded-3xl p-8 w-full max-w-sm border border-white/60 text-center"
             >
               <div className="w-16 h-16 bg-rose-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <AlertTriangle className="text-rose-500" size={32} />
@@ -941,13 +942,13 @@ export default function App() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setConfirmDeleteId(null)}
-                  className="flex-1 py-3 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-all"
+                  className="flex-1 py-3 rounded-xl font-semibold text-slate-600 ios-float-button hover:bg-white/90 transition-all"
                 >
                   取消
                 </button>
                 <button
                   onClick={() => deleteTransaction(confirmDeleteId)}
-                  className="flex-1 py-3 rounded-xl font-bold text-white bg-rose-500 hover:bg-rose-600 shadow-lg shadow-rose-200 transition-all"
+                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-rose-500/90 hover:bg-rose-600 shadow-lg shadow-rose-300/30 transition-all"
                 >
                   确认删除
                 </button>
@@ -960,12 +961,12 @@ export default function App() {
       {/* Confirm Delete Expense Modal */}
       <AnimatePresence>
         {confirmDeleteExpenseId && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/25 backdrop-blur-lg z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center"
+              className="glass rounded-3xl p-8 w-full max-w-sm border border-white/60 text-center"
             >
               <div className="w-16 h-16 bg-rose-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <AlertTriangle className="text-rose-500" size={32} />
@@ -975,13 +976,13 @@ export default function App() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setConfirmDeleteExpenseId(null)}
-                  className="flex-1 py-3 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-all"
+                  className="flex-1 py-3 rounded-xl font-semibold text-slate-600 ios-float-button hover:bg-white/90 transition-all"
                 >
                   取消
                 </button>
                 <button
                   onClick={() => deleteExpense(confirmDeleteExpenseId)}
-                  className="flex-1 py-3 rounded-xl font-bold text-white bg-rose-500 hover:bg-rose-600 shadow-lg shadow-rose-200 transition-all"
+                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-rose-500/90 hover:bg-rose-600 shadow-lg shadow-rose-300/30 transition-all"
                 >
                   确认删除
                 </button>
@@ -992,7 +993,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Toasts */}
-      <div className="fixed bottom-8 right-8 z-50 flex flex-col gap-3">
+      <div className="fixed bottom-6 left-4 right-4 sm:left-auto sm:right-8 sm:w-[360px] z-50 flex flex-col gap-3">
         <AnimatePresence>
           {toasts.map(toast => (
             <motion.div
@@ -1000,10 +1001,10 @@ export default function App() {
               initial={{ opacity: 0, x: 20, scale: 0.9 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: 20, scale: 0.9 }}
-              className={`flex items-center gap-3 px-5 py-3 rounded-2xl shadow-xl border ${
+              className={`flex items-center gap-3 px-5 py-3 rounded-2xl border glass ${
                 toast.type === 'success' 
-                  ? 'bg-white border-emerald-100 text-emerald-800' 
-                  : 'bg-white border-rose-100 text-rose-800'
+                  ? 'border-emerald-200/50 text-emerald-900' 
+                  : 'border-rose-200/50 text-rose-900'
               }`}
             >
               {toast.type === 'success' ? <CheckCircle2 className="text-emerald-500" size={20} /> : <XCircle className="text-rose-500" size={20} />}
@@ -1023,10 +1024,10 @@ function NavButton({ active, onClick, icon, label }: { active: boolean, onClick:
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${
+      className={`ios-segment-item flex items-center gap-2 px-4 sm:px-5 py-2.5 text-sm font-semibold ${
         active 
-          ? 'bg-white text-indigo-600 shadow-sm' 
-          : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+          ? 'ios-segment-item-active' 
+          : 'hover:bg-white/55 hover:text-slate-700'
       }`}
     >
       {icon}

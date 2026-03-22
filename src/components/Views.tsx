@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { 
   Package, 
   ArrowLeftRight, 
@@ -31,6 +31,59 @@ export function StatCard({ title, value, icon, bgColor, subtitle }: { title: str
       </div>
       <div className="text-2xl font-black text-slate-900">{value}</div>
       {subtitle && <div className="text-xs text-slate-400 mt-1">{subtitle}</div>}
+    </div>
+  );
+}
+
+function PickerChip({
+  type,
+  value,
+  onChange,
+  displayValue,
+  ariaLabel,
+  className = ''
+}: {
+  type: 'date' | 'week' | 'month';
+  value: string;
+  onChange: (value: string) => void;
+  displayValue: string;
+  ariaLabel: string;
+  className?: string;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const openPicker = () => {
+    const input = inputRef.current;
+    if (!input) return;
+
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+      return;
+    }
+
+    input.click();
+  };
+
+  return (
+    <div className="relative">
+      <input
+        ref={inputRef}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="pointer-events-none absolute h-0 w-0 opacity-0"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+      <button
+        type="button"
+        onClick={openPicker}
+        aria-label={ariaLabel}
+        className={`flex items-center gap-3 rounded-full border border-white/60 bg-white/46 px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_24px_rgba(15,23,42,0.08)] backdrop-blur-xl transition-all hover:bg-white/58 ${className}`}
+      >
+        <span>{displayValue}</span>
+        <Calendar size={16} className="text-slate-500" />
+      </button>
     </div>
   );
 }
@@ -103,8 +156,13 @@ export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string)
 export const HomeView = ({ 
   stats, formatCurrency, reportPeriod, setReportPeriod, selectedDate, setSelectedDate, 
   selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, salesReport, formatStock, warnings, products 
-}: any) => (
-  <div className="space-y-8">
+}: any) => {
+  const dateLabel = selectedDate.replaceAll('-', '/');
+  const weekLabel = selectedWeek.replace('-W', ' / Week ');
+  const monthLabel = selectedMonth.replace('-', '/');
+
+  return (
+    <div className="space-y-8">
     {/* Finance Dashboard */}
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
       <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
@@ -203,29 +261,31 @@ export const HomeView = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <Calendar size={16} className="text-slate-400" />
             {reportPeriod === 'day' && (
-              <input 
-                type="date" 
+              <PickerChip
+                type="date"
                 value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="text-sm border-white/40 bg-white/30 backdrop-blur-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                onChange={setSelectedDate}
+                displayValue={dateLabel}
+                ariaLabel="选择日期"
               />
             )}
             {reportPeriod === 'week' && (
-              <input 
-                type="week" 
+              <PickerChip
+                type="week"
                 value={selectedWeek}
-                onChange={(e) => setSelectedWeek(e.target.value)}
-                className="text-sm border-white/40 bg-white/30 backdrop-blur-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                onChange={setSelectedWeek}
+                displayValue={weekLabel}
+                ariaLabel="选择周"
               />
             )}
             {reportPeriod === 'month' && (
-              <input 
-                type="month" 
+              <PickerChip
+                type="month"
                 value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="text-sm border-white/40 bg-white/30 backdrop-blur-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                onChange={setSelectedMonth}
+                displayValue={monthLabel}
+                ariaLabel="选择月份"
               />
             )}
           </div>
@@ -235,11 +295,11 @@ export const HomeView = ({
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Summary Stats */}
         <div className="lg:col-span-1 space-y-4">
-          <div className="p-4 rounded-2xl bg-indigo-50/40 backdrop-blur-md border border-indigo-100/30">
+          <div className="p-5 rounded-2xl bg-indigo-50/52 backdrop-blur-xl border border-indigo-100/50 shadow-[0_16px_32px_rgba(99,102,241,0.12)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_20px_38px_rgba(99,102,241,0.16)]">
             <div className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1">所选期间总额</div>
             <div className="text-xl font-black text-indigo-700">{formatCurrency(salesReport.totalAmount)}</div>
           </div>
-          <div className="p-4 rounded-2xl bg-white/30 backdrop-blur-md border border-white/20">
+          <div className="p-5 rounded-2xl bg-white/46 backdrop-blur-xl border border-white/45 shadow-[0_16px_32px_rgba(15,23,42,0.08)] ring-1 ring-white/4 transition-all hover:-translate-y-0.5 hover:shadow-[0_20px_38px_rgba(15,23,42,0.12)]">
             <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">销售总箱数</div>
             <div className="text-xl font-black text-slate-700">
               {(() => {
@@ -253,9 +313,9 @@ export const HomeView = ({
 
         {/* Product Breakdown */}
         <div className="lg:col-span-3">
-          <div className="border border-white/20 rounded-2xl overflow-hidden bg-white/20 backdrop-blur-sm">
+          <div className="rounded-2xl overflow-hidden border border-white/40 bg-white/32 backdrop-blur-xl shadow-[0_18px_36px_rgba(15,23,42,0.09)] ring-1 ring-white/40">
             <table className="w-full text-left">
-              <thead className="bg-white/30">
+              <thead className="bg-white/42">
                 <tr>
                   <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">商品名称</th>
                   <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">销售数量</th>
@@ -291,7 +351,7 @@ export const HomeView = ({
       {warnings.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {warnings.map((p: Product) => (
-            <div key={p.id} className="p-4 rounded-xl border border-rose-100/30 bg-rose-50/20 backdrop-blur-sm">
+            <div key={p.id} className="p-5 rounded-2xl border border-rose-200/45 bg-white/52 backdrop-blur-xl shadow-[0_18px_36px_rgba(244,63,94,0.12)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(244,63,94,0.16)]">
               <div className="font-medium text-slate-900">{p.name}</div>
               <div className="text-sm text-slate-500">规格: {p.spec} 个/箱</div>
               <div className="mt-2 text-rose-600 font-bold">
@@ -389,8 +449,9 @@ export const HomeView = ({
         )}
       </div>
     </div>
-  </div>
-);
+    </div>
+  );
+};
 
 export const StockView = ({
   products, transactions, handleTransaction, deleteTransaction, 
@@ -493,7 +554,7 @@ export const StockView = ({
 
               <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
                 <div>
-                  <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">操作类型</label>
+                  <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">操作类型</label>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
@@ -521,7 +582,7 @@ export const StockView = ({
                 </div>
 
                 <div className="relative">
-                  <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">商品</label>
+                  <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">商品</label>
                   <div className="relative">
                     <input
                       type="text"
@@ -580,7 +641,7 @@ export const StockView = ({
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">箱数</label>
+                    <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">箱数</label>
                     <input
                       type="number"
                       value={editBoxes}
@@ -589,7 +650,7 @@ export const StockView = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">散个</label>
+                    <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">散个</label>
                     <input
                       type="number"
                       value={editItems}
@@ -600,7 +661,7 @@ export const StockView = ({
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">备注</label>
+                  <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">备注</label>
                   <textarea
                     value={editRemark}
                     onChange={(e) => setEditRemark(e.target.value)}
@@ -930,7 +991,7 @@ export const ProductsView = ({
         ) : (
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
             <div>
-              <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">产品名称</label>
+              <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">产品名称</label>
               <input
                 type="text"
                 value={name}
@@ -940,7 +1001,7 @@ export const ProductsView = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">规格 (一箱多少个)</label>
+              <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">规格 (一箱多少个)</label>
               <input
                 type="number"
                 min="1"
@@ -951,7 +1012,7 @@ export const ProductsView = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">单价 (XOF/个)</label>
+              <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">单价 (XOF/个)</label>
               <input
                 type="number"
                 min="0"
@@ -1030,9 +1091,10 @@ export const ProductsView = ({
 };
 
 export const ExpensesView = ({
-  expenses, addExpense, deleteExpense, formatCurrency, user
+  expenses, salesTotal, addExpense, deleteExpense, formatCurrency, user
 }: {
   expenses: Expense[],
+  salesTotal: number,
   addExpense: (amount: number, category: string, remark: string, date: string) => Promise<boolean>,
   deleteExpense: (id: string | null) => void,
   formatCurrency: (val: number) => string,
@@ -1043,6 +1105,8 @@ export const ExpensesView = ({
   const [remark, setRemark] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const dateLabel = date.replaceAll('-', '/');
+  const filterMonthLabel = filterMonth.replace('-', '/');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1065,6 +1129,10 @@ export const ExpensesView = ({
   const monthlyTotal = useMemo(() => {
     return filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
   }, [filteredExpenses]);
+
+  const estimatedCommission = useMemo(() => {
+    return salesTotal * 0.035 - monthlyTotal;
+  }, [salesTotal, monthlyTotal]);
 
   const categoryBreakdown = useMemo(() => {
     const breakdown: Record<string, number> = {};
@@ -1107,7 +1175,7 @@ export const ExpensesView = ({
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">金额 (XOF)</label>
+                <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">金额 (XOF)</label>
                 <input
                   type="number"
                   required
@@ -1118,7 +1186,7 @@ export const ExpensesView = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">支出项目/类别</label>
+                <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">支出项目/类别</label>
                 <input
                   type="text"
                   required
@@ -1129,17 +1197,18 @@ export const ExpensesView = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">日期</label>
-                <input
+                <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">日期</label>
+                <PickerChip
                   type="date"
-                  required
                   value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-rose-500 focus:border-rose-500 py-3 font-bold"
+                  onChange={setDate}
+                  displayValue={dateLabel}
+                  ariaLabel="选择支出日期"
+                  className="w-full justify-between rounded-2xl py-3"
                 />
               </div>
               <div>
-                <label className="block text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">备注</label>
+                <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">备注</label>
                 <textarea
                   value={remark}
                   onChange={(e) => setRemark(e.target.value)}
@@ -1165,52 +1234,64 @@ export const ExpensesView = ({
 
         {/* Expense List & Summary */}
         <div className="lg:col-span-2 space-y-8">
-          {/* Monthly Summary Card - Improved Visibility */}
-          <div className="rounded-3xl p-8 shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white overflow-hidden relative border border-slate-700">
+          {/* Monthly Summary Card */}
+          <div className="glass rounded-3xl p-8 shadow-xl overflow-hidden relative border border-white/35">
             {/* Decorative background elements */}
-            <div className="absolute -right-10 -top-10 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl" />
-            <div className="absolute -left-10 -bottom-10 w-64 h-64 bg-rose-500/10 rounded-full blur-3xl" />
+            <div className="absolute -right-10 -top-10 w-64 h-64 bg-sky-400/20 rounded-full blur-3xl" />
+            <div className="absolute -left-10 -bottom-10 w-64 h-64 bg-emerald-400/15 rounded-full blur-3xl" />
             
             <div className="relative z-10 space-y-8">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-indigo-300 text-xs font-black uppercase tracking-[0.2em] mb-2">
-                    <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                  <div className="flex items-center gap-2 text-sky-600 text-xs font-black uppercase tracking-[0.2em] mb-2">
+                    <div className="w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
                     月度支出总计
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-6xl font-black tracking-tighter text-white drop-shadow-lg">
+                    <span className="text-6xl font-black tracking-tighter text-slate-900 drop-shadow-sm">
                       {formatCurrency(monthlyTotal).replace(' XOF', '')}
                     </span>
-                    <span className="text-2xl font-bold text-indigo-300/80">XOF</span>
+                    <span className="text-2xl font-bold text-sky-700/75">XOF</span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 bg-white/5 backdrop-blur-xl p-4 rounded-2xl border border-white/10 shadow-inner">
-                  <div className="p-2 bg-indigo-500/20 rounded-lg">
-                    <Calendar size={20} className="text-indigo-300" />
+                <div className="flex items-center gap-4 bg-white/45 backdrop-blur-xl p-4 rounded-2xl border border-white/55 shadow-sm">
+                  <div className="p-2 bg-sky-100/80 rounded-lg">
+                    <Calendar size={20} className="text-sky-600" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-indigo-300/60 uppercase tracking-wider">选择月份</span>
-                    <input 
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">选择月份</span>
+                    <PickerChip
                       type="month"
                       value={filterMonth}
-                      onChange={(e) => setFilterMonth(e.target.value)}
-                      className="bg-transparent border-none text-white font-black focus:ring-0 p-0 text-lg cursor-pointer [color-scheme:dark]"
+                      onChange={setFilterMonth}
+                      displayValue={filterMonthLabel}
+                      ariaLabel="选择统计月份"
+                      className="bg-transparent px-0 py-0 text-lg font-black shadow-none border-0"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Quick Stats Grid */}
-              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
-                <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/30">
+                <div className="bg-white/45 rounded-2xl p-4 border border-white/55 backdrop-blur-md">
                   <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">日均支出</div>
-                  <div className="text-xl font-black text-indigo-300">{formatCurrency(dailyAverage)}</div>
+                  <div className="text-xl font-black text-sky-700">{formatCurrency(dailyAverage)}</div>
                 </div>
-                <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+                <div className="bg-white/50 rounded-2xl p-4 border border-emerald-200/45 backdrop-blur-md shadow-[0_12px_28px_rgba(16,185,129,0.1)]">
+                  <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mb-1">预计提成</div>
+                  <div className="text-xl font-black text-emerald-700">{formatCurrency(estimatedCommission)}</div>
+                  <div className="mt-1 text-[11px] font-semibold text-slate-400">
+                    出库销售总额 x 3.5% - 月度支出总计
+                  </div>
+                  <div className="mt-1 text-[11px] font-semibold text-slate-400">
+                    当前销售总额: {formatCurrency(salesTotal)}
+                  </div>
+                </div>
+                <div className="bg-white/45 rounded-2xl p-4 border border-white/55 backdrop-blur-md">
                   <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">本月记录</div>
-                  <div className="text-xl font-black text-rose-400">{filteredExpenses.length} 笔</div>
+                  <div className="text-xl font-black text-rose-500">{filteredExpenses.length} 笔</div>
                 </div>
               </div>
             </div>

@@ -22,6 +22,31 @@ import { Product, Transaction, User, Expense } from '../types';
 
 // --- Components ---
 
+const shoeImageModules = import.meta.glob('../assets/shoe-styles/*.{png,jpg,jpeg,webp}', {
+  eager: true,
+  import: 'default'
+}) as Record<string, string>;
+
+const normalizeModelKey = (value: string) => value.replace(/\s+/g, '').toUpperCase();
+
+const normalizeComparableModelKey = (value: string) =>
+  normalizeModelKey(value).replace(/([A-Z])$/, '');
+
+const shoeBackgroundMap = Object.entries(shoeImageModules).reduce<Record<string, string>>((acc, [path, url]) => {
+  const fileName = path.split('/').pop() ?? '';
+  const baseName = fileName.replace(/\.(png|jpg|jpeg|webp)$/i, '');
+
+  baseName.split('__').forEach(segment => {
+    const modelName = segment.split('_')[0];
+    if (modelName) {
+      acc[normalizeModelKey(modelName)] = url;
+      acc[normalizeComparableModelKey(modelName)] = url;
+    }
+  });
+
+  return acc;
+}, {});
+
 export function StatCard({ title, value, icon, bgColor, subtitle }: { title: string, value: string, icon: React.ReactNode, bgColor: string, subtitle?: string }) {
   return (
     <div className={`p-6 rounded-2xl glass shadow-sm border-white/20 ${bgColor.replace('bg-', 'bg-').replace('50', '50/40')}`}>
@@ -351,10 +376,19 @@ export const HomeView = ({
       {warnings.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {warnings.map((p: Product) => (
-            <div key={p.id} className="p-5 rounded-2xl border border-rose-200/45 bg-white/52 backdrop-blur-xl shadow-[0_18px_36px_rgba(244,63,94,0.12)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(244,63,94,0.16)]">
-              <div className="font-medium text-slate-900">{p.name}</div>
-              <div className="text-sm text-slate-500">规格: {p.spec} 个/箱</div>
-              <div className="mt-2 text-rose-600 font-bold">
+            <div key={p.id} className="relative overflow-hidden p-5 rounded-2xl border border-rose-200/45 bg-white/60 backdrop-blur-xl shadow-[0_18px_36px_rgba(244,63,94,0.12)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(244,63,94,0.16)]">
+              {shoeBackgroundMap[normalizeComparableModelKey(p.name)] && (
+                <>
+                  <div
+                    className="absolute inset-0 bg-center bg-cover opacity-[0.08] scale-110"
+                    style={{ backgroundImage: `url(${shoeBackgroundMap[normalizeComparableModelKey(p.name)]})` }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/96 via-white/88 to-rose-50/78" />
+                </>
+              )}
+              <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
+              <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
+              <div className="relative z-10 mt-2 text-rose-600 font-black">
                 当前库存: {formatStock(p.stock, p.spec)}
               </div>
             </div>
@@ -385,23 +419,78 @@ export const HomeView = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {products.map((p: Product) => {
           const isLowStock = p.stock < p.spec * 30;
+          const cardBackground = shoeBackgroundMap[normalizeComparableModelKey(p.name)];
           return (
             <motion.div 
               key={p.id} 
               whileHover={{ y: -4 }}
-              className={`relative group p-6 rounded-3xl border transition-all duration-300 backdrop-blur-md ${
+              className={`relative group overflow-hidden p-6 rounded-3xl border transition-all duration-300 backdrop-blur-md ${
                 isLowStock 
                   ? 'bg-rose-50/40 border-rose-100/50 hover:shadow-rose-100/50 shadow-lg' 
                   : 'bg-white/40 border-white/30 hover:shadow-indigo-100/30 shadow-md'
               }`}
             >
-              {isLowStock && (
-                <div className="absolute -top-3 -right-2 bg-rose-500 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-lg shadow-rose-200 flex items-center gap-1 animate-pulse">
-                  <AlertTriangle size={10} /> 库存告急
-                </div>
+              {cardBackground && (
+                <>
+                  <div
+                    className="absolute inset-0 bg-center bg-cover opacity-[0.11] scale-110 transition-transform duration-500 group-hover:scale-[1.14]"
+                    style={{ backgroundImage: `url(${cardBackground})` }}
+                  />
+                  <div className={`absolute inset-0 ${
+                    isLowStock
+                      ? 'bg-gradient-to-br from-white/90 via-white/76 to-rose-50/60'
+                      : 'bg-gradient-to-br from-white/88 via-white/72 to-sky-50/44'
+                  }`} />
+                </>
               )}
-              
-              <div className="flex flex-col h-full">
+              {isLowStock && (
+                <motion.div
+                  className="absolute top-3 right-3 z-20 flex items-center gap-1 rounded-full bg-rose-500 text-white text-[10px] font-black px-3 py-1.5 shadow-lg shadow-rose-300/60 ring-2 ring-white/80 backdrop-blur-md"
+                  animate={{
+                    opacity: [0.96, 1, 0.96],
+                    backgroundColor: [
+                      'rgba(244, 63, 94, 0.94)',
+                      'rgba(225, 29, 72, 1)',
+                      'rgba(244, 63, 94, 0.94)',
+                    ],
+                    boxShadow: [
+                      '0 14px 28px rgba(251, 113, 133, 0.30)',
+                      '0 0 0 4px rgba(251, 113, 133, 0.18), 0 22px 40px rgba(225, 29, 72, 0.52)',
+                      '0 14px 28px rgba(251, 113, 133, 0.30)',
+                    ],
+                  }}
+                  transition={{
+                    duration: 1.15,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                >
+                  <motion.span
+                    className="pointer-events-none absolute -inset-1 -z-10 rounded-full bg-rose-400/45 blur-md"
+                    animate={{ opacity: [0.18, 0.5, 0.18] }}
+                    transition={{
+                      duration: 1.15,
+                      repeat: Infinity,
+                      ease: 'easeInOut',
+                    }}
+                  />
+                  <span className="relative flex h-3 w-3 items-center justify-center">
+                    <motion.span
+                      className="absolute inset-0 rounded-full bg-white/45"
+                      animate={{ opacity: [0.12, 0.58, 0.12], scale: [0.92, 1.55, 0.92] }}
+                      transition={{
+                        duration: 1.15,
+                        repeat: Infinity,
+                        ease: 'easeInOut',
+                      }}
+                    />
+                    <AlertTriangle size={10} />
+                  </span>
+                  <span>库存告急</span>
+                </motion.div>
+              )}
+               
+              <div className="relative z-10 flex flex-col h-full">
                 <div className="mb-4">
                   <div className="text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1">{p.name}</div>
                   <div className="flex items-center gap-2 mt-1">

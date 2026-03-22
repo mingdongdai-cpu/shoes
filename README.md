@@ -1,20 +1,61 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# TOP STAR SHOES Inventory System
 
-# Run and deploy your AI Studio app
+A React, Vite, and TypeScript inventory management app for TOP STAR SHOES.
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/7ce1954c-2f98-4f78-8d8a-41cd0299b923
+- Firebase authentication
+- Product management
+- Stock-in and stock-out records
+- Sales summaries
+- Expense tracking
+- Inventory warnings
 
-## Run Locally
+## Tech Stack
 
-**Prerequisites:**  Node.js
+- React 19
+- Vite 6
+- TypeScript
+- Firebase Auth
+- Cloud Firestore
+- Tailwind CSS 4
 
+## Local Development
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Prerequisites:
+- Node.js 24+
+- Access to the configured Firebase project
+- A valid user in Firebase Auth
+
+Install dependencies:
+- npm install
+
+Start the dev server:
+- npm run dev
+
+Default local URL:
+- http://localhost:3000
+
+## Production Build
+
+Build the app:
+- npm run build
+
+Build output:
+- dist/
+
+## Project Structure
+
+- src/main.tsx: React entry point
+- src/App.tsx: app state, auth flow, Firestore reads and writes, view switching
+- src/components/Views.tsx: page-level UI components
+- src/types.ts: shared type definitions
+- src/firebase.ts: Firebase initialization
+- vite.config.ts: Vite config and bundle splitting
+
+## Notes
+
+- The project currently reads Firebase settings from src/firebase.ts.
+- No GEMINI_API_KEY is required.
+- The project is not an AI Studio app.
+- If you switch Firebase projects, update auth, Firestore, and security rules together.

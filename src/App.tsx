@@ -37,12 +37,6 @@ import {
 import { Product, Transaction, User, View, Toast, Expense } from './types';
 import { LoginView, HomeView, StockView, ProductsView, ExpensesView } from './components/Views';
 
-// --- Constants ---
-
-const ACCOUNTS = [
-  { username: 'admin', password: '340822', role: 'admin' },
-  { username: 'check', password: '123', role: 'staff' }
-] as const;
 
 // --- Error Handling ---
 

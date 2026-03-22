@@ -1091,10 +1091,10 @@ export const ProductsView = ({
 };
 
 export const ExpensesView = ({
-  expenses, salesTotal, addExpense, deleteExpense, formatCurrency, user
+  expenses, transactions, addExpense, deleteExpense, formatCurrency, user
 }: {
   expenses: Expense[],
-  salesTotal: number,
+  transactions: Transaction[],
   addExpense: (amount: number, category: string, remark: string, date: string) => Promise<boolean>,
   deleteExpense: (id: string | null) => void,
   formatCurrency: (val: number) => string,
@@ -1130,9 +1130,26 @@ export const ExpensesView = ({
     return filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
   }, [filteredExpenses]);
 
+  const monthlySalesTotal = useMemo(() => {
+    const [year, month] = filterMonth.split('-');
+    const start = new Date(parseInt(year), parseInt(month) - 1, 1);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(parseInt(year), parseInt(month), 0);
+    end.setHours(23, 59, 59, 999);
+
+    return transactions
+      .filter(t => {
+        if (t.type !== 'out') return false;
+        const tDate = new Date(t.date.replace(/-/g, '/'));
+        return tDate >= start && tDate <= end;
+      })
+      .reduce((sum, t) => sum + t.quantity * t.price, 0);
+  }, [transactions, filterMonth]);
+
   const estimatedCommission = useMemo(() => {
-    return salesTotal * 0.035 - monthlyTotal;
-  }, [salesTotal, monthlyTotal]);
+    return monthlySalesTotal * 0.035 - monthlyTotal;
+  }, [monthlySalesTotal, monthlyTotal]);
 
   const categoryBreakdown = useMemo(() => {
     const breakdown: Record<string, number> = {};
@@ -1286,7 +1303,7 @@ export const ExpensesView = ({
                     出库销售总额 x 3.5% - 月度支出总计
                   </div>
                   <div className="mt-1 text-[11px] font-semibold text-slate-400">
-                    当前销售总额: {formatCurrency(salesTotal)}
+                    当月销量总额: {formatCurrency(monthlySalesTotal)}
                   </div>
                 </div>
                 <div className="bg-white/45 rounded-2xl p-4 border border-white/55 backdrop-blur-md">

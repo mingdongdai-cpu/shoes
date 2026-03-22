@@ -913,7 +913,7 @@ export default function App() {
             {currentView === 'expenses' && (
               <ExpensesView 
                 expenses={expenses}
-                salesTotal={stats.outTotal}
+                transactions={transactions}
                 addExpense={addExpense}
                 deleteExpense={setConfirmDeleteExpenseId}
                 formatCurrency={formatCurrency}

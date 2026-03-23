@@ -616,8 +616,13 @@ export default function App() {
     }
 
     try {
-      // 内部映射：将用户名转为 Firebase 要求的邮箱格式
-      const email = username.includes('@') ? username : `${username}@topstar.com`;
+      // 统一用户名输入，确保 admin/staff 可稳定登录
+      const normalized = username.trim().toLowerCase();
+      const emailAliasMap: Record<string, string> = {
+        admin: 'admin@topstar.com',
+        staff: 'staff@topstar.com'
+      };
+      const email = emailAliasMap[normalized] ?? (normalized.includes('@') ? normalized : `${normalized}@topstar.com`);
       await signInWithEmailAndPassword(auth, email, pass);
       showToast('登录成功');
       return true;

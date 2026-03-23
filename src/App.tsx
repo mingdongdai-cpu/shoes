@@ -1182,20 +1182,20 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="ios-shell min-h-screen font-sans text-slate-900 pb-20">
+      <div className="ios-shell min-h-screen font-sans text-slate-900 pb-28 md:pb-20">
         {/* Header & Nav */}
       <header className="glass sticky top-0 z-20 border-b border-white/55">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row md:items-center justify-between py-3.5 gap-3">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between py-3.5 gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <div className="w-11 h-11 rounded-2xl ios-primary flex items-center justify-center border border-white/30">
                 <Package className="text-white" size={24} />
               </div>
-                <div>
-                  <h1 className="text-xl font-black tracking-tight text-slate-900">TOP STAR SHOES</h1>
+                <div className="min-w-0">
+                  <h1 className="text-xl font-black tracking-tight text-slate-900 truncate">TOP STAR SHOES</h1>
                   <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                     <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-                    {user.role === 'admin' ? '管理员' : '查询员'} · {user.username}
+                    <span className="truncate">{user.role === 'admin' ? '管理员' : '查询员'} · {user.username}</span>
                     {isIsolatedMode && (
                       <span className="px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-700">
                         隔离模式
@@ -1204,8 +1204,8 @@ export default function App() {
                   </div>
                 </div>
               </div>
-            
-            <div className="flex w-full md:w-auto items-center justify-between md:justify-end gap-3">
+
+            <div className="hidden md:flex w-full md:w-auto items-center justify-between md:justify-end gap-3">
               <nav className="ios-segmented flex flex-wrap items-center gap-1">
                 <NavButton 
                   active={currentView === 'home'} 
@@ -1240,12 +1240,20 @@ export default function App() {
                 <XCircle size={20} />
               </button>
             </div>
+
+            <button
+              onClick={handleLogout}
+              className="md:hidden ios-float-button p-2.5 rounded-xl text-slate-500 hover:text-rose-500 transition-all shrink-0"
+              title="退出登录"
+            >
+              <XCircle size={20} />
+            </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-28 md:pb-8">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentView}
@@ -1345,6 +1353,45 @@ export default function App() {
         </AnimatePresence>
       </main>
 
+      {/* Mobile Dock */}
+      <nav
+        className="md:hidden fixed left-1/2 -translate-x-1/2 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] w-[calc(100%-1.25rem)] max-w-[28rem] z-40"
+        aria-label="手机底部导航"
+      >
+        <div className="ios-dock p-2">
+          <div className="grid grid-cols-4 gap-1">
+            <NavButton
+              active={currentView === 'home'}
+              onClick={() => setCurrentView('home')}
+              icon={<LayoutDashboard size={18} />}
+              label="首页"
+              variant="mobile"
+            />
+            <NavButton
+              active={currentView === 'stock'}
+              onClick={() => setCurrentView('stock')}
+              icon={<ArrowLeftRight size={18} />}
+              label="进出库"
+              variant="mobile"
+            />
+            <NavButton
+              active={currentView === 'products'}
+              onClick={() => setCurrentView('products')}
+              icon={<Package size={18} />}
+              label="商品"
+              variant="mobile"
+            />
+            <NavButton
+              active={currentView === 'expenses'}
+              onClick={() => setCurrentView('expenses')}
+              icon={<Wallet size={18} />}
+              label="记账"
+              variant="mobile"
+            />
+          </div>
+        </div>
+      </nav>
+
       {/* Confirm Delete Modal */}
       <AnimatePresence>
         {confirmDeleteId && (
@@ -1414,7 +1461,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Toasts */}
-      <div className="fixed bottom-6 left-4 right-4 sm:left-auto sm:right-8 sm:w-[360px] z-50 flex flex-col gap-3">
+      <div className="fixed left-4 right-4 bottom-[calc(6.25rem+env(safe-area-inset-bottom))] md:bottom-6 md:left-auto md:right-8 md:w-[360px] z-50 flex flex-col gap-3">
         <AnimatePresence>
           {toasts.map(toast => (
             <motion.div
@@ -1441,7 +1488,33 @@ export default function App() {
 
 // --- Components ---
 
-function NavButton({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
+function NavButton({
+  active,
+  onClick,
+  icon,
+  label,
+  variant = 'desktop'
+}: {
+  active: boolean,
+  onClick: () => void,
+  icon: React.ReactNode,
+  label: string,
+  variant?: 'desktop' | 'mobile'
+}) {
+  if (variant === 'mobile') {
+    return (
+      <button
+        onClick={onClick}
+        className={`ios-dock-item flex flex-col items-center justify-center gap-0.5 py-2 px-1 text-[11px] font-bold ${
+          active ? 'ios-dock-item-active' : 'text-slate-500'
+        }`}
+      >
+        {icon}
+        <span>{label}</span>
+      </button>
+    );
+  }
+
   return (
     <button
       onClick={onClick}

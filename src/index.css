@@ -85,6 +85,46 @@
   box-shadow: 0 10px 24px rgba(10, 132, 255, 0.35);
 }
 
+@utility ios-dock {
+  border-radius: 999px;
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.5) 48%, rgba(241, 246, 255, 0.42) 100%),
+    linear-gradient(135deg, rgba(148, 163, 184, 0.14), rgba(203, 213, 225, 0.04));
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(28px) saturate(175%);
+  -webkit-backdrop-filter: blur(28px) saturate(175%);
+  box-shadow:
+    0 20px 42px rgba(15, 23, 42, 0.2),
+    0 8px 18px rgba(59, 130, 246, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    inset 0 -1px 0 rgba(148, 163, 184, 0.22);
+}
+
+@utility ios-dock-item {
+  border-radius: 999px;
+  color: #64748b;
+  transition:
+    background-color 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 160ms cubic-bezier(0.2, 0.9, 0.2, 1),
+    color 180ms ease;
+}
+
+@utility ios-dock-item-active {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(237, 246, 255, 0.8));
+  color: #0a84ff;
+  box-shadow:
+    0 9px 18px rgba(10, 132, 255, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+@media (hover: hover) {
+  .ios-dock-item:hover {
+    transform: translateY(-1px);
+    color: #334155;
+  }
+}
+
 body {
   background:
     radial-gradient(1200px 700px at 12% -8%, rgba(59, 130, 246, 0.14) 0%, rgba(59, 130, 246, 0) 64%),

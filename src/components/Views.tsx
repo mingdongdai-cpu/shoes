@@ -15,10 +15,14 @@ import {
   BarChart3,
   Pencil,
   Save,
-  X
+  X,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Timestamp } from 'firebase/firestore';
 import { Product, Transaction, User, Expense } from '../types';
+import { formatDateTimeLabel, getRangeByMonth, isWithinRange, monthKeyFromTimestamp } from '../lib/timeWindow';
 
 // --- Components ---
 
@@ -178,13 +182,57 @@ export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string)
   );
 };
 
+interface SalesReportItem {
+  name: string;
+  quantity: number;
+  amount: number;
+  spec: number;
+}
+
+interface HomeViewProps {
+  stats: { inTotal: number; outTotal: number; balance: number };
+  formatCurrency: (value: number) => string;
+  reportPeriod: 'day' | 'week' | 'month';
+  setReportPeriod: (period: 'day' | 'week' | 'month') => void;
+  selectedDate: string;
+  setSelectedDate: (value: string) => void;
+  selectedWeek: string;
+  setSelectedWeek: (value: string) => void;
+  selectedMonth: string;
+  setSelectedMonth: (value: string) => void;
+  salesReport: {
+    items: SalesReportItem[];
+    totalAmount: number;
+    totalQuantity: number;
+    totalExpenses: number;
+  };
+  formatStock: (total: number, spec: number) => string;
+  warnings: Product[];
+  products: Product[];
+  homeMetrics: {
+    selectedMonth: string;
+    previousMonth: string;
+    estimatedCommission: number;
+    warningCount: number;
+    salesMoM: number | null;
+    expenseMoM: number | null;
+  };
+}
+
 export const HomeView = ({ 
   stats, formatCurrency, reportPeriod, setReportPeriod, selectedDate, setSelectedDate, 
-  selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, salesReport, formatStock, warnings, products 
-}: any) => {
+  selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, salesReport, formatStock, warnings, products, homeMetrics
+}: HomeViewProps) => {
   const dateLabel = selectedDate.replaceAll('-', '/');
   const weekLabel = selectedWeek.replace('-W', ' / Week ');
   const monthLabel = selectedMonth.replace('-', '/');
+  const previousMonthLabel = homeMetrics.previousMonth.replace('-', '/');
+
+  const formatMomValue = (value: number | null) => {
+    if (value === null) return '无上月数据';
+    const sign = value >= 0 ? '+' : '';
+    return `${sign}${value.toFixed(1)}%`;
+  };
 
   return (
     <div className="space-y-8">
@@ -246,6 +294,62 @@ export const HomeView = ({
           <span className="text-xs font-bold text-slate-400 uppercase">XOF</span>
         </div>
         <div className="text-[10px] font-bold text-slate-400 mt-2 relative z-10">(入库成本 - 出库销售)</div>
+      </div>
+    </div>
+
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
+        <div className="absolute -right-6 -top-6 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-colors" />
+        <div className="flex items-center gap-4 mb-4">
+          <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100/50">
+            <Wallet className="text-emerald-500" size={24} />
+          </div>
+          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">预计提成</div>
+        </div>
+        <div className="text-xl font-black text-emerald-700 tracking-tight">{formatCurrency(homeMetrics.estimatedCommission)}</div>
+        <div className="text-[10px] font-bold text-slate-400 mt-2">
+          {monthLabel}：销售额 × 3.5% - 开支
+        </div>
+      </div>
+
+      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
+        <div className="absolute -right-6 -top-6 w-24 h-24 bg-amber-500/5 rounded-full blur-2xl group-hover:bg-amber-500/10 transition-colors" />
+        <div className="flex items-center gap-4 mb-4">
+          <div className="p-3 bg-amber-50 rounded-2xl border border-amber-100/50">
+            <AlertTriangle className="text-amber-500" size={24} />
+          </div>
+          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">库存预警款式</div>
+        </div>
+        <div className="text-xl font-black text-amber-600 tracking-tight">{homeMetrics.warningCount} 款</div>
+        <div className="text-[10px] font-bold text-slate-400 mt-2">当前库存小于 30 箱</div>
+      </div>
+
+      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
+        <div className="absolute -right-6 -top-6 w-24 h-24 bg-sky-500/5 rounded-full blur-2xl group-hover:bg-sky-500/10 transition-colors" />
+        <div className="flex items-center gap-4 mb-4">
+          <div className="p-3 bg-sky-50 rounded-2xl border border-sky-100/50">
+            <TrendingUp className="text-sky-500" size={24} />
+          </div>
+          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">销售额环比</div>
+        </div>
+        <div className={`text-xl font-black tracking-tight ${homeMetrics.salesMoM !== null && homeMetrics.salesMoM < 0 ? 'text-rose-600' : 'text-sky-700'}`}>
+          {formatMomValue(homeMetrics.salesMoM)}
+        </div>
+        <div className="text-[10px] font-bold text-slate-400 mt-2">{monthLabel} 对比 {previousMonthLabel}</div>
+      </div>
+
+      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
+        <div className="absolute -right-6 -top-6 w-24 h-24 bg-violet-500/5 rounded-full blur-2xl group-hover:bg-violet-500/10 transition-colors" />
+        <div className="flex items-center gap-4 mb-4">
+          <div className="p-3 bg-violet-50 rounded-2xl border border-violet-100/50">
+            <Wallet className="text-violet-500" size={24} />
+          </div>
+          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">开支环比</div>
+        </div>
+        <div className={`text-xl font-black tracking-tight ${homeMetrics.expenseMoM !== null && homeMetrics.expenseMoM > 0 ? 'text-rose-600' : 'text-violet-700'}`}>
+          {formatMomValue(homeMetrics.expenseMoM)}
+        </div>
+        <div className="text-[10px] font-bold text-slate-400 mt-2">{monthLabel} 对比 {previousMonthLabel}</div>
       </div>
     </div>
 
@@ -326,14 +430,14 @@ export const HomeView = ({
           </div>
           <div className="p-5 rounded-2xl bg-white/46 backdrop-blur-xl border border-white/45 shadow-[0_16px_32px_rgba(15,23,42,0.08)] ring-1 ring-white/4 transition-all hover:-translate-y-0.5 hover:shadow-[0_20px_38px_rgba(15,23,42,0.12)]">
             <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">销售总箱数</div>
-            <div className="text-xl font-black text-slate-700">
-              {(() => {
-                const totalBoxes = salesReport.items.reduce((sum: number, item: any) => sum + Math.floor(item.quantity / item.spec), 0);
-                const totalItems = salesReport.items.reduce((sum: number, item: any) => sum + (item.quantity % item.spec), 0);
-                return `${totalBoxes} 箱${totalItems > 0 ? ` + ${totalItems} 个` : ''}`;
-              })()}
+              <div className="text-xl font-black text-slate-700">
+                {(() => {
+                  const totalBoxes = salesReport.items.reduce((sum: number, item: SalesReportItem) => sum + Math.floor(item.quantity / item.spec), 0);
+                  const totalItems = salesReport.items.reduce((sum: number, item: SalesReportItem) => sum + (item.quantity % item.spec), 0);
+                  return `${totalBoxes} 箱${totalItems > 0 ? ` + ${totalItems} 个` : ''}`;
+                })()}
+              </div>
             </div>
-          </div>
         </div>
 
         {/* Product Breakdown */}
@@ -348,7 +452,7 @@ export const HomeView = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
-                {salesReport.items.map((item: any, idx: number) => (
+                {salesReport.items.map((item: SalesReportItem, idx: number) => (
                   <tr key={idx} className="hover:bg-white/20 transition-colors">
                     <td className="px-4 py-3 text-sm font-medium text-slate-900">{item.name}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{formatStock(item.quantity, item.spec)}</td>
@@ -542,13 +646,51 @@ export const HomeView = ({
   );
 };
 
+interface StockViewProps {
+  products: Product[];
+  transactions: Transaction[];
+  handleTransaction: (productId: string, type: 'in' | 'out', boxes: number, items: number, remark: string) => Promise<boolean | undefined>;
+  deleteTransaction: (id: string | null) => void;
+  updateTransaction: (
+    transactionId: string,
+    newProductId: string,
+    newType: 'in' | 'out',
+    newQuantity: number,
+    newRemark: string
+  ) => Promise<boolean>;
+  editingTransaction: Transaction | null;
+  setEditingTransaction: (tx: Transaction | null) => void;
+  user: User | null;
+  formatStock: (total: number, spec: number) => string;
+  showToast: (message: string, type?: 'success' | 'error') => void;
+  type: 'in' | 'out';
+  setType: (value: 'in' | 'out') => void;
+  selectedId: string;
+  setSelectedId: (value: string) => void;
+  searchTerm: string;
+  setSearchTerm: (value: string) => void;
+  showDropdown: boolean;
+  setShowDropdown: (value: boolean) => void;
+  boxes: string;
+  setBoxes: (value: string) => void;
+  items: string;
+  setItems: (value: string) => void;
+  remark: string;
+  setRemark: (value: string) => void;
+  formatDateTime: (value: Transaction['occurredAt']) => string;
+  hasMoreTransactions: boolean;
+  loadingMoreTransactions: boolean;
+  loadMoreTransactions: () => Promise<void>;
+}
+
 export const StockView = ({
   products, transactions, handleTransaction, deleteTransaction, 
   updateTransaction, editingTransaction, setEditingTransaction,
   user, formatStock, showToast,
   type, setType, selectedId, setSelectedId, searchTerm, setSearchTerm, showDropdown, setShowDropdown,
-  boxes, setBoxes, items, setItems, remark, setRemark
-}: any) => {
+  boxes, setBoxes, items, setItems, remark, setRemark,
+  formatDateTime, hasMoreTransactions, loadingMoreTransactions, loadMoreTransactions
+}: StockViewProps) => {
   const [editBoxes, setEditBoxes] = useState('');
   const [editItems, setEditItems] = useState('');
   const [editRemark, setEditRemark] = useState('');
@@ -556,6 +698,8 @@ export const StockView = ({
   const [editType, setEditType] = useState<'in' | 'out'>('in');
   const [editSearchTerm, setEditSearchTerm] = useState('');
   const [showEditDropdown, setShowEditDropdown] = useState(false);
+  const [visibleTransactionCount, setVisibleTransactionCount] = useState(20);
+  const [collapsedMonthMap, setCollapsedMonthMap] = useState<Record<string, boolean>>({});
 
   const filteredProducts = useMemo(() => {
     if (!searchTerm) return products;
@@ -573,6 +717,50 @@ export const StockView = ({
 
   const selectedProduct = products.find((p: Product) => p.id === selectedId);
   const editingProduct = products.find((p: Product) => p.id === editProductId);
+
+  const sortedTransactions = useMemo(() => {
+    return [...transactions].sort((a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis());
+  }, [transactions]);
+
+  const visibleTransactions = useMemo(() => {
+    return sortedTransactions.slice(0, visibleTransactionCount);
+  }, [sortedTransactions, visibleTransactionCount]);
+
+  const groupedVisibleTransactions = useMemo(() => {
+    const groups = new Map<string, Transaction[]>();
+    for (const tx of visibleTransactions) {
+      const monthKey = monthKeyFromTimestamp(tx.occurredAt);
+      const existing = groups.get(monthKey);
+      if (existing) {
+        existing.push(tx);
+      } else {
+        groups.set(monthKey, [tx]);
+      }
+    }
+    return Array.from(groups.entries()).map(([monthKey, items]) => ({ monthKey, items }));
+  }, [visibleTransactions]);
+
+  const canShowMoreLocal = visibleTransactionCount < sortedTransactions.length;
+
+  const formatMonthTitle = (monthKey: string) => {
+    const [year, month] = monthKey.split('-');
+    return `${year}年${month}月`;
+  };
+
+  const toggleMonth = (monthKey: string) => {
+    setCollapsedMonthMap((prev) => ({ ...prev, [monthKey]: !prev[monthKey] }));
+  };
+
+  const handleShowMore = async () => {
+    if (canShowMoreLocal) {
+      setVisibleTransactionCount((prev) => prev + 20);
+      return;
+    }
+    if (hasMoreTransactions) {
+      await loadMoreTransactions();
+      setVisibleTransactionCount((prev) => prev + 20);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -903,7 +1091,7 @@ export const StockView = ({
               <input
                 type="text"
                 disabled
-                value={new Date().toISOString().replace('T', ' ').slice(0, 19)}
+                value={formatDateTimeLabel(Timestamp.now())}
                 className="w-full rounded-xl border-white/20 bg-white/10 text-slate-400 cursor-not-allowed backdrop-blur-sm font-bold"
               />
             </div>
@@ -936,72 +1124,117 @@ export const StockView = ({
       {/* History */}
       <div className="lg:col-span-2">
         <div className="glass rounded-2xl p-6 shadow-sm border-white/20">
-          <h2 className="text-lg font-semibold text-slate-800 mb-6 flex items-center gap-2">
-            <History size={20} className="text-slate-600" />
-            近期流水明细
-          </h2>
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-white/10">
-                  <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">时间</th>
-                  <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">类型</th>
-                  <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">商品</th>
-                  <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">数量</th>
-                  <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">备注</th>
-                  <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {transactions.map((t: Transaction) => {
-                  const p = products.find((prod: Product) => prod.id === t.productId);
-                  return (
-                    <tr key={t.id} className="hover:bg-white/20 transition-colors">
-                      <td className="py-4 text-sm text-slate-500 font-medium">{t.date}</td>
-                      <td className="py-4">
-                        <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
-                          t.type === 'in' ? 'bg-emerald-100/50 text-emerald-700' : 'bg-rose-100/50 text-rose-700'
-                        }`}>
-                          {t.type === 'in' ? '入库' : '出库'}
-                        </span>
-                      </td>
-                      <td className="py-4 text-sm font-bold text-slate-900">{p?.name || '未知商品'}</td>
-                      <td className="py-4 text-sm text-slate-600 font-bold">
-                        {formatStock(t.quantity, p?.spec || 1)}
-                      </td>
-                      <td className="py-4 text-sm text-slate-400 font-medium">{t.remark || '-'}</td>
-                      <td className="py-4 text-right">
-                        {user?.role === 'admin' && (
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              type="button"
-                              onClick={() => startEditing(t)}
-                              className="p-2 text-indigo-500 hover:bg-indigo-50/50 rounded-lg transition-all cursor-pointer backdrop-blur-sm"
-                              title="修改流水"
-                            >
-                              <Pencil size={16} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteTransaction(t.id)}
-                              className="p-2 text-rose-500 hover:bg-rose-50/50 rounded-lg transition-all cursor-pointer backdrop-blur-sm"
-                              title="删除流水"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {transactions.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400 font-bold">暂无流水记录</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+              <History size={20} className="text-slate-600" />
+              近期流水明细
+            </h2>
+            <div className="text-xs font-bold text-slate-400 bg-white/40 rounded-full px-3 py-1 border border-white/50">
+              已显示 {visibleTransactions.length} / {transactions.length} 条
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {groupedVisibleTransactions.map(({ monthKey, items }) => {
+              const isCollapsed = collapsedMonthMap[monthKey] === true;
+              return (
+                <div key={monthKey} className="rounded-2xl border border-white/45 bg-white/28 backdrop-blur-xl">
+                  <button
+                    type="button"
+                    onClick={() => toggleMonth(monthKey)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/28 transition-all rounded-2xl"
+                  >
+                    <div className="flex items-center gap-2">
+                      {isCollapsed ? (
+                        <ChevronRight size={16} className="text-slate-500" />
+                      ) : (
+                        <ChevronDown size={16} className="text-slate-500" />
+                      )}
+                      <span className="font-black text-slate-700">{formatMonthTitle(monthKey)}</span>
+                    </div>
+                    <span className="text-xs font-bold text-slate-400">{items.length} 条</span>
+                  </button>
+
+                  {!isCollapsed && (
+                    <div className="px-4 pb-4 overflow-x-auto custom-scrollbar">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="border-b border-white/20">
+                            <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider">时间</th>
+                            <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider">类型</th>
+                            <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider">商品</th>
+                            <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider">数量</th>
+                            <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider">备注</th>
+                            <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/10">
+                          {items.map((t: Transaction) => {
+                            const p = products.find((prod: Product) => prod.id === t.productId);
+                            return (
+                              <tr key={t.id} className="hover:bg-white/20 transition-colors">
+                                <td className="py-4 text-sm text-slate-500 font-medium">{formatDateTime(t.occurredAt)}</td>
+                                <td className="py-4">
+                                  <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                                    t.type === 'in' ? 'bg-emerald-100/50 text-emerald-700' : 'bg-rose-100/50 text-rose-700'
+                                  }`}>
+                                    {t.type === 'in' ? '入库' : '出库'}
+                                  </span>
+                                </td>
+                                <td className="py-4 text-sm font-bold text-slate-900">{p?.name || '未知商品'}</td>
+                                <td className="py-4 text-sm text-slate-600 font-bold">
+                                  {formatStock(t.quantity, p?.spec || 1)}
+                                </td>
+                                <td className="py-4 text-sm text-slate-400 font-medium">{t.remark || '-'}</td>
+                                <td className="py-4 text-right">
+                                  {user?.role === 'admin' && (
+                                    <div className="flex items-center justify-end gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => startEditing(t)}
+                                        className="p-2 text-indigo-500 hover:bg-indigo-50/50 rounded-lg transition-all cursor-pointer backdrop-blur-sm"
+                                        title="修改流水"
+                                      >
+                                        <Pencil size={16} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => deleteTransaction(t.id)}
+                                        className="p-2 text-rose-500 hover:bg-rose-50/50 rounded-lg transition-all cursor-pointer backdrop-blur-sm"
+                                        title="删除流水"
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {visibleTransactions.length === 0 && (
+              <div className="py-12 text-center text-slate-400 font-bold">暂无流水记录</div>
+            )}
+
+            {(canShowMoreLocal || hasMoreTransactions) && (
+              <div className="pt-2 text-center">
+                <button
+                  type="button"
+                  onClick={handleShowMore}
+                  disabled={loadingMoreTransactions}
+                  className="px-4 py-2 rounded-xl bg-white/45 border border-white/50 text-slate-700 font-bold hover:bg-white/70 transition-all disabled:opacity-50"
+                >
+                  {loadingMoreTransactions ? '加载中...' : '显示更多（+20条）'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1180,14 +1413,19 @@ export const ProductsView = ({
 };
 
 export const ExpensesView = ({
-  expenses, transactions, addExpense, deleteExpense, formatCurrency, user
+  expenses, transactions, addExpense, deleteExpense, formatCurrency, user,
+  formatDateTime, hasMoreExpenses, loadingMoreExpenses, loadMoreExpenses
 }: {
   expenses: Expense[],
   transactions: Transaction[],
   addExpense: (amount: number, category: string, remark: string, date: string) => Promise<boolean>,
   deleteExpense: (id: string | null) => void,
   formatCurrency: (val: number) => string,
-  user: User | null
+  user: User | null,
+  formatDateTime: (value: Expense['occurredAt']) => string,
+  hasMoreExpenses: boolean,
+  loadingMoreExpenses: boolean,
+  loadMoreExpenses: () => Promise<void>
 }) => {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
@@ -1212,7 +1450,8 @@ export const ExpensesView = ({
   };
 
   const filteredExpenses = useMemo(() => {
-    return expenses.filter(e => e.date.startsWith(filterMonth));
+    const range = getRangeByMonth(filterMonth);
+    return expenses.filter(e => isWithinRange(e.occurredAt, range));
   }, [expenses, filterMonth]);
 
   const monthlyTotal = useMemo(() => {
@@ -1230,10 +1469,9 @@ export const ExpensesView = ({
     return transactions
       .filter(t => {
         if (t.type !== 'out') return false;
-        const tDate = new Date(t.date.replace(/-/g, '/'));
-        return tDate >= start && tDate <= end;
+        return isWithinRange(t.occurredAt, { start, end });
       })
-      .reduce((sum, t) => sum + t.quantity * t.price, 0);
+      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
   }, [transactions, filterMonth]);
 
   const estimatedCommission = useMemo(() => {
@@ -1456,7 +1694,7 @@ export const ExpensesView = ({
                 <tbody className="divide-y divide-white/10">
                   {filteredExpenses.map((e: Expense) => (
                     <tr key={e.id} className="hover:bg-white/20 transition-colors">
-                      <td className="py-4 text-sm font-medium text-slate-500">{e.date}</td>
+                      <td className="py-4 text-sm font-medium text-slate-500">{formatDateTime(e.occurredAt)}</td>
                       <td className="py-4">
                         <span className="px-3 py-1 bg-white/50 backdrop-blur-sm border border-white/30 rounded-lg text-sm font-bold text-slate-700">
                           {e.category}
@@ -1491,6 +1729,18 @@ export const ExpensesView = ({
                   )}
                 </tbody>
               </table>
+              {hasMoreExpenses && (
+                <div className="mt-4 text-center">
+                  <button
+                    type="button"
+                    onClick={loadMoreExpenses}
+                    disabled={loadingMoreExpenses}
+                    className="px-4 py-2 rounded-xl bg-white/45 border border-white/50 text-slate-700 font-bold hover:bg-white/70 transition-all disabled:opacity-50"
+                  >
+                    {loadingMoreExpenses ? '加载中...' : '加载更多支出'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

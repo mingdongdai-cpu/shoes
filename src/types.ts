@@ -1,3 +1,5 @@
+import type { Timestamp } from 'firebase/firestore';
+
 export interface Product {
   id: string;
   name: string;
@@ -11,12 +13,14 @@ export interface Transaction {
   productId: string;
   type: 'in' | 'out';
   quantity: number; // Total items
-  price: number; // Price at time of transaction
-  date: string;
+  unitPrice: number; // Price at time of transaction
+  occurredAt: Timestamp;
+  operatorUid: string;
   remark: string;
 }
 
 export interface User {
+  uid: string;
   username: string;
   role: 'admin' | 'staff';
 }
@@ -33,7 +37,8 @@ export interface Vehicle {
 
 export interface Expense {
   id: string;
-  date: string;
+  occurredAt: Timestamp;
+  operatorUid: string;
   amount: number;
   category: string;
   remark: string;

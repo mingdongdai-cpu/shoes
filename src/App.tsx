@@ -182,7 +182,7 @@ const getTogoWeek = () => {
   return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`;
 };
 
-const isIsolatedMode = import.meta.env.VITE_ISOLATED_MODE !== 'false';
+const isIsolatedMode = import.meta.env.VITE_ISOLATED_MODE === 'true';
 const makeLocalId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const PAGE_SIZE = 200;

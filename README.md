@@ -31,7 +31,7 @@ Prerequisites:
 
 - The app now starts in isolated mode by default to protect production data.
 - In isolated mode, login/data CRUD are local-memory only and do not read/write Firebase.
-- To reconnect Firebase explicitly, set `VITE_ISOLATED_MODE=false` before running the app.
+- To enable isolation mode (no Firebase reads/writes), set `VITE_ISOLATED_MODE=true` before running the app.
 
 Install dependencies:
 - npm install

@@ -132,7 +132,7 @@ export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string)
     setErrorMessage('');
     const success = await handleLogin(username, password);
     if (!success) {
-      setErrorMessage('登录失败，请检查账号/密码。staff 首次使用请输入至少 6 位密码。');
+      setErrorMessage('登录失败，请检查账号或密码。');
     }
     setSubmitting(false);
   };

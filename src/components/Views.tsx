@@ -122,10 +122,19 @@ function PickerChip({
 export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string) => Promise<boolean> }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    handleLogin(username, password);
+    if (submitting) return;
+    setSubmitting(true);
+    setErrorMessage('');
+    const success = await handleLogin(username, password);
+    if (!success) {
+      setErrorMessage('登录失败，请检查账号/密码。staff 首次使用请输入至少 6 位密码。');
+    }
+    setSubmitting(false);
   };
 
   return (
@@ -168,10 +177,16 @@ export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string)
           </div>
           <button
             type="submit"
-            className="w-full py-4 bg-indigo-600/90 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-200/50 transition-all active:scale-95 backdrop-blur-md"
+            disabled={submitting}
+            className="w-full py-4 bg-indigo-600/90 hover:bg-indigo-700 disabled:opacity-70 text-white font-bold rounded-2xl shadow-lg shadow-indigo-200/50 transition-all active:scale-95 backdrop-blur-md"
           >
-            登 录
+            {submitting ? '登录中...' : '登 录'}
           </button>
+          {errorMessage && (
+            <div className="rounded-xl border border-rose-200/60 bg-rose-50/70 px-3 py-2 text-sm font-bold text-rose-600">
+              {errorMessage}
+            </div>
+          )}
         </form>
         
         <div className="mt-8 pt-6 border-t border-white/20 text-center">

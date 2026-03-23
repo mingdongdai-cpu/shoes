@@ -18,6 +18,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db, auth } from './firebase';
 import { 
   signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword,
   signOut, 
   onAuthStateChanged,
   setPersistence,
@@ -615,9 +616,9 @@ export default function App() {
       return true;
     }
 
+    const normalized = username.trim().toLowerCase();
     try {
       // 统一用户名输入，确保 admin/staff 可稳定登录
-      const normalized = username.trim().toLowerCase();
       const emailAliasMap: Record<string, string> = {
         admin: 'admin@topstar.com',
         staff: 'staff@topstar.com'
@@ -626,10 +627,41 @@ export default function App() {
       await signInWithEmailAndPassword(auth, email, pass);
       showToast('登录成功');
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const authErrorCode = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: string }).code)
+        : '';
+
+      // staff 重置：账号不存在时自动初始化并登录
+      if (normalized === 'staff' && (authErrorCode === 'auth/user-not-found' || authErrorCode === 'auth/invalid-credential')) {
+        try {
+          await createUserWithEmailAndPassword(auth, 'staff@topstar.com', pass);
+          showToast('staff账号已重置并登录成功');
+          return true;
+        } catch (createError: unknown) {
+          const createCode = typeof createError === 'object' && createError !== null && 'code' in createError
+            ? String((createError as { code?: string }).code)
+            : '';
+          if (createCode === 'auth/email-already-in-use') {
+            showToast('staff账号已存在，请确认密码', 'error');
+            return false;
+          }
+          if (createCode === 'auth/weak-password') {
+            showToast('staff密码至少需要6位', 'error');
+            return false;
+          }
+          showToast('staff账号初始化失败，请稍后重试', 'error');
+          return false;
+        }
+      }
+
       let msg = '登录失败';
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+      if (authErrorCode === 'auth/user-not-found' || authErrorCode === 'auth/wrong-password' || authErrorCode === 'auth/invalid-credential') {
         msg = '用户名或密码错误';
+      } else if (authErrorCode === 'auth/too-many-requests') {
+        msg = '尝试次数过多，请稍后再试';
+      } else if (authErrorCode === 'auth/network-request-failed') {
+        msg = '网络异常，请检查网络后重试';
       }
       showToast(msg, 'error');
       return false;

@@ -16,14 +16,16 @@
 //   - productId: string (required) - ID of the related product
 //   - type: string (required, 'in' or 'out') - Type of transaction
 //   - quantity: number (required, positive) - Total items moved
-//   - price: number (required, positive) - Price at time of transaction
-//   - date: string (required, ISO 8601 format) - Timestamp of the transaction
+//   - unitPrice: number (required, positive) - Price at time of transaction
+//   - occurredAt: timestamp (required) - Unified operation time
+//   - operatorUid: string (required) - Operator uid
 //   - remark: string (optional) - Optional note
 //
 // Collection: expenses
 // Document ID: auto-generated
 // Fields:
-//   - date: string (required, ISO 8601 format) - Date of expense
+//   - occurredAt: timestamp (required) - Unified expense time
+//   - operatorUid: string (required) - Operator uid
 //   - amount: number (required, positive) - Amount spent
 //   - category: string (required) - Expense item/category
 //   - remark: string (optional) - Optional remark
@@ -42,9 +44,15 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function roleOf(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid))
+        ? get(/databases/$(database)/documents/users/$(uid)).data.role
+        : null;
+    }
+
     function isAdmin() {
       return isAuthenticated() && (
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        roleOf(request.auth.uid) == 'admin' ||
         (request.auth.token.email == "mingdongdai@gmail.com" && request.auth.token.email_verified == true) ||
         (request.auth.token.email == "admin@topstar.com" && request.auth.token.email_verified == true)
       );
@@ -52,7 +60,7 @@ service cloud.firestore {
 
     function isStaff() {
       return isAuthenticated() && (
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff' ||
+        roleOf(request.auth.uid) in ['staff', 'admin'] ||
         request.auth.token.email.matches(".*@topstar.com$")
       );
     }
@@ -74,18 +82,22 @@ service cloud.firestore {
     }
 
     function isValidTransaction(data) {
-      return hasOnlyAllowedFields(['productId', 'type', 'quantity', 'price', 'date', 'remark']) &&
+      return hasOnlyAllowedFields(['productId', 'type', 'quantity', 'unitPrice', 'occurredAt', 'operatorUid', 'remark']) &&
              data.productId is string &&
              data.type in ['in', 'out'] &&
              data.quantity is number && data.quantity > 0 &&
-             data.price is number && data.price >= 0 &&
-             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}.*") &&
+             data.unitPrice is number && data.unitPrice >= 0 &&
+             data.occurredAt is timestamp &&
+             data.operatorUid is string &&
+             data.operatorUid == request.auth.uid &&
              (!('remark' in data) || (data.remark is string && data.remark.size() < 500));
     }
 
     function isValidExpense(data) {
-      return hasOnlyAllowedFields(['date', 'amount', 'category', 'remark']) &&
-             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}.*") &&
+      return hasOnlyAllowedFields(['occurredAt', 'operatorUid', 'amount', 'category', 'remark']) &&
+             data.occurredAt is timestamp &&
+             data.operatorUid is string &&
+             data.operatorUid == request.auth.uid &&
              data.amount is number && data.amount >= 0 &&
              data.category is string && data.category.size() > 0 && data.category.size() < 100 &&
              (!('remark' in data) || (data.remark is string && data.remark.size() < 500));

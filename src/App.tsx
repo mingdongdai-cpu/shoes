@@ -27,15 +27,22 @@ import {
   collection, 
   onSnapshot, 
   addDoc, 
-  updateDoc, 
   deleteDoc, 
   doc, 
   query, 
   orderBy,
-  getDocFromServer
+  getDocFromServer,
+  getDocs,
+  limit,
+  runTransaction,
+  startAfter,
+  Timestamp,
+  type DocumentData,
+  type QueryDocumentSnapshot
 } from 'firebase/firestore';
 import { Product, Transaction, User, View, Toast, Expense } from './types';
 import { LoginView, HomeView, StockView, ProductsView, ExpensesView } from './components/Views';
+import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange } from './lib/timeWindow';
 
 
 // --- Error Handling ---
@@ -158,6 +165,14 @@ const formatCurrency = (amount: number) => {
 
 const getTogoDate = () => new Date().toISOString().split('T')[0];
 const getTogoMonth = () => new Date().toISOString().slice(0, 7);
+const getPreviousMonth = (monthValue: string) => {
+  const [year, month] = monthValue.split('-');
+  const base = new Date(Number.parseInt(year, 10), Number.parseInt(month, 10) - 1, 1);
+  base.setMonth(base.getMonth() - 1);
+  const prevYear = base.getFullYear();
+  const prevMonth = `${base.getMonth() + 1}`.padStart(2, '0');
+  return `${prevYear}-${prevMonth}`;
+};
 const getTogoWeek = () => {
   const now = new Date();
   const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -167,7 +182,53 @@ const getTogoWeek = () => {
   return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`;
 };
 
-const getTogoDateTime = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
+const isIsolatedMode = import.meta.env.VITE_ISOLATED_MODE !== 'false';
+const makeLocalId = (prefix: string) =>
+  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const PAGE_SIZE = 200;
+
+function coerceTimestamp(primary: unknown, legacyDate: unknown): Timestamp {
+  if (primary instanceof Timestamp) return primary;
+  if (legacyDate instanceof Timestamp) return legacyDate;
+  if (typeof primary === 'string') {
+    const parsed = new Date(primary.replace(' ', 'T'));
+    if (!Number.isNaN(parsed.getTime())) return Timestamp.fromDate(parsed);
+  }
+  if (typeof legacyDate === 'string') {
+    const parsed = new Date(legacyDate.replace(' ', 'T'));
+    if (!Number.isNaN(parsed.getTime())) return Timestamp.fromDate(parsed);
+  }
+  return Timestamp.fromDate(new Date(0));
+}
+
+function mapTransactionDoc(id: string, data: DocumentData): Transaction {
+  return {
+    id,
+    productId: String(data.productId ?? ''),
+    type: data.type === 'in' ? 'in' : 'out',
+    quantity: Number(data.quantity ?? 0),
+    unitPrice: Number(data.unitPrice ?? data.price ?? 0),
+    occurredAt: coerceTimestamp(data.occurredAt, data.date),
+    operatorUid: String(data.operatorUid ?? 'legacy'),
+    remark: String(data.remark ?? '')
+  };
+}
+
+function mapExpenseDoc(id: string, data: DocumentData): Expense {
+  return {
+    id,
+    occurredAt: coerceTimestamp(data.occurredAt, data.date),
+    operatorUid: String(data.operatorUid ?? 'legacy'),
+    amount: Number(data.amount ?? 0),
+    category: String(data.category ?? ''),
+    remark: String(data.remark ?? '')
+  };
+}
+
+function timestampFromDateInput(dateValue: string): Timestamp {
+  const safe = new Date(`${dateValue}T00:00:00`);
+  return Timestamp.fromDate(safe);
+}
 
 export default function App() {
   // --- State ---
@@ -186,6 +247,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteExpenseId, setConfirmDeleteExpenseId] = useState<string | null>(null);
+  const [transactionsCursor, setTransactionsCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [expensesCursor, setExpensesCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [hasMoreTransactions, setHasMoreTransactions] = useState(false);
+  const [hasMoreExpenses, setHasMoreExpenses] = useState(false);
+  const [loadingMoreTransactions, setLoadingMoreTransactions] = useState(false);
+  const [loadingMoreExpenses, setLoadingMoreExpenses] = useState(false);
 
   // --- StockView State (Persistent) ---
   const [stockType, setStockType] = useState<'in' | 'out'>('in');
@@ -208,6 +275,13 @@ export default function App() {
 
   // --- Firebase Auth & Persistence ---
   useEffect(() => {
+    if (isIsolatedMode) {
+      setHasMoreTransactions(false);
+      setHasMoreExpenses(false);
+      setLoading(false);
+      return;
+    }
+
     async function testConnection() {
       try {
         await getDocFromServer(doc(db, 'test', 'connection'));
@@ -224,16 +298,32 @@ export default function App() {
     // Set persistence to session-based (requires re-login after closing browser)
     setPersistence(auth, browserSessionPersistence)
       .then(() => {
-        unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-          if (firebaseUser) {
-            setUser({ 
-              username: firebaseUser.email?.split('@')[0] || '', 
-              role: firebaseUser.email === 'admin@topstar.com' ? 'admin' : 'staff' 
-            });
-          } else {
+        unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+          if (!firebaseUser) {
             setUser(null);
+            setProducts([]);
+            setTransactions([]);
+            setExpenses([]);
+            setTransactionsCursor(null);
+            setExpensesCursor(null);
+            setHasMoreTransactions(false);
+            setHasMoreExpenses(false);
+            setLoading(false);
+            return;
           }
-          setLoading(false);
+
+          try {
+            const role: User['role'] = firebaseUser.email === 'admin@topstar.com' ? 'admin' : 'staff';
+            setUser({
+              uid: firebaseUser.uid,
+              username: firebaseUser.email?.split('@')[0] || firebaseUser.uid,
+              role
+            });
+          } catch (error) {
+            handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
+          } finally {
+            setLoading(false);
+          }
         });
       })
       .catch((error) => {
@@ -248,6 +338,8 @@ export default function App() {
 
   // --- Firebase Data Sync ---
   useEffect(() => {
+    if (isIsolatedMode) return;
+
     // 确保不仅 user 状态存在，Firebase 底层 auth 对象也已识别到当前用户
     if (!user || !auth.currentUser) return;
 
@@ -256,8 +348,8 @@ export default function App() {
     const unsubscribeProducts = onSnapshot(qProducts, 
       (snapshot) => {
         const productsData: Product[] = [];
-        snapshot.forEach((doc) => {
-          productsData.push({ id: doc.id, ...doc.data() } as Product);
+        snapshot.forEach((itemDoc) => {
+          productsData.push({ id: itemDoc.id, ...itemDoc.data() } as Product);
         });
         setProducts(productsData);
       },
@@ -266,46 +358,84 @@ export default function App() {
       }
     );
 
-    // Sync Transactions
-    const qTransactions = query(collection(db, 'transactions'), orderBy('date', 'desc'));
-    const unsubscribeTransactions = onSnapshot(qTransactions, 
+    // Sync Transactions (new schema + legacy schema merge)
+    let txModern: Transaction[] = [];
+    let txLegacy: Transaction[] = [];
+    const syncMergedTransactions = () => {
+      const map = new Map<string, Transaction>();
+      for (const item of txLegacy) map.set(item.id, item);
+      for (const item of txModern) map.set(item.id, item);
+      const merged = [...map.values()].sort(
+        (a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis()
+      );
+      setTransactions(merged);
+      setTransactionsCursor(null);
+      setHasMoreTransactions(false);
+    };
+
+    const qTransactionsModern = query(collection(db, 'transactions'), orderBy('occurredAt', 'desc'));
+    const unsubscribeTransactionsModern = onSnapshot(qTransactionsModern, 
       (snapshot) => {
-        const transactionsData: Transaction[] = [];
-        snapshot.forEach((doc) => {
-          transactionsData.push({ id: doc.id, ...doc.data() } as Transaction);
-        });
-        // Ensure descending order even if backend sorting has issues
-        transactionsData.sort((a, b) => {
-          const dateA = new Date(a.date.replace(/-/g, '/')).getTime();
-          const dateB = new Date(b.date.replace(/-/g, '/')).getTime();
-          return dateB - dateA;
-        });
-        setTransactions(transactionsData);
+        txModern = snapshot.docs.map((itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data()));
+        syncMergedTransactions();
       },
       (error) => {
-        handleFirestoreError(error, OperationType.GET, 'transactions');
+        handleFirestoreError(error, OperationType.GET, 'transactions/modern');
+      }
+    );
+    const qTransactionsLegacy = query(collection(db, 'transactions'), orderBy('date', 'desc'));
+    const unsubscribeTransactionsLegacy = onSnapshot(qTransactionsLegacy, 
+      (snapshot) => {
+        txLegacy = snapshot.docs.map((itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data()));
+        syncMergedTransactions();
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, 'transactions/legacy');
       }
     );
 
-    // Sync Expenses
-    const qExpenses = query(collection(db, 'expenses'), orderBy('date', 'desc'));
-    const unsubscribeExpenses = onSnapshot(qExpenses,
+    // Sync Expenses (new schema + legacy schema merge)
+    let expenseModern: Expense[] = [];
+    let expenseLegacy: Expense[] = [];
+    const syncMergedExpenses = () => {
+      const map = new Map<string, Expense>();
+      for (const item of expenseLegacy) map.set(item.id, item);
+      for (const item of expenseModern) map.set(item.id, item);
+      const merged = [...map.values()].sort(
+        (a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis()
+      );
+      setExpenses(merged);
+      setExpensesCursor(null);
+      setHasMoreExpenses(false);
+    };
+
+    const qExpensesModern = query(collection(db, 'expenses'), orderBy('occurredAt', 'desc'));
+    const unsubscribeExpensesModern = onSnapshot(qExpensesModern,
       (snapshot) => {
-        const expensesData: Expense[] = [];
-        snapshot.forEach((doc) => {
-          expensesData.push({ id: doc.id, ...doc.data() } as Expense);
-        });
-        setExpenses(expensesData);
+        expenseModern = snapshot.docs.map((itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data()));
+        syncMergedExpenses();
       },
       (error) => {
-        handleFirestoreError(error, OperationType.GET, 'expenses');
+        handleFirestoreError(error, OperationType.GET, 'expenses/modern');
+      }
+    );
+    const qExpensesLegacy = query(collection(db, 'expenses'), orderBy('date', 'desc'));
+    const unsubscribeExpensesLegacy = onSnapshot(qExpensesLegacy,
+      (snapshot) => {
+        expenseLegacy = snapshot.docs.map((itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data()));
+        syncMergedExpenses();
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, 'expenses/legacy');
       }
     );
 
     return () => {
       unsubscribeProducts();
-      unsubscribeTransactions();
-      unsubscribeExpenses();
+      unsubscribeTransactionsModern();
+      unsubscribeTransactionsLegacy();
+      unsubscribeExpensesModern();
+      unsubscribeExpensesLegacy();
     };
   }, [user]);
 
@@ -322,10 +452,10 @@ export default function App() {
   const stats = useMemo(() => {
     const inTotal = transactions
       .filter(t => t.type === 'in')
-      .reduce((sum, t) => sum + t.quantity * t.price, 0);
+      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
     const outTotal = transactions
       .filter(t => t.type === 'out')
-      .reduce((sum, t) => sum + t.quantity * t.price, 0);
+      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
     return {
       inTotal,
       outTotal,
@@ -337,48 +467,14 @@ export default function App() {
     return products.filter(p => p.stock < p.spec * 30);
   }, [products]);
 
+  const currentReportRange = useMemo(() => {
+    return getRangeByPeriod(reportPeriod, selectedDate, selectedWeek, selectedMonth);
+  }, [reportPeriod, selectedDate, selectedWeek, selectedMonth]);
+
   const salesReport = useMemo(() => {
-    const getRange = () => {
-      if (reportPeriod === 'day') {
-        const start = new Date(selectedDate);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(selectedDate);
-        end.setHours(23, 59, 59, 999);
-        return { start, end };
-      } else if (reportPeriod === 'week') {
-        // 解析 2026-W10
-        const [year, weekStr] = selectedWeek.split('-W');
-        const y = parseInt(year);
-        const w = parseInt(weekStr);
-        
-        // 简单计算周的开始 (周一)
-        const simple = new Date(y, 0, 1 + (w - 1) * 7);
-        const dow = simple.getDay();
-        const ISOweekStart = simple;
-        if (dow <= 4) ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
-        else ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
-        
-        const start = new Date(ISOweekStart);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(start);
-        end.setDate(start.getDate() + 6);
-        end.setHours(23, 59, 59, 999);
-        return { start, end };
-      } else {
-        const [year, month] = selectedMonth.split('-');
-        const start = new Date(parseInt(year), parseInt(month) - 1, 1);
-        const end = new Date(parseInt(year), parseInt(month), 0);
-        end.setHours(23, 59, 59, 999);
-        return { start, end };
-      }
-    };
-
-    const { start, end } = getRange();
-
     const filtered = transactions.filter(t => {
       if (t.type !== 'out') return false;
-      const tDate = new Date(t.date);
-      return tDate >= start && tDate <= end;
+      return isWithinRange(t.occurredAt, currentReportRange);
     });
 
     const reportMap: Record<string, { name: string, quantity: number, amount: number, spec: number }> = {};
@@ -393,24 +489,132 @@ export default function App() {
         };
       }
       reportMap[t.productId].quantity += t.quantity;
-      reportMap[t.productId].amount += t.quantity * t.price;
+      reportMap[t.productId].amount += t.quantity * t.unitPrice;
     });
 
-    const totalExpenses = expenses.filter(e => {
-      const eDate = new Date(e.date);
-      return eDate >= start && eDate <= end;
-    }).reduce((sum, e) => sum + e.amount, 0);
+    const totalExpenses = expenses
+      .filter(e => isWithinRange(e.occurredAt, currentReportRange))
+      .reduce((sum, e) => sum + e.amount, 0);
 
     return {
       items: Object.values(reportMap).sort((a, b) => b.amount - a.amount),
-      totalAmount: filtered.reduce((sum, t) => sum + t.quantity * t.price, 0),
+      totalAmount: filtered.reduce((sum, t) => sum + t.quantity * t.unitPrice, 0),
       totalQuantity: filtered.reduce((sum, t) => sum + t.quantity, 0),
       totalExpenses
     };
-  }, [transactions, products, expenses, reportPeriod, selectedDate, selectedWeek, selectedMonth]);
+  }, [transactions, products, expenses, currentReportRange]);
+
+  const homeMetrics = useMemo(() => {
+    const currentMonthRange = getRangeByMonth(selectedMonth);
+    const previousMonth = getPreviousMonth(selectedMonth);
+    const previousMonthRange = getRangeByMonth(previousMonth);
+
+    const currentMonthSales = transactions
+      .filter((t) => t.type === 'out' && isWithinRange(t.occurredAt, currentMonthRange))
+      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
+
+    const previousMonthSales = transactions
+      .filter((t) => t.type === 'out' && isWithinRange(t.occurredAt, previousMonthRange))
+      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
+
+    const currentMonthExpenses = expenses
+      .filter((e) => isWithinRange(e.occurredAt, currentMonthRange))
+      .reduce((sum, e) => sum + e.amount, 0);
+
+    const previousMonthExpenses = expenses
+      .filter((e) => isWithinRange(e.occurredAt, previousMonthRange))
+      .reduce((sum, e) => sum + e.amount, 0);
+
+    const salesMoM = previousMonthSales > 0
+      ? ((currentMonthSales - previousMonthSales) / previousMonthSales) * 100
+      : null;
+
+    const expenseMoM = previousMonthExpenses > 0
+      ? ((currentMonthExpenses - previousMonthExpenses) / previousMonthExpenses) * 100
+      : null;
+
+    return {
+      selectedMonth,
+      previousMonth,
+      estimatedCommission: currentMonthSales * 0.035 - currentMonthExpenses,
+      warningCount: warnings.length,
+      salesMoM,
+      expenseMoM
+    };
+  }, [selectedMonth, transactions, expenses, warnings.length]);
+
+  const loadMoreTransactions = async () => {
+    if (isIsolatedMode || !transactionsCursor || loadingMoreTransactions || !hasMoreTransactions) return;
+    try {
+      setLoadingMoreTransactions(true);
+      const q = query(
+        collection(db, 'transactions'),
+        orderBy('occurredAt', 'desc'),
+        startAfter(transactionsCursor),
+        limit(PAGE_SIZE)
+      );
+      const snap = await getDocs(q);
+      const next = snap.docs.map((itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data()));
+      setTransactions(prev => {
+        const ids = new Set(prev.map(item => item.id));
+        const merged = [...prev];
+        for (const item of next) {
+          if (!ids.has(item.id)) merged.push(item);
+        }
+        return merged;
+      });
+      setTransactionsCursor(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null);
+      setHasMoreTransactions(snap.docs.length === PAGE_SIZE);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'transactions');
+    } finally {
+      setLoadingMoreTransactions(false);
+    }
+  };
+
+  const loadMoreExpenses = async () => {
+    if (isIsolatedMode || !expensesCursor || loadingMoreExpenses || !hasMoreExpenses) return;
+    try {
+      setLoadingMoreExpenses(true);
+      const q = query(
+        collection(db, 'expenses'),
+        orderBy('occurredAt', 'desc'),
+        startAfter(expensesCursor),
+        limit(PAGE_SIZE)
+      );
+      const snap = await getDocs(q);
+      const next = snap.docs.map((itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data()));
+      setExpenses(prev => {
+        const ids = new Set(prev.map(item => item.id));
+        const merged = [...prev];
+        for (const item of next) {
+          if (!ids.has(item.id)) merged.push(item);
+        }
+        return merged;
+      });
+      setExpensesCursor(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null);
+      setHasMoreExpenses(snap.docs.length === PAGE_SIZE);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'expenses');
+    } finally {
+      setLoadingMoreExpenses(false);
+    }
+  };
 
   // --- Actions ---
   const handleLogin = async (username: string, pass: string) => {
+    if (isIsolatedMode) {
+      if (!username || !pass) {
+        showToast('请输入用户名和密码', 'error');
+        return false;
+      }
+      const normalized = username.trim().toLowerCase();
+      const role = normalized.includes('admin') ? 'admin' : 'staff';
+      setUser({ uid: `local-${normalized || 'user'}`, username: username.trim(), role });
+      showToast('隔离模式登录成功');
+      return true;
+    }
+
     try {
       // 内部映射：将用户名转为 Firebase 要求的邮箱格式
       const email = username.includes('@') ? username : `${username}@topstar.com`;
@@ -428,6 +632,15 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    if (isIsolatedMode) {
+      setUser(null);
+      setProducts([]);
+      setTransactions([]);
+      setExpenses([]);
+      showToast('已退出隔离模式会话');
+      return;
+    }
+
     try {
       await signOut(auth);
       showToast('已退出登录');
@@ -444,6 +657,18 @@ export default function App() {
     if (products.some(p => p.name === name)) {
       showToast('商品名称已存在', 'error');
       return false;
+    }
+    if (isIsolatedMode) {
+      const nextProduct: Product = {
+        id: makeLocalId('product'),
+        name,
+        spec,
+        price,
+        stock: 0
+      };
+      setProducts(prev => [...prev, nextProduct].sort((a, b) => a.name.localeCompare(b.name)));
+      showToast('隔离模式：商品添加成功');
+      return true;
     }
     try {
       await addDoc(collection(db, 'products'), {
@@ -468,6 +693,11 @@ export default function App() {
     const product = products.find(p => p.id === id);
     if (product && product.stock > 0) {
       showToast('请先清空库存再删除', 'error');
+      return;
+    }
+    if (isIsolatedMode) {
+      setProducts(prev => prev.filter(p => p.id !== id));
+      showToast('隔离模式：商品已删除');
       return;
     }
     try {
@@ -505,15 +735,31 @@ export default function App() {
         return;
       }
 
-      showToast('正在同步数据库...', 'success');
+      if (isIsolatedMode) {
+        setProducts(prev => prev.map(p => (p.id === t.productId ? { ...p, stock: newStock } : p)));
+        setTransactions(prev => prev.filter(trans => trans.id !== id));
+        showToast('隔离模式：流水已删除，库存已回滚');
+        setConfirmDeleteId(null);
+        return;
+      }
 
-      // 2. Update Product Stock FIRST
-      await updateDoc(doc(db, 'products', t.productId), {
-        stock: newStock
+      const transactionRef = doc(db, 'transactions', id);
+      const productRef = doc(db, 'products', t.productId);
+      await runTransaction(db, async (trx) => {
+        const txSnap = await trx.get(transactionRef);
+        if (!txSnap.exists()) throw new Error('目标流水不存在');
+        const dbTx = mapTransactionDoc(txSnap.id, txSnap.data());
+
+        const prodSnap = await trx.get(productRef);
+        if (!prodSnap.exists()) throw new Error('关联商品不存在');
+        const productData = prodSnap.data() as Product;
+        const currentDbStock = Number(productData.stock ?? 0);
+        const revertedStock = dbTx.type === 'in' ? currentDbStock - dbTx.quantity : currentDbStock + dbTx.quantity;
+        if (revertedStock < 0) throw new Error('回滚后库存将变为负数');
+
+        trx.update(productRef, { stock: revertedStock });
+        trx.delete(transactionRef);
       });
-
-      // 3. Delete Transaction document
-      await deleteDoc(doc(db, 'transactions', id));
       showToast('流水已成功删除，库存已回滚', 'success');
       setConfirmDeleteId(null);
     } catch (error: any) {
@@ -542,22 +788,55 @@ export default function App() {
       return false;
     }
 
-    try {
-      // 1. Add Transaction
-      await addDoc(collection(db, 'transactions'), {
+    if (isIsolatedMode) {
+      const currentStock = product.stock || 0;
+      const newStock = type === 'in' ? currentStock + totalQuantity : currentStock - totalQuantity;
+      const nextTransaction: Transaction = {
+        id: makeLocalId('transaction'),
         productId,
         type,
         quantity: totalQuantity,
-        price: product.price,
-        date: getTogoDateTime(),
+        unitPrice: product.price,
+        occurredAt: Timestamp.now(),
+        operatorUid: user.uid,
         remark
-      });
+      };
 
-      // 2. Update Product Stock
-      const currentStock = product.stock || 0;
-      const newStock = type === 'in' ? currentStock + totalQuantity : currentStock - totalQuantity;
-      await updateDoc(doc(db, 'products', productId), {
-        stock: newStock
+      setProducts(prev => prev.map(p => (p.id === productId ? { ...p, stock: newStock } : p)));
+      setTransactions(prev => [nextTransaction, ...prev]);
+      showToast(type === 'in' ? '隔离模式：入库成功' : '隔离模式：出库成功');
+      return true;
+    }
+
+    try {
+      if (!auth.currentUser?.uid) {
+        showToast('登录状态异常，请重新登录', 'error');
+        return false;
+      }
+      const productRef = doc(db, 'products', productId);
+      const transactionRef = doc(collection(db, 'transactions'));
+      await runTransaction(db, async (trx) => {
+        const productSnap = await trx.get(productRef);
+        if (!productSnap.exists()) throw new Error('商品不存在');
+        const productData = productSnap.data() as Product;
+        const currentStock = Number(productData.stock ?? 0);
+        const dbSpec = Number(productData.spec ?? 0);
+        const dbUnitPrice = Number(productData.price ?? 0);
+        if (dbSpec <= 0) throw new Error('商品规格错误');
+
+        const nextStock = type === 'in' ? currentStock + totalQuantity : currentStock - totalQuantity;
+        if (nextStock < 0) throw new Error('库存不足');
+
+        trx.set(transactionRef, {
+          productId,
+          type,
+          quantity: totalQuantity,
+          unitPrice: dbUnitPrice,
+          occurredAt: Timestamp.now(),
+          operatorUid: auth.currentUser.uid,
+          remark
+        });
+        trx.update(productRef, { stock: nextStock });
       });
 
       showToast(type === 'in' ? '入库成功' : '出库成功');
@@ -603,26 +882,61 @@ export default function App() {
         continue;
       }
 
-      try {
-        // 1. Add Product
-        const docRef = await addDoc(collection(db, 'products'), {
-          name: pName,
-          spec: pSpec,
-          price: pPrice,
-          stock: pStock
-        });
-
-        // 2. If stock > 0, add an initial transaction
-        if (pStock > 0) {
-          await addDoc(collection(db, 'transactions'), {
-            productId: docRef.id,
-            type: 'in',
-            quantity: pStock,
+      if (isIsolatedMode) {
+        const productId = makeLocalId('product');
+        setProducts(prev => [
+          ...prev,
+          {
+            id: productId,
+            name: pName,
+            spec: pSpec,
             price: pPrice,
-            date: getTogoDateTime(),
-            remark: '系统批量导入初始库存'
-          });
+            stock: pStock
+          }
+        ].sort((a, b) => a.name.localeCompare(b.name)));
+        if (pStock > 0) {
+          setTransactions(prev => [
+            {
+              id: makeLocalId('transaction'),
+              productId,
+              type: 'in',
+              quantity: pStock,
+              unitPrice: pPrice,
+              occurredAt: Timestamp.now(),
+              operatorUid: user.uid,
+              remark: '隔离模式批量导入初始库存'
+            },
+            ...prev
+          ]);
         }
+        successCount++;
+        continue;
+      }
+
+      try {
+        if (!auth.currentUser?.uid) throw new Error('登录状态异常');
+        const productRef = doc(collection(db, 'products'));
+        const initTransactionRef = doc(collection(db, 'transactions'));
+        await runTransaction(db, async (trx) => {
+          trx.set(productRef, {
+            name: pName,
+            spec: pSpec,
+            price: pPrice,
+            stock: pStock
+          });
+
+          if (pStock > 0) {
+            trx.set(initTransactionRef, {
+              productId: productRef.id,
+              type: 'in',
+              quantity: pStock,
+              unitPrice: pPrice,
+              occurredAt: Timestamp.now(),
+              operatorUid: auth.currentUser.uid,
+              remark: '系统批量导入初始库存'
+            });
+          }
+        });
         successCount++;
       } catch (e) {
         handleFirestoreError(e, OperationType.WRITE, 'batch_import');
@@ -661,61 +975,116 @@ export default function App() {
         return false;
       }
 
-      showToast('正在同步库存...', 'success');
+      if (isIsolatedMode) {
+        let oldProductFinalStock = oldProduct.stock || 0;
+        if (t.type === 'in') {
+          oldProductFinalStock -= t.quantity;
+        } else {
+          oldProductFinalStock += t.quantity;
+        }
 
-      // 1. Revert Old Product Stock
-      let oldProductFinalStock = oldProduct.stock || 0;
-      if (t.type === 'in') {
-        oldProductFinalStock -= t.quantity;
-      } else {
-        oldProductFinalStock += t.quantity;
-      }
+        const newProductCurrentStock = newProduct.stock || 0;
+        let newProductFinalStock =
+          newType === 'in'
+            ? newProductCurrentStock + newQuantity
+            : newProductCurrentStock - newQuantity;
 
-      // 2. Calculate New Product Stock
-      let newProductFinalStock;
-      const newProductCurrentStock = newProduct.stock || 0;
-      if (oldProduct.id === newProduct.id) {
-        // Same product: apply new change to the reverted stock
-        newProductFinalStock = newType === 'in' 
-          ? oldProductFinalStock + newQuantity 
-          : oldProductFinalStock - newQuantity;
-        
-        if (newProductFinalStock < 0) {
-          showToast('修改失败：修改后库存将变为负数', 'error');
+        if (oldProduct.id === newProduct.id) {
+          newProductFinalStock =
+            newType === 'in'
+              ? oldProductFinalStock + newQuantity
+              : oldProductFinalStock - newQuantity;
+        }
+
+        if (oldProductFinalStock < 0 || newProductFinalStock < 0) {
+          showToast('修改失败：库存将变为负数', 'error');
           return false;
         }
 
-        // Update single product
-        await updateDoc(doc(db, 'products', oldProduct.id), {
-          stock: newProductFinalStock
-        });
-      } else {
-        // Different products: 
-        // a) Check if new product has enough stock for 'out'
-        newProductFinalStock = newType === 'in'
-          ? newProductCurrentStock + newQuantity
-          : newProductCurrentStock - newQuantity;
+        setProducts(prev => prev.map(p => {
+          if (oldProduct.id === newProduct.id && p.id === oldProduct.id) {
+            return { ...p, stock: newProductFinalStock };
+          }
+          if (p.id === oldProduct.id) return { ...p, stock: oldProductFinalStock };
+          if (p.id === newProduct.id) return { ...p, stock: newProductFinalStock };
+          return p;
+        }));
 
-        if (newProductFinalStock < 0) {
-          showToast(`修改失败：${newProduct.name} 库存不足`, 'error');
-          return false;
-        }
+        setTransactions(prev => prev.map(trans => (
+          trans.id === transactionId
+            ? {
+                ...trans,
+                productId: newProductId,
+                type: newType,
+                quantity: newQuantity,
+                remark: newRemark
+              }
+            : trans
+        )));
 
-        // b) Update both products
-        await updateDoc(doc(db, 'products', oldProduct.id), {
-          stock: oldProductFinalStock
-        });
-        await updateDoc(doc(db, 'products', newProduct.id), {
-          stock: newProductFinalStock
-        });
+        showToast('隔离模式：流水修改成功，库存已同步');
+        setEditingTransaction(null);
+        return true;
       }
 
-      // 3. Update Transaction
-      await updateDoc(doc(db, 'transactions', transactionId), {
-        productId: newProductId,
-        type: newType,
-        quantity: newQuantity,
-        remark: newRemark
+      if (!auth.currentUser?.uid) {
+        showToast('登录状态异常，请重新登录', 'error');
+        return false;
+      }
+
+      const transactionRef = doc(db, 'transactions', transactionId);
+      const oldProductRef = doc(db, 'products', t.productId);
+      const newProductRef = doc(db, 'products', newProductId);
+      await runTransaction(db, async (trx) => {
+        const txSnap = await trx.get(transactionRef);
+        if (!txSnap.exists()) throw new Error('流水不存在');
+        const currentTx = mapTransactionDoc(txSnap.id, txSnap.data());
+
+        const oldProductSnap = await trx.get(oldProductRef);
+        if (!oldProductSnap.exists()) throw new Error('原商品不存在');
+        const oldProductData = oldProductSnap.data() as Product;
+        const oldCurrentStock = Number(oldProductData.stock ?? 0);
+
+        const newProductSnap = currentTx.productId === newProductId ? oldProductSnap : await trx.get(newProductRef);
+        if (!newProductSnap.exists()) throw new Error('新商品不存在');
+        const newProductData = newProductSnap.data() as Product;
+        const newCurrentStock = Number(newProductData.stock ?? 0);
+        const newUnitPrice = Number(newProductData.price ?? 0);
+
+        const revertedOldStock =
+          currentTx.type === 'in'
+            ? oldCurrentStock - currentTx.quantity
+            : oldCurrentStock + currentTx.quantity;
+
+        if (revertedOldStock < 0) throw new Error('回滚库存后小于0，拒绝修改');
+
+        if (currentTx.productId === newProductId) {
+          const sameProductFinalStock =
+            newType === 'in'
+              ? revertedOldStock + newQuantity
+              : revertedOldStock - newQuantity;
+          if (sameProductFinalStock < 0) throw new Error('修改后库存不足');
+
+          trx.update(oldProductRef, { stock: sameProductFinalStock });
+        } else {
+          const newProductFinalStock =
+            newType === 'in'
+              ? newCurrentStock + newQuantity
+              : newCurrentStock - newQuantity;
+          if (newProductFinalStock < 0) throw new Error('新商品库存不足');
+
+          trx.update(oldProductRef, { stock: revertedOldStock });
+          trx.update(newProductRef, { stock: newProductFinalStock });
+        }
+
+        trx.update(transactionRef, {
+          productId: newProductId,
+          type: newType,
+          quantity: newQuantity,
+          unitPrice: newUnitPrice,
+          operatorUid: auth.currentUser.uid,
+          remark: newRemark
+        });
       });
 
       showToast('流水修改成功，库存已同步', 'success');
@@ -732,12 +1101,31 @@ export default function App() {
       showToast('权限不足', 'error');
       return false;
     }
-    try {
-      await addDoc(collection(db, 'expenses'), {
+    const occurredAt = timestampFromDateInput(date);
+    if (isIsolatedMode) {
+      const nextExpense: Expense = {
+        id: makeLocalId('expense'),
+        occurredAt,
+        operatorUid: user.uid,
         amount,
         category,
-        remark,
-        date
+        remark
+      };
+      setExpenses(prev => [nextExpense, ...prev]);
+      showToast('隔离模式：记账成功');
+      return true;
+    }
+    try {
+      if (!auth.currentUser?.uid) {
+        showToast('登录状态异常，请重新登录', 'error');
+        return false;
+      }
+      await addDoc(collection(db, 'expenses'), {
+        occurredAt,
+        operatorUid: auth.currentUser.uid,
+        amount,
+        category,
+        remark
       });
       showToast('记账成功');
       return true;
@@ -750,6 +1138,12 @@ export default function App() {
   const deleteExpense = async (id: string) => {
     if (user?.role !== 'admin') {
       showToast('权限不足', 'error');
+      return;
+    }
+    if (isIsolatedMode) {
+      setExpenses(prev => prev.filter(expense => expense.id !== id));
+      showToast('隔离模式：记录已删除');
+      setConfirmDeleteExpenseId(null);
       return;
     }
     try {
@@ -784,14 +1178,19 @@ export default function App() {
               <div className="w-11 h-11 rounded-2xl ios-primary flex items-center justify-center border border-white/30">
                 <Package className="text-white" size={24} />
               </div>
-              <div>
-                <h1 className="text-xl font-black tracking-tight text-slate-900">TOP STAR SHOES</h1>
-                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                  <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-                  {user.role === 'admin' ? '管理员' : '查询员'} · {user.username}
+                <div>
+                  <h1 className="text-xl font-black tracking-tight text-slate-900">TOP STAR SHOES</h1>
+                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                    <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                    {user.role === 'admin' ? '管理员' : '查询员'} · {user.username}
+                    {isIsolatedMode && (
+                      <span className="px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-700">
+                        隔离模式
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
             
             <div className="flex w-full md:w-auto items-center justify-between md:justify-end gap-3">
               <nav className="ios-segmented flex flex-wrap items-center gap-1">
@@ -843,26 +1242,27 @@ export default function App() {
             transition={{ duration: 0.2 }}
           >
             {currentView === 'home' && (
-              <HomeView 
-                stats={stats}
-                formatCurrency={formatCurrency}
-                reportPeriod={reportPeriod}
-                setReportPeriod={setReportPeriod}
+                <HomeView 
+                  stats={stats}
+                  formatCurrency={formatCurrency}
+                  reportPeriod={reportPeriod}
+                  setReportPeriod={setReportPeriod}
                 selectedDate={selectedDate}
                 setSelectedDate={setSelectedDate}
                 selectedWeek={selectedWeek}
                 setSelectedWeek={setSelectedWeek}
                 selectedMonth={selectedMonth}
                 setSelectedMonth={setSelectedMonth}
-                salesReport={salesReport}
-                formatStock={formatStock}
-                warnings={warnings}
-                products={products}
-              />
-            )}
-            {currentView === 'stock' && (
-              <StockView 
-                products={products}
+                  salesReport={salesReport}
+                  formatStock={formatStock}
+                  warnings={warnings}
+                  products={products}
+                  homeMetrics={homeMetrics}
+                />
+              )}
+              {currentView === 'stock' && (
+                <StockView 
+                  products={products}
                 transactions={transactions}
                 handleTransaction={handleTransaction}
                 deleteTransaction={setConfirmDeleteId}
@@ -882,12 +1282,16 @@ export default function App() {
                 setShowDropdown={setShowStockDropdown}
                 boxes={stockBoxes}
                 setBoxes={setStockBoxes}
-                items={stockItems}
-                setItems={setStockItems}
-                remark={stockRemark}
-                setRemark={setStockRemark}
-              />
-            )}
+                  items={stockItems}
+                  setItems={setStockItems}
+                  remark={stockRemark}
+                  setRemark={setStockRemark}
+                  formatDateTime={formatDateTimeLabel}
+                  hasMoreTransactions={hasMoreTransactions}
+                  loadingMoreTransactions={loadingMoreTransactions}
+                  loadMoreTransactions={loadMoreTransactions}
+                />
+              )}
             {currentView === 'products' && (
               <ProductsView 
                 user={user}
@@ -911,15 +1315,19 @@ export default function App() {
               />
             )}
             {currentView === 'expenses' && (
-              <ExpensesView 
-                expenses={expenses}
-                transactions={transactions}
-                addExpense={addExpense}
-                deleteExpense={setConfirmDeleteExpenseId}
-                formatCurrency={formatCurrency}
-                user={user}
-              />
-            )}
+                <ExpensesView 
+                  expenses={expenses}
+                  transactions={transactions}
+                  addExpense={addExpense}
+                  deleteExpense={setConfirmDeleteExpenseId}
+                  formatCurrency={formatCurrency}
+                  user={user}
+                  formatDateTime={formatDateTimeLabel}
+                  hasMoreExpenses={hasMoreExpenses}
+                  loadingMoreExpenses={loadingMoreExpenses}
+                  loadMoreExpenses={loadMoreExpenses}
+                />
+              )}
           </motion.div>
         </AnimatePresence>
       </main>

@@ -28,6 +28,7 @@ import {
   onSnapshot, 
   addDoc, 
   deleteDoc, 
+  updateDoc,
   doc, 
   query, 
   orderBy,
@@ -450,9 +451,7 @@ export default function App() {
 
   // --- Computed Data ---
   const stats = useMemo(() => {
-    const inTotal = transactions
-      .filter(t => t.type === 'in')
-      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
+    const inTotal = products.reduce((sum, p) => sum + p.stock * p.price, 0);
     const outTotal = transactions
       .filter(t => t.type === 'out')
       .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
@@ -461,11 +460,34 @@ export default function App() {
       outTotal,
       balance: inTotal - outTotal
     };
-  }, [transactions]);
+  }, [products, transactions]);
 
   const warnings = useMemo(() => {
     return products.filter(p => p.stock < p.spec * 30);
   }, [products]);
+
+  const weeklyAvgBoxesByProduct = useMemo(() => {
+    const monthRange = getRangeByMonth(selectedMonth);
+    const daysInMonth = Math.max(
+      1,
+      Math.floor((monthRange.end.getTime() - monthRange.start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    );
+    const weeksInMonth = daysInMonth / 7;
+
+    const monthlyOutQtyByProduct: Record<string, number> = {};
+    for (const transaction of transactions) {
+      if (transaction.type !== 'out' || !isWithinRange(transaction.occurredAt, monthRange)) continue;
+      monthlyOutQtyByProduct[transaction.productId] = (monthlyOutQtyByProduct[transaction.productId] || 0) + transaction.quantity;
+    }
+
+    const result: Record<string, number> = {};
+    for (const product of products) {
+      const productSpec = product.spec > 0 ? product.spec : 1;
+      const monthlyBoxes = (monthlyOutQtyByProduct[product.id] || 0) / productSpec;
+      result[product.id] = monthlyBoxes / weeksInMonth;
+    }
+    return result;
+  }, [selectedMonth, transactions, products]);
 
   const currentReportRange = useMemo(() => {
     return getRangeByPeriod(reportPeriod, selectedDate, selectedWeek, selectedMonth);
@@ -718,6 +740,33 @@ export default function App() {
       showToast('商品已删除');
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
+    }
+  };
+
+  const updateProductStock = async (id: string, newStock: number) => {
+    if (user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    if (!Number.isFinite(newStock) || newStock < 0 || !Number.isInteger(newStock)) {
+      showToast('库存数量必须是非负整数', 'error');
+      return false;
+    }
+
+    if (isIsolatedMode) {
+      setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, stock: newStock } : p)));
+      showToast('隔离模式：库存修改成功');
+      return true;
+    }
+
+    try {
+      const productRef = doc(db, 'products', id);
+      await updateDoc(productRef, { stock: newStock });
+      showToast('库存修改成功');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `products/${id}`);
+      return false;
     }
   };
 
@@ -1277,6 +1326,7 @@ export default function App() {
                   salesReport={salesReport}
                   formatStock={formatStock}
                   warnings={warnings}
+                  weeklyAvgBoxesByProduct={weeklyAvgBoxesByProduct}
                   products={products}
                   homeMetrics={homeMetrics}
                 />
@@ -1319,6 +1369,7 @@ export default function App() {
                 products={products}
                 addProduct={addProduct}
                 deleteProduct={deleteProduct}
+                updateProductStock={updateProductStock}
                 showToast={showToast}
                 formatCurrency={formatCurrency}
                 formatStock={formatStock}

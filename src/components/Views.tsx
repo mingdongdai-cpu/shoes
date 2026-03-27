@@ -223,6 +223,7 @@ interface HomeViewProps {
   };
   formatStock: (total: number, spec: number) => string;
   warnings: Product[];
+  weeklyAvgBoxesByProduct: Record<string, number>;
   products: Product[];
   homeMetrics: {
     selectedMonth: string;
@@ -236,7 +237,7 @@ interface HomeViewProps {
 
 export const HomeView = ({ 
   stats, formatCurrency, reportPeriod, setReportPeriod, selectedDate, setSelectedDate, 
-  selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, salesReport, formatStock, warnings, products, homeMetrics
+  selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, salesReport, formatStock, warnings, weeklyAvgBoxesByProduct, products, homeMetrics
 }: HomeViewProps) => {
   const dateLabel = selectedDate.replaceAll('-', '/');
   const weekLabel = selectedWeek.replace('-W', ' / Week ');
@@ -259,7 +260,7 @@ export const HomeView = ({
           <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100/50">
             <TrendingDown className="text-rose-500" size={24} />
           </div>
-          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">入库总成本</div>
+          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">库存总成本</div>
         </div>
         <div className="text-xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
           {formatCurrency(stats.inTotal).split(' ')[0]}
@@ -507,6 +508,9 @@ export const HomeView = ({
               )}
               <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
               <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
+              <div className="relative z-10 mt-1 text-sm font-semibold text-slate-600">
+                周均销量: {(weeklyAvgBoxesByProduct[p.id] ?? 0).toFixed(1)} 箱
+              </div>
               <div className="relative z-10 mt-2 text-rose-600 font-black">
                 当前库存: {formatStock(p.stock, p.spec)}
               </div>
@@ -1257,11 +1261,37 @@ export const StockView = ({
   );
 };
 
+interface ProductsViewProps {
+  user: User | null;
+  products: Product[];
+  addProduct: (name: string, spec: number, price: number) => Promise<boolean>;
+  deleteProduct: (id: string) => void;
+  updateProductStock: (id: string, newStock: number) => Promise<boolean>;
+  showToast: (message: string, type?: 'success' | 'error') => void;
+  formatCurrency: (value: number) => string;
+  formatStock: (total: number, spec: number) => string;
+  name: string;
+  setName: (value: string) => void;
+  spec: string;
+  setSpec: (value: string) => void;
+  price: string;
+  setPrice: (value: string) => void;
+  isBatchMode: boolean;
+  setIsBatchMode: (value: boolean) => void;
+  batchText: string;
+  setBatchText: (value: string) => void;
+  handleBatchImport: () => Promise<void>;
+}
+
 export const ProductsView = ({
-  user, products, addProduct, deleteProduct, showToast, formatCurrency, formatStock,
+  user, products, addProduct, deleteProduct, updateProductStock, showToast, formatCurrency, formatStock,
   name, setName, spec, setSpec, price, setPrice, isBatchMode, setIsBatchMode, batchText, setBatchText,
   handleBatchImport
-}: any) => {
+}: ProductsViewProps) => {
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editBoxes, setEditBoxes] = useState('0');
+  const [editItems, setEditItems] = useState('0');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !spec || !price) return showToast('请填写所有必填项', 'error');
@@ -1274,8 +1304,109 @@ export const ProductsView = ({
     }
   };
 
+  const openEditStockModal = (product: Product) => {
+    const baseSpec = product.spec || 1;
+    setEditingProduct(product);
+    setEditBoxes(Math.floor(product.stock / baseSpec).toString());
+    setEditItems((product.stock % baseSpec).toString());
+  };
+
+  const handleSaveStock = async () => {
+    if (!editingProduct) return;
+    const boxesValue = Number.parseInt(editBoxes, 10) || 0;
+    const itemsValue = Number.parseInt(editItems, 10) || 0;
+
+    if (boxesValue < 0 || itemsValue < 0) {
+      showToast('库存不能为负数', 'error');
+      return;
+    }
+
+    const totalStock = boxesValue * editingProduct.spec + itemsValue;
+    const success = await updateProductStock(editingProduct.id, totalStock);
+    if (success) {
+      setEditingProduct(null);
+    }
+  };
+
   return (
     <div className="space-y-8">
+      <AnimatePresence>
+        {editingProduct && (
+          <div className="fixed inset-0 bg-black/35 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              className="glass rounded-3xl p-7 w-full max-w-md border border-white/55"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black text-slate-800">编辑库存数量</h3>
+                <button
+                  type="button"
+                  onClick={() => setEditingProduct(null)}
+                  className="p-2 rounded-full hover:bg-white/45 transition-all text-slate-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div className="rounded-2xl bg-white/40 border border-white/50 p-4">
+                  <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">商品</div>
+                  <div className="mt-1 text-base font-black text-slate-800">{editingProduct.name}</div>
+                  <div className="text-sm font-semibold text-slate-500">规格: {editingProduct.spec} 个/箱</div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">箱数</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editBoxes}
+                      onChange={(e) => setEditBoxes(e.target.value)}
+                      className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">散个</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editItems}
+                      onChange={(e) => setEditItems(e.target.value)}
+                      className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="text-xs font-semibold text-slate-500 bg-indigo-50/60 border border-indigo-100/70 rounded-xl px-3 py-2">
+                  仅修改库存，不会改动历史销售金额。
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingProduct(null)}
+                    className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-white/55 hover:bg-white/75 border border-white/60 transition-all"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveStock}
+                    className="flex-1 py-3 rounded-xl font-bold text-white bg-indigo-600/90 hover:bg-indigo-700 shadow-lg shadow-indigo-200/50 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Save size={16} />
+                    保存库存
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Add Product Form */}
       <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
         <div className="flex items-center justify-between mb-8">
@@ -1399,18 +1530,33 @@ export const ProductsView = ({
                   <td className="py-4 text-sm text-slate-600 font-bold">{formatCurrency(p.price)}</td>
                   <td className="py-4 text-sm text-slate-600 font-bold">{formatStock(p.stock, p.spec)}</td>
                   <td className="py-4 text-right">
-                    <button
-                      onClick={() => deleteProduct(p.id)}
-                      disabled={p.stock > 0}
-                      className={`p-2 rounded-lg transition-all backdrop-blur-sm ${
-                        p.stock > 0 
-                          ? 'text-slate-300 cursor-not-allowed' 
-                          : 'text-rose-500 hover:bg-rose-50/50'
-                      }`}
-                      title={p.stock > 0 ? "请先清空库存再删除" : "删除商品"}
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEditStockModal(p)}
+                        disabled={user?.role !== 'admin'}
+                        className={`p-2 rounded-lg transition-all backdrop-blur-sm ${
+                          user?.role !== 'admin'
+                            ? 'text-slate-300 cursor-not-allowed'
+                            : 'text-indigo-500 hover:bg-indigo-50/50'
+                        }`}
+                        title={user?.role !== 'admin' ? '无权限' : '编辑库存'}
+                      >
+                        <Pencil size={18} />
+                      </button>
+                      <button
+                        onClick={() => deleteProduct(p.id)}
+                        disabled={p.stock > 0}
+                        className={`p-2 rounded-lg transition-all backdrop-blur-sm ${
+                          p.stock > 0 
+                            ? 'text-slate-300 cursor-not-allowed' 
+                            : 'text-rose-500 hover:bg-rose-50/50'
+                        }`}
+                        title={p.stock > 0 ? "请先清空库存再删除" : "删除商品"}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

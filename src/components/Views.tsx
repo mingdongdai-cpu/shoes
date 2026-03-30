@@ -250,6 +250,12 @@ export const HomeView = ({
     return `${sign}${value.toFixed(1)}%`;
   };
 
+  const sortedWarnings = [...warnings].sort((a, b) => {
+    const weeklySalesDiff = (weeklyAvgBoxesByProduct[b.id] ?? 0) - (weeklyAvgBoxesByProduct[a.id] ?? 0);
+    if (weeklySalesDiff !== 0) return weeklySalesDiff;
+    return a.name.localeCompare(b.name);
+  });
+
   return (
     <div className="space-y-8">
     {/* Finance Dashboard */}
@@ -493,9 +499,9 @@ export const HomeView = ({
         <AlertTriangle className="text-amber-500" size={20} />
         <h2 className="text-lg font-semibold text-slate-800">库存预警 (少于30箱)</h2>
       </div>
-      {warnings.length > 0 ? (
+      {sortedWarnings.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {warnings.map((p: Product) => (
+          {sortedWarnings.map((p: Product) => (
             <div key={p.id} className="relative overflow-hidden p-5 rounded-2xl border border-rose-200/45 bg-white/60 backdrop-blur-xl shadow-[0_18px_36px_rgba(244,63,94,0.12)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(244,63,94,0.16)]">
               {shoeBackgroundMap[normalizeComparableModelKey(p.name)] && (
                 <>

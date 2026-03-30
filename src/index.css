@@ -191,7 +191,7 @@ select {
   color: #142033;
   font-weight: 500;
   letter-spacing: 0.01em;
-  text-align: left;
+  text-align: center;
   border: 1px solid rgba(148, 163, 184, 0.24);
   background: linear-gradient(140deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.34));
   backdrop-filter: blur(14px) saturate(130%);
@@ -213,7 +213,7 @@ textarea:placeholder-shown {
 
 input:not([type='checkbox']):not([type='radio']):focus,
 textarea:focus {
-  text-align: left;
+  text-align: center;
 }
 
 input:not([type='checkbox']):not([type='radio']):hover,

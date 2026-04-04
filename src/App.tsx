@@ -43,7 +43,7 @@ import {
 } from 'firebase/firestore';
 import { Product, Transaction, User, View, Toast, Expense } from './types';
 import { LoginView, HomeView, StockView, ProductsView, ExpensesView } from './components/Views';
-import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange } from './lib/timeWindow';
+import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate } from './lib/timeWindow';
 
 
 // --- Error Handling ---
@@ -466,6 +466,38 @@ export default function App() {
     return products.filter(p => p.stock < p.spec * 30);
   }, [products]);
 
+  const staleProducts = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    cutoff.setHours(0, 0, 0, 0);
+
+    const recentSales = new Set(
+      transactions
+        .filter(t => t.type === 'out' && timestampToDate(t.occurredAt) >= cutoff)
+        .map(t => t.productId)
+    );
+
+    return products.filter(p => !recentSales.has(p.id));
+  }, [transactions, products]);
+
+  const lastSaleByProduct = useMemo(() => {
+    const result: Record<string, Date | null> = {};
+    for (const product of products) {
+      result[product.id] = null;
+    }
+
+    for (const transaction of transactions) {
+      if (transaction.type !== 'out') continue;
+      const occurredAt = timestampToDate(transaction.occurredAt);
+      const current = result[transaction.productId];
+      if (!current || occurredAt > current) {
+        result[transaction.productId] = occurredAt;
+      }
+    }
+
+    return result;
+  }, [transactions, products]);
+
   const weeklyAvgBoxesByProduct = useMemo(() => {
     const monthRange = getRangeByMonth(selectedMonth);
     const daysInMonth = Math.max(
@@ -560,10 +592,11 @@ export default function App() {
       previousMonth,
       estimatedCommission: currentMonthSales * 0.035 - currentMonthExpenses,
       warningCount: warnings.length,
+      staleCount: staleProducts.length,
       salesMoM,
       expenseMoM
     };
-  }, [selectedMonth, transactions, expenses, warnings.length]);
+  }, [selectedMonth, transactions, expenses, warnings.length, staleProducts.length]);
 
   const loadMoreTransactions = async () => {
     if (isIsolatedMode || !transactionsCursor || loadingMoreTransactions || !hasMoreTransactions) return;
@@ -1326,6 +1359,8 @@ export default function App() {
                   salesReport={salesReport}
                   formatStock={formatStock}
                   warnings={warnings}
+                  staleProducts={staleProducts}
+                  lastSaleByProduct={lastSaleByProduct}
                   weeklyAvgBoxesByProduct={weeklyAvgBoxesByProduct}
                   products={products}
                   homeMetrics={homeMetrics}

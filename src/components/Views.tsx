@@ -223,6 +223,8 @@ interface HomeViewProps {
   };
   formatStock: (total: number, spec: number) => string;
   warnings: Product[];
+  staleProducts: Product[];
+  lastSaleByProduct: Record<string, Date | null>;
   weeklyAvgBoxesByProduct: Record<string, number>;
   products: Product[];
   homeMetrics: {
@@ -230,6 +232,7 @@ interface HomeViewProps {
     previousMonth: string;
     estimatedCommission: number;
     warningCount: number;
+    staleCount: number;
     salesMoM: number | null;
     expenseMoM: number | null;
   };
@@ -237,7 +240,7 @@ interface HomeViewProps {
 
 export const HomeView = ({ 
   stats, formatCurrency, reportPeriod, setReportPeriod, selectedDate, setSelectedDate, 
-  selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, salesReport, formatStock, warnings, weeklyAvgBoxesByProduct, products, homeMetrics
+  selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, salesReport, formatStock, warnings, staleProducts, lastSaleByProduct, weeklyAvgBoxesByProduct, products, homeMetrics
 }: HomeViewProps) => {
   const dateLabel = selectedDate.replaceAll('-', '/');
   const weekLabel = selectedWeek.replace('-W', ' / Week ');
@@ -255,6 +258,30 @@ export const HomeView = ({
     if (weeklySalesDiff !== 0) return weeklySalesDiff;
     return a.name.localeCompare(b.name);
   });
+
+  const sortedStaleProducts = [...staleProducts].sort((a, b) => {
+    const aLast = lastSaleByProduct[a.id];
+    const bLast = lastSaleByProduct[b.id];
+
+    if (!aLast && !bLast) return a.name.localeCompare(b.name);
+    if (!aLast) return -1;
+    if (!bLast) return 1;
+
+    const timeDiff = aLast.getTime() - bLast.getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return a.name.localeCompare(b.name);
+  });
+  const formatLastSaleDate = (value: Date | null) => {
+    if (!value) return '暂无记录';
+    const now = new Date();
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfSaleDay = new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    const diffDays = Math.max(
+      0,
+      Math.floor((endOfToday.getTime() - endOfSaleDay.getTime()) / (1000 * 60 * 60 * 24))
+    );
+    return `距今天 ${diffDays} 天`;
+  };
 
   return (
     <div className="space-y-8">
@@ -344,6 +371,18 @@ export const HomeView = ({
         </div>
         <div className="text-xl font-black text-amber-600 tracking-tight">{homeMetrics.warningCount} 款</div>
         <div className="text-[10px] font-bold text-slate-400 mt-2">当前库存小于 30 箱</div>
+      </div>
+
+      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
+        <div className="absolute -right-6 -top-6 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl group-hover:bg-rose-500/10 transition-colors" />
+        <div className="flex items-center gap-4 mb-4">
+          <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100/50">
+            <AlertTriangle className="text-rose-500" size={24} />
+          </div>
+          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">滞销品</div>
+        </div>
+        <div className="text-xl font-black text-rose-600 tracking-tight">{homeMetrics.staleCount} 款</div>
+        <div className="text-[10px] font-bold text-slate-400 mt-2">近 7 天无销售</div>
       </div>
 
       <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
@@ -527,6 +566,44 @@ export const HomeView = ({
         <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50/30 backdrop-blur-sm p-4 rounded-xl border border-emerald-100/30">
           <CheckCircle2 size={18} />
           <span>库存充足，暂无预警商品</span>
+        </div>
+      )}
+    </div>
+
+    {/* Stale Products Module */}
+    <div className="rounded-2xl p-6 shadow-sm border border-amber-100/60 bg-amber-50/40 backdrop-blur-xl">
+      <div className="flex items-center gap-2 mb-4">
+        <AlertTriangle className="text-amber-500" size={20} />
+        <h2 className="text-lg font-semibold text-slate-800">滞销品明细 (近 7 天无销售)</h2>
+      </div>
+      {sortedStaleProducts.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {sortedStaleProducts.map((p: Product) => (
+            <div key={p.id} className="relative overflow-hidden p-5 rounded-2xl border border-amber-200/50 bg-amber-50/60 backdrop-blur-xl shadow-[0_18px_36px_rgba(251,191,36,0.14)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(251,191,36,0.18)]">
+              {shoeBackgroundMap[normalizeComparableModelKey(p.name)] && (
+                <>
+                  <div
+                    className="absolute inset-0 bg-center bg-cover opacity-[0.07] scale-110"
+                    style={{ backgroundImage: `url(${shoeBackgroundMap[normalizeComparableModelKey(p.name)]})` }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-br from-amber-50/95 via-white/90 to-amber-100/70" />
+                </>
+              )}
+              <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
+              <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
+              <div className="relative z-10 mt-1 text-sm font-semibold text-slate-600">
+                {formatLastSaleDate(lastSaleByProduct[p.id] ?? null)}
+              </div>
+              <div className="relative z-10 mt-2 text-amber-700 font-black">
+                当前库存: {formatStock(p.stock, p.spec)}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50/40 backdrop-blur-sm p-4 rounded-xl border border-emerald-100/40">
+          <CheckCircle2 size={18} />
+          <span>暂无滞销品</span>
         </div>
       )}
     </div>

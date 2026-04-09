@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
-import { Product, Transaction, User, Expense } from '../types';
+import { Product, ProductRiskMetrics, Transaction, User, Expense } from '../types';
 import { formatDateTimeLabel, getRangeByMonth, isWithinRange, monthKeyFromTimestamp } from '../lib/timeWindow';
 
 // --- Components ---
@@ -224,8 +224,7 @@ interface HomeViewProps {
   formatStock: (total: number, spec: number) => string;
   warnings: Product[];
   staleProducts: Product[];
-  lastSaleByProduct: Record<string, Date | null>;
-  weeklyAvgBoxesByProduct: Record<string, number>;
+  productRiskMetricsByProduct: Record<string, ProductRiskMetrics>;
   products: Product[];
   homeMetrics: {
     selectedMonth: string;
@@ -240,7 +239,7 @@ interface HomeViewProps {
 
 export const HomeView = ({ 
   stats, formatCurrency, reportPeriod, setReportPeriod, selectedDate, setSelectedDate, 
-  selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, salesReport, formatStock, warnings, staleProducts, lastSaleByProduct, weeklyAvgBoxesByProduct, products, homeMetrics
+  selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, salesReport, formatStock, warnings, staleProducts, productRiskMetricsByProduct, products, homeMetrics
 }: HomeViewProps) => {
   const dateLabel = selectedDate.replaceAll('-', '/');
   const weekLabel = selectedWeek.replace('-W', ' / Week ');
@@ -254,33 +253,29 @@ export const HomeView = ({
   };
 
   const sortedWarnings = [...warnings].sort((a, b) => {
-    const weeklySalesDiff = (weeklyAvgBoxesByProduct[b.id] ?? 0) - (weeklyAvgBoxesByProduct[a.id] ?? 0);
+    const weeklySalesDiff =
+      ((productRiskMetricsByProduct[b.id]?.avgDailyBoxes30d ?? 0) * 7) -
+      ((productRiskMetricsByProduct[a.id]?.avgDailyBoxes30d ?? 0) * 7);
     if (weeklySalesDiff !== 0) return weeklySalesDiff;
     return a.name.localeCompare(b.name);
   });
 
   const sortedStaleProducts = [...staleProducts].sort((a, b) => {
-    const aLast = lastSaleByProduct[a.id];
-    const bLast = lastSaleByProduct[b.id];
+    const aDays = productRiskMetricsByProduct[a.id]?.daysSinceLastSale ?? null;
+    const bDays = productRiskMetricsByProduct[b.id]?.daysSinceLastSale ?? null;
 
-    if (!aLast && !bLast) return a.name.localeCompare(b.name);
-    if (!aLast) return -1;
-    if (!bLast) return 1;
+    if (aDays === null && bDays === null) return a.name.localeCompare(b.name);
+    if (aDays === null) return -1;
+    if (bDays === null) return 1;
 
-    const timeDiff = aLast.getTime() - bLast.getTime();
+    const timeDiff = bDays - aDays;
     if (timeDiff !== 0) return timeDiff;
     return a.name.localeCompare(b.name);
   });
-  const formatLastSaleDate = (value: Date | null) => {
-    if (!value) return '暂无记录';
-    const now = new Date();
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfSaleDay = new Date(value.getFullYear(), value.getMonth(), value.getDate());
-    const diffDays = Math.max(
-      0,
-      Math.floor((endOfToday.getTime() - endOfSaleDay.getTime()) / (1000 * 60 * 60 * 24))
-    );
-    return `距今天 ${diffDays} 天`;
+
+  const formatLastSaleDate = (metrics: ProductRiskMetrics | undefined) => {
+    if (!metrics || metrics.daysSinceLastSale === null) return '暂无销售记录';
+    return `距今天 ${metrics.daysSinceLastSale} 天`;
   };
 
   return (
@@ -382,7 +377,7 @@ export const HomeView = ({
           <div className="text-sm font-black text-slate-400 uppercase tracking-widest">滞销品</div>
         </div>
         <div className="text-xl font-black text-rose-600 tracking-tight">{homeMetrics.staleCount} 款</div>
-        <div className="text-[10px] font-bold text-slate-400 mt-2">近 7 天无销售</div>
+        <div className="text-[10px] font-bold text-slate-400 mt-2">30天无销售且库存&gt;0</div>
       </div>
 
       <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
@@ -536,7 +531,7 @@ export const HomeView = ({
     <div className="glass rounded-2xl p-6 shadow-sm border-white/20">
       <div className="flex items-center gap-2 mb-4">
         <AlertTriangle className="text-amber-500" size={20} />
-        <h2 className="text-lg font-semibold text-slate-800">库存预警 (少于30箱)</h2>
+        <h2 className="text-lg font-semibold text-slate-800">库存预警 (库存&lt;30箱 或 可售&lt;14天)</h2>
       </div>
       {sortedWarnings.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -554,7 +549,15 @@ export const HomeView = ({
               <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
               <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
               <div className="relative z-10 mt-1 text-sm font-semibold text-slate-600">
-                周均销量: {(weeklyAvgBoxesByProduct[p.id] ?? 0).toFixed(1)} 箱
+                近30天周均销量: {((productRiskMetricsByProduct[p.id]?.avgDailyBoxes30d ?? 0) * 7).toFixed(1)} 箱
+              </div>
+              <div className="relative z-10 mt-1 text-xs font-semibold text-slate-600">
+                可售天数: {Number.isFinite(productRiskMetricsByProduct[p.id]?.daysOfCover ?? Number.POSITIVE_INFINITY)
+                  ? `${(productRiskMetricsByProduct[p.id]?.daysOfCover ?? 0).toFixed(1)} 天`
+                  : '∞'}
+              </div>
+              <div className="relative z-10 mt-1 text-xs font-bold text-rose-600">
+                触发原因: {(productRiskMetricsByProduct[p.id]?.warningReasons ?? []).join(' / ')}
               </div>
               <div className="relative z-10 mt-2 text-rose-600 font-black">
                 当前库存: {formatStock(p.stock, p.spec)}
@@ -574,7 +577,7 @@ export const HomeView = ({
     <div className="rounded-2xl p-6 shadow-sm border border-amber-100/60 bg-amber-50/40 backdrop-blur-xl">
       <div className="flex items-center gap-2 mb-4">
         <AlertTriangle className="text-amber-500" size={20} />
-        <h2 className="text-lg font-semibold text-slate-800">滞销品明细 (近 7 天无销售)</h2>
+        <h2 className="text-lg font-semibold text-slate-800">滞销品明细 (30天无销售且库存&gt;0)</h2>
       </div>
       {sortedStaleProducts.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -592,7 +595,7 @@ export const HomeView = ({
               <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
               <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
               <div className="relative z-10 mt-1 text-sm font-semibold text-slate-600">
-                {formatLastSaleDate(lastSaleByProduct[p.id] ?? null)}
+                {formatLastSaleDate(productRiskMetricsByProduct[p.id])}
               </div>
               <div className="relative z-10 mt-2 text-amber-700 font-black">
                 当前库存: {formatStock(p.stock, p.spec)}

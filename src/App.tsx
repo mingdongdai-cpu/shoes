@@ -41,7 +41,7 @@ import {
   type DocumentData,
   type QueryDocumentSnapshot
 } from 'firebase/firestore';
-import { Product, Transaction, User, View, Toast, Expense } from './types';
+import { Product, ProductRiskMetrics, Transaction, User, View, Toast, Expense } from './types';
 import { LoginView, HomeView, StockView, ProductsView, ExpensesView } from './components/Views';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate } from './lib/timeWindow';
 
@@ -462,64 +462,89 @@ export default function App() {
     };
   }, [products, transactions]);
 
-  const warnings = useMemo(() => {
-    return products.filter(p => p.stock < p.spec * 30);
-  }, [products]);
+  const productRiskMetricsByProduct = useMemo(() => {
+    const STOCK_WARNING_BOX_THRESHOLD = 30;
+    const DAYS_OF_COVER_WARNING_THRESHOLD = 14;
+    const STALE_DAYS_THRESHOLD = 30;
+    const LOOKBACK_DAYS = 30;
+    const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-  const staleProducts = useMemo(() => {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 7);
-    cutoff.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const lookbackStart = new Date(todayStart);
+    lookbackStart.setDate(lookbackStart.getDate() - LOOKBACK_DAYS);
 
-    const recentSales = new Set(
-      transactions
-        .filter(t => t.type === 'out' && timestampToDate(t.occurredAt) >= cutoff)
-        .map(t => t.productId)
-    );
+    const recentOutQtyByProduct: Record<string, number> = {};
+    const lastSaleByProduct: Record<string, Date | null> = {};
 
-    return products.filter(p => !recentSales.has(p.id));
-  }, [transactions, products]);
-
-  const lastSaleByProduct = useMemo(() => {
-    const result: Record<string, Date | null> = {};
     for (const product of products) {
-      result[product.id] = null;
+      recentOutQtyByProduct[product.id] = 0;
+      lastSaleByProduct[product.id] = null;
     }
 
     for (const transaction of transactions) {
       if (transaction.type !== 'out') continue;
+      if (!(transaction.productId in recentOutQtyByProduct)) continue;
       const occurredAt = timestampToDate(transaction.occurredAt);
-      const current = result[transaction.productId];
-      if (!current || occurredAt > current) {
-        result[transaction.productId] = occurredAt;
+
+      if (occurredAt >= lookbackStart) {
+        recentOutQtyByProduct[transaction.productId] += transaction.quantity;
+      }
+
+      const currentLastSale = lastSaleByProduct[transaction.productId];
+      if (!currentLastSale || occurredAt > currentLastSale) {
+        lastSaleByProduct[transaction.productId] = occurredAt;
       }
     }
 
-    return result;
-  }, [transactions, products]);
-
-  const weeklyAvgBoxesByProduct = useMemo(() => {
-    const monthRange = getRangeByMonth(selectedMonth);
-    const daysInMonth = Math.max(
-      1,
-      Math.floor((monthRange.end.getTime() - monthRange.start.getTime()) / (1000 * 60 * 60 * 24)) + 1
-    );
-    const weeksInMonth = daysInMonth / 7;
-
-    const monthlyOutQtyByProduct: Record<string, number> = {};
-    for (const transaction of transactions) {
-      if (transaction.type !== 'out' || !isWithinRange(transaction.occurredAt, monthRange)) continue;
-      monthlyOutQtyByProduct[transaction.productId] = (monthlyOutQtyByProduct[transaction.productId] || 0) + transaction.quantity;
-    }
-
-    const result: Record<string, number> = {};
+    const metricsMap: Record<string, ProductRiskMetrics> = {};
     for (const product of products) {
-      const productSpec = product.spec > 0 ? product.spec : 1;
-      const monthlyBoxes = (monthlyOutQtyByProduct[product.id] || 0) / productSpec;
-      result[product.id] = monthlyBoxes / weeksInMonth;
+      const spec = product.spec > 0 ? product.spec : 1;
+      const stockBoxes = product.stock / spec;
+      const outBoxes30d = recentOutQtyByProduct[product.id] / spec;
+      const avgDailyBoxes30d = outBoxes30d / LOOKBACK_DAYS;
+      const daysOfCover = avgDailyBoxes30d > 0 ? stockBoxes / avgDailyBoxes30d : Number.POSITIVE_INFINITY;
+      const lastSaleAt = lastSaleByProduct[product.id];
+      const daysSinceLastSale = lastSaleAt
+        ? Math.max(
+            0,
+            Math.floor(
+              (todayStart.getTime() - new Date(lastSaleAt.getFullYear(), lastSaleAt.getMonth(), lastSaleAt.getDate()).getTime()) / MS_PER_DAY
+            )
+          )
+        : null;
+
+      const warningReasons: string[] = [];
+      if (stockBoxes < STOCK_WARNING_BOX_THRESHOLD) {
+        warningReasons.push('库存低于30箱');
+      }
+      if (daysOfCover < DAYS_OF_COVER_WARNING_THRESHOLD) {
+        warningReasons.push('可售天数低于14天');
+      }
+
+      metricsMap[product.id] = {
+        productId: product.id,
+        stockBoxes,
+        avgDailyBoxes30d,
+        daysOfCover,
+        lastSaleAt,
+        daysSinceLastSale,
+        isWarning: warningReasons.length > 0,
+        isStale: stockBoxes > 0 && (daysSinceLastSale === null || daysSinceLastSale >= STALE_DAYS_THRESHOLD),
+        warningReasons
+      };
     }
-    return result;
-  }, [selectedMonth, transactions, products]);
+
+    return metricsMap;
+  }, [products, transactions]);
+
+  const warnings = useMemo(() => {
+    return products.filter((product) => productRiskMetricsByProduct[product.id]?.isWarning);
+  }, [products, productRiskMetricsByProduct]);
+
+  const staleProducts = useMemo(() => {
+    return products.filter((product) => productRiskMetricsByProduct[product.id]?.isStale);
+  }, [products, productRiskMetricsByProduct]);
 
   const currentReportRange = useMemo(() => {
     return getRangeByPeriod(reportPeriod, selectedDate, selectedWeek, selectedMonth);
@@ -1360,8 +1385,7 @@ export default function App() {
                   formatStock={formatStock}
                   warnings={warnings}
                   staleProducts={staleProducts}
-                  lastSaleByProduct={lastSaleByProduct}
-                  weeklyAvgBoxesByProduct={weeklyAvgBoxesByProduct}
+                  productRiskMetricsByProduct={productRiskMetricsByProduct}
                   products={products}
                   homeMetrics={homeMetrics}
                 />

@@ -51,3 +51,15 @@ export interface Toast {
   message: string;
   type: 'success' | 'error';
 }
+
+export interface ProductRiskMetrics {
+  productId: string;
+  stockBoxes: number;
+  avgDailyBoxes30d: number;
+  daysOfCover: number;
+  lastSaleAt: Date | null;
+  daysSinceLastSale: number | null;
+  isWarning: boolean;
+  isStale: boolean;
+  warningReasons: string[];
+}

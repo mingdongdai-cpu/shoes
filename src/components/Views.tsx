@@ -1674,6 +1674,13 @@ export const ExpensesView = ({
   loadingMoreExpenses: boolean,
   loadMoreExpenses: () => Promise<void>
 }) => {
+  const expenseCategoryOptions = [
+    '日常运营',
+    '运费',
+    '杂费',
+    '员工工资'
+  ] as const;
+
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [remark, setRemark] = useState('');
@@ -1778,14 +1785,21 @@ export const ExpensesView = ({
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">支出项目/类别</label>
-                <input
-                  type="text"
+                <select
                   required
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  placeholder="例如：房租、运费、餐费"
                   className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-rose-500 focus:border-rose-500 py-3 font-bold"
-                />
+                >
+                  <option value="" disabled>
+                    请选择支出类别
+                  </option>
+                  {expenseCategoryOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">日期</label>

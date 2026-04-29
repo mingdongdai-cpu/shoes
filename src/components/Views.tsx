@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
+import * as XLSX from 'xlsx-js-style';
 import { Product, ProductRiskMetrics, Transaction, User, Expense } from '../types';
 import { formatDateTimeLabel, getRangeByMonth, isWithinRange, monthKeyFromTimestamp } from '../lib/timeWindow';
 
@@ -557,12 +558,68 @@ export const InventoryOverviewView = ({
     });
   }, [products, totalSoldByProduct]);
 
+  const handleExportWarningList = () => {
+    const header = ['名称', '规格', '剩余库存'];
+    const body = sortedWarnings.map((p: Product) => [p.name, `${p.spec} 个/箱`, formatStock(p.stock, p.spec)]);
+    const table = [header, ...body];
+
+    const worksheet = XLSX.utils.aoa_to_sheet(table);
+    worksheet['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 18 }];
+    worksheet['!rows'] = table.map((_, index) => ({ hpt: index === 0 ? 26 : 22 }));
+
+    const range = XLSX.utils.decode_range(worksheet['!ref'] ?? 'A1:C1');
+    for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex += 1) {
+      for (let colIndex = range.s.c; colIndex <= range.e.c; colIndex += 1) {
+        const cellAddress = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+        const cell = worksheet[cellAddress];
+        if (!cell) continue;
+
+        const isHeader = rowIndex === 0;
+        cell.s = {
+          alignment: {
+            horizontal: 'center',
+            vertical: 'center'
+          },
+          font: {
+            name: 'Microsoft YaHei',
+            sz: isHeader ? 12 : 11,
+            bold: isHeader,
+            color: { rgb: '1E293B' }
+          },
+          fill: {
+            fgColor: { rgb: isHeader ? 'E8EEFF' : 'FFFFFF' }
+          },
+          border: {
+            top: { style: 'thin', color: { rgb: 'D6DCE8' } },
+            bottom: { style: 'thin', color: { rgb: 'D6DCE8' } },
+            left: { style: 'thin', color: { rgb: 'D6DCE8' } },
+            right: { style: 'thin', color: { rgb: 'D6DCE8' } }
+          }
+        };
+      }
+    }
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '要货列表');
+    XLSX.writeFile(workbook, '要货列表.xlsx');
+  };
+
   return (
     <div className="space-y-8">
       <div className="glass rounded-2xl p-6 shadow-sm border-white/20">
-        <div className="flex items-center gap-2 mb-4">
-          <AlertTriangle className="text-amber-500" size={20} />
-          <h2 className="text-lg font-semibold text-slate-800">库存预警 (库存&lt;30箱 或 可售&lt;14天)</h2>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="text-amber-500" size={20} />
+            <h2 className="text-lg font-semibold text-slate-800">库存预警 (库存&lt;30箱 或 可售&lt;14天)</h2>
+          </div>
+          <button
+            type="button"
+            onClick={handleExportWarningList}
+            disabled={sortedWarnings.length === 0}
+            className="inline-flex items-center justify-center rounded-xl border border-indigo-200/60 bg-indigo-500/90 px-4 py-2 text-sm font-bold text-white shadow-[0_12px_26px_rgba(99,102,241,0.28)] transition-all hover:bg-indigo-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
+          >
+            导出要货列表
+          </button>
         </div>
         {sortedWarnings.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

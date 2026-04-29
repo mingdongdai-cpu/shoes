@@ -6,6 +6,7 @@ export interface Product {
   spec: number; // Items per box
   price: number; // Price per item
   stock: number; // Total items
+  createdAt?: Timestamp;
 }
 
 export interface Transaction {
@@ -25,16 +26,6 @@ export interface User {
   role: 'admin' | 'staff';
 }
 
-export interface Vehicle {
-  id: string;
-  name: string;
-  lastUpdate: string;
-  location: string;
-  status: 'moving' | 'stopped' | 'offline';
-  lat: number;
-  lng: number;
-}
-
 export interface Expense {
   id: string;
   occurredAt: Timestamp;
@@ -44,7 +35,7 @@ export interface Expense {
   remark: string;
 }
 
-export type View = 'home' | 'stock' | 'products' | 'gps' | 'expenses';
+export type View = 'home' | 'inventory' | 'stock' | 'products' | 'expenses';
 
 export interface Toast {
   id: number;

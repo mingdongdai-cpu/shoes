@@ -10,7 +10,6 @@ import {
   ArrowLeftRight, 
   XCircle,
   CheckCircle2,
-  Pencil,
   AlertTriangle,
   Wallet
 } from 'lucide-react';
@@ -32,7 +31,6 @@ import {
   doc, 
   query, 
   orderBy,
-  getDocFromServer,
   getDocs,
   limit,
   runTransaction,
@@ -42,7 +40,7 @@ import {
   type QueryDocumentSnapshot
 } from 'firebase/firestore';
 import { Product, ProductRiskMetrics, Transaction, User, View, Toast, Expense } from './types';
-import { LoginView, HomeView, StockView, ProductsView, ExpensesView } from './components/Views';
+import { LoginView, HomeView, InventoryOverviewView, StockView, ProductsView, ExpensesView } from './components/Views';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate } from './lib/timeWindow';
 
 
@@ -183,10 +181,9 @@ const getTogoWeek = () => {
   return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`;
 };
 
-const isIsolatedMode = import.meta.env.VITE_ISOLATED_MODE === 'true';
-const makeLocalId = (prefix: string) =>
-  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const PAGE_SIZE = 200;
+const IN_TOTAL_BASELINE_VALUE = 193154500;
+const IN_TOTAL_BASELINE_DATE = new Date(2026, 3, 23, 0, 0, 0, 0);
 
 function coerceTimestamp(primary: unknown, legacyDate: unknown): Timestamp {
   if (primary instanceof Timestamp) return primary;
@@ -224,6 +221,34 @@ function mapExpenseDoc(id: string, data: DocumentData): Expense {
     category: String(data.category ?? ''),
     remark: String(data.remark ?? '')
   };
+}
+
+function coerceProductCreatedAt(value: unknown): Timestamp {
+  if (value instanceof Timestamp) return value;
+  if (typeof value === 'string') {
+    const parsed = new Date(value.replace(' ', 'T'));
+    if (!Number.isNaN(parsed.getTime())) return Timestamp.fromDate(parsed);
+  }
+  return Timestamp.fromDate(new Date(0));
+}
+
+function mapProductDoc(id: string, data: DocumentData): Product {
+  return {
+    id,
+    name: String(data.name ?? ''),
+    spec: Number(data.spec ?? 0),
+    price: Number(data.price ?? 0),
+    stock: Number(data.stock ?? 0),
+    createdAt: coerceProductCreatedAt(data.createdAt)
+  };
+}
+
+function sortProductsByCreatedAtDesc(items: Product[]): Product[] {
+  return [...items].sort((a, b) => {
+    const millisDiff = (b.createdAt?.toMillis() ?? 0) - (a.createdAt?.toMillis() ?? 0);
+    if (millisDiff !== 0) return millisDiff;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 function timestampFromDateInput(dateValue: string): Timestamp {
@@ -276,24 +301,6 @@ export default function App() {
 
   // --- Firebase Auth & Persistence ---
   useEffect(() => {
-    if (isIsolatedMode) {
-      setHasMoreTransactions(false);
-      setHasMoreExpenses(false);
-      setLoading(false);
-      return;
-    }
-
-    async function testConnection() {
-      try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration. ");
-        }
-      }
-    }
-    testConnection();
-
     let unsubscribe: (() => void) | undefined;
 
     // Set persistence to session-based (requires re-login after closing browser)
@@ -339,20 +346,18 @@ export default function App() {
 
   // --- Firebase Data Sync ---
   useEffect(() => {
-    if (isIsolatedMode) return;
-
     // 确保不仅 user 状态存在，Firebase 底层 auth 对象也已识别到当前用户
     if (!user || !auth.currentUser) return;
 
     // Sync Products
-    const qProducts = query(collection(db, 'products'), orderBy('name'));
+    const qProducts = query(collection(db, 'products'));
     const unsubscribeProducts = onSnapshot(qProducts, 
       (snapshot) => {
         const productsData: Product[] = [];
         snapshot.forEach((itemDoc) => {
-          productsData.push({ id: itemDoc.id, ...itemDoc.data() } as Product);
+          productsData.push(mapProductDoc(itemDoc.id, itemDoc.data()));
         });
-        setProducts(productsData);
+        setProducts(sortProductsByCreatedAtDesc(productsData));
       },
       (error) => {
         handleFirestoreError(error, OperationType.GET, 'products');
@@ -451,7 +456,11 @@ export default function App() {
 
   // --- Computed Data ---
   const stats = useMemo(() => {
-    const inTotal = products.reduce((sum, p) => sum + p.stock * p.price, 0);
+    const inAfterBaseline = transactions
+      .filter(t => t.type === 'in')
+      .filter(t => timestampToDate(t.occurredAt) >= IN_TOTAL_BASELINE_DATE)
+      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
+    const inTotal = IN_TOTAL_BASELINE_VALUE + inAfterBaseline;
     const outTotal = transactions
       .filter(t => t.type === 'out')
       .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
@@ -460,7 +469,7 @@ export default function App() {
       outTotal,
       balance: inTotal - outTotal
     };
-  }, [products, transactions]);
+  }, [transactions]);
 
   const productRiskMetricsByProduct = useMemo(() => {
     const STOCK_WARNING_BOX_THRESHOLD = 30;
@@ -576,7 +585,13 @@ export default function App() {
       .reduce((sum, e) => sum + e.amount, 0);
 
     return {
-      items: Object.values(reportMap).sort((a, b) => b.amount - a.amount),
+      items: Object.values(reportMap).sort((a, b) => {
+        const aBoxes = a.quantity / (a.spec || 1);
+        const bBoxes = b.quantity / (b.spec || 1);
+        if (bBoxes !== aBoxes) return bBoxes - aBoxes;
+        if (b.amount !== a.amount) return b.amount - a.amount;
+        return a.name.localeCompare(b.name);
+      }),
       totalAmount: filtered.reduce((sum, t) => sum + t.quantity * t.unitPrice, 0),
       totalQuantity: filtered.reduce((sum, t) => sum + t.quantity, 0),
       totalExpenses
@@ -624,7 +639,7 @@ export default function App() {
   }, [selectedMonth, transactions, expenses, warnings.length, staleProducts.length]);
 
   const loadMoreTransactions = async () => {
-    if (isIsolatedMode || !transactionsCursor || loadingMoreTransactions || !hasMoreTransactions) return;
+    if (!transactionsCursor || loadingMoreTransactions || !hasMoreTransactions) return;
     try {
       setLoadingMoreTransactions(true);
       const q = query(
@@ -653,7 +668,7 @@ export default function App() {
   };
 
   const loadMoreExpenses = async () => {
-    if (isIsolatedMode || !expensesCursor || loadingMoreExpenses || !hasMoreExpenses) return;
+    if (!expensesCursor || loadingMoreExpenses || !hasMoreExpenses) return;
     try {
       setLoadingMoreExpenses(true);
       const q = query(
@@ -683,18 +698,6 @@ export default function App() {
 
   // --- Actions ---
   const handleLogin = async (username: string, pass: string) => {
-    if (isIsolatedMode) {
-      if (!username || !pass) {
-        showToast('请输入用户名和密码', 'error');
-        return false;
-      }
-      const normalized = username.trim().toLowerCase();
-      const role = normalized.includes('admin') ? 'admin' : 'staff';
-      setUser({ uid: `local-${normalized || 'user'}`, username: username.trim(), role });
-      showToast('隔离模式登录成功');
-      return true;
-    }
-
     const normalized = username.trim().toLowerCase();
     try {
       // 统一用户名输入，确保 admin/staff 可稳定登录
@@ -725,15 +728,6 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    if (isIsolatedMode) {
-      setUser(null);
-      setProducts([]);
-      setTransactions([]);
-      setExpenses([]);
-      showToast('已退出隔离模式会话');
-      return;
-    }
-
     try {
       await signOut(auth);
       showToast('已退出登录');
@@ -751,24 +745,13 @@ export default function App() {
       showToast('商品名称已存在', 'error');
       return false;
     }
-    if (isIsolatedMode) {
-      const nextProduct: Product = {
-        id: makeLocalId('product'),
-        name,
-        spec,
-        price,
-        stock: 0
-      };
-      setProducts(prev => [...prev, nextProduct].sort((a, b) => a.name.localeCompare(b.name)));
-      showToast('隔离模式：商品添加成功');
-      return true;
-    }
     try {
       await addDoc(collection(db, 'products'), {
         name,
         spec,
         price,
-        stock: 0
+        stock: 0,
+        createdAt: Timestamp.now()
       });
       showToast('商品添加成功');
       return true;
@@ -788,11 +771,6 @@ export default function App() {
       showToast('请先清空库存再删除', 'error');
       return;
     }
-    if (isIsolatedMode) {
-      setProducts(prev => prev.filter(p => p.id !== id));
-      showToast('隔离模式：商品已删除');
-      return;
-    }
     try {
       await deleteDoc(doc(db, 'products', id));
       showToast('商品已删除');
@@ -801,7 +779,7 @@ export default function App() {
     }
   };
 
-  const updateProductStock = async (id: string, newStock: number) => {
+  const updateProductStock = async (id: string, newStock: number, nextName?: string, nextSpec?: number) => {
     if (user?.role !== 'admin') {
       showToast('权限不足', 'error');
       return false;
@@ -811,16 +789,51 @@ export default function App() {
       return false;
     }
 
-    if (isIsolatedMode) {
-      setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, stock: newStock } : p)));
-      showToast('隔离模式：库存修改成功');
-      return true;
+    const targetProduct = products.find((product) => product.id === id);
+    if (!targetProduct) {
+      showToast('商品不存在', 'error');
+      return false;
+    }
+
+    const wantsMetaUpdate = nextName !== undefined || nextSpec !== undefined;
+    if (wantsMetaUpdate && targetProduct.stock !== 0) {
+      showToast('仅当库存为0时才可修改商品名和规格', 'error');
+      return false;
+    }
+
+    const normalizedName = nextName?.trim();
+    if (normalizedName !== undefined && !normalizedName) {
+      showToast('商品名不能为空', 'error');
+      return false;
+    }
+
+    if (nextSpec !== undefined && (!Number.isInteger(nextSpec) || nextSpec <= 0)) {
+      showToast('规格必须是大于0的整数', 'error');
+      return false;
+    }
+
+    if (normalizedName !== undefined) {
+      const duplicated = products.some(
+        (product) => product.id !== id && product.name.toLowerCase() === normalizedName.toLowerCase()
+      );
+      if (duplicated) {
+        showToast('商品名称已存在', 'error');
+        return false;
+      }
     }
 
     try {
       const productRef = doc(db, 'products', id);
-      await updateDoc(productRef, { stock: newStock });
-      showToast('库存修改成功');
+      const patch: { stock: number; name?: string; spec?: number } = { stock: newStock };
+      if (normalizedName !== undefined) {
+        patch.name = normalizedName;
+      }
+      if (nextSpec !== undefined) {
+        patch.spec = nextSpec;
+      }
+
+      await updateDoc(productRef, patch);
+      showToast(wantsMetaUpdate ? '商品信息与库存修改成功' : '库存修改成功');
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `products/${id}`);
@@ -852,14 +865,6 @@ export default function App() {
       const newStock = t.type === 'in' ? currentStock - t.quantity : currentStock + t.quantity;
       if (newStock < 0) {
         showToast('删除失败：回滚后库存将变为负数，操作已取消', 'error');
-        return;
-      }
-
-      if (isIsolatedMode) {
-        setProducts(prev => prev.map(p => (p.id === t.productId ? { ...p, stock: newStock } : p)));
-        setTransactions(prev => prev.filter(trans => trans.id !== id));
-        showToast('隔离模式：流水已删除，库存已回滚');
-        setConfirmDeleteId(null);
         return;
       }
 
@@ -906,26 +911,6 @@ export default function App() {
     if (type === 'out' && totalQuantity > product.stock) {
       showToast('库存不足', 'error');
       return false;
-    }
-
-    if (isIsolatedMode) {
-      const currentStock = product.stock || 0;
-      const newStock = type === 'in' ? currentStock + totalQuantity : currentStock - totalQuantity;
-      const nextTransaction: Transaction = {
-        id: makeLocalId('transaction'),
-        productId,
-        type,
-        quantity: totalQuantity,
-        unitPrice: product.price,
-        occurredAt: Timestamp.now(),
-        operatorUid: user.uid,
-        remark
-      };
-
-      setProducts(prev => prev.map(p => (p.id === productId ? { ...p, stock: newStock } : p)));
-      setTransactions(prev => [nextTransaction, ...prev]);
-      showToast(type === 'in' ? '隔离模式：入库成功' : '隔离模式：出库成功');
-      return true;
     }
 
     try {
@@ -1002,47 +987,18 @@ export default function App() {
         continue;
       }
 
-      if (isIsolatedMode) {
-        const productId = makeLocalId('product');
-        setProducts(prev => [
-          ...prev,
-          {
-            id: productId,
-            name: pName,
-            spec: pSpec,
-            price: pPrice,
-            stock: pStock
-          }
-        ].sort((a, b) => a.name.localeCompare(b.name)));
-        if (pStock > 0) {
-          setTransactions(prev => [
-            {
-              id: makeLocalId('transaction'),
-              productId,
-              type: 'in',
-              quantity: pStock,
-              unitPrice: pPrice,
-              occurredAt: Timestamp.now(),
-              operatorUid: user.uid,
-              remark: '隔离模式批量导入初始库存'
-            },
-            ...prev
-          ]);
-        }
-        successCount++;
-        continue;
-      }
-
       try {
         if (!auth.currentUser?.uid) throw new Error('登录状态异常');
         const productRef = doc(collection(db, 'products'));
         const initTransactionRef = doc(collection(db, 'transactions'));
         await runTransaction(db, async (trx) => {
+          const createdAt = Timestamp.now();
           trx.set(productRef, {
             name: pName,
             spec: pSpec,
             price: pPrice,
-            stock: pStock
+            stock: pStock,
+            createdAt
           });
 
           if (pStock > 0) {
@@ -1093,58 +1049,6 @@ export default function App() {
       if (!oldProduct || !newProduct) {
         showToast('商品信息错误', 'error');
         return false;
-      }
-
-      if (isIsolatedMode) {
-        let oldProductFinalStock = oldProduct.stock || 0;
-        if (t.type === 'in') {
-          oldProductFinalStock -= t.quantity;
-        } else {
-          oldProductFinalStock += t.quantity;
-        }
-
-        const newProductCurrentStock = newProduct.stock || 0;
-        let newProductFinalStock =
-          newType === 'in'
-            ? newProductCurrentStock + newQuantity
-            : newProductCurrentStock - newQuantity;
-
-        if (oldProduct.id === newProduct.id) {
-          newProductFinalStock =
-            newType === 'in'
-              ? oldProductFinalStock + newQuantity
-              : oldProductFinalStock - newQuantity;
-        }
-
-        if (oldProductFinalStock < 0 || newProductFinalStock < 0) {
-          showToast('修改失败：库存将变为负数', 'error');
-          return false;
-        }
-
-        setProducts(prev => prev.map(p => {
-          if (oldProduct.id === newProduct.id && p.id === oldProduct.id) {
-            return { ...p, stock: newProductFinalStock };
-          }
-          if (p.id === oldProduct.id) return { ...p, stock: oldProductFinalStock };
-          if (p.id === newProduct.id) return { ...p, stock: newProductFinalStock };
-          return p;
-        }));
-
-        setTransactions(prev => prev.map(trans => (
-          trans.id === transactionId
-            ? {
-                ...trans,
-                productId: newProductId,
-                type: newType,
-                quantity: newQuantity,
-                remark: newRemark
-              }
-            : trans
-        )));
-
-        showToast('隔离模式：流水修改成功，库存已同步');
-        setEditingTransaction(null);
-        return true;
       }
 
       if (!auth.currentUser?.uid) {
@@ -1222,19 +1126,6 @@ export default function App() {
       return false;
     }
     const occurredAt = timestampFromDateInput(date);
-    if (isIsolatedMode) {
-      const nextExpense: Expense = {
-        id: makeLocalId('expense'),
-        occurredAt,
-        operatorUid: user.uid,
-        amount,
-        category,
-        remark
-      };
-      setExpenses(prev => [nextExpense, ...prev]);
-      showToast('隔离模式：记账成功');
-      return true;
-    }
     try {
       if (!auth.currentUser?.uid) {
         showToast('登录状态异常，请重新登录', 'error');
@@ -1258,12 +1149,6 @@ export default function App() {
   const deleteExpense = async (id: string) => {
     if (user?.role !== 'admin') {
       showToast('权限不足', 'error');
-      return;
-    }
-    if (isIsolatedMode) {
-      setExpenses(prev => prev.filter(expense => expense.id !== id));
-      showToast('隔离模式：记录已删除');
-      setConfirmDeleteExpenseId(null);
       return;
     }
     try {
@@ -1303,11 +1188,6 @@ export default function App() {
                   <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                     <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                     <span className="truncate">{user.role === 'admin' ? '管理员' : '查询员'} · {user.username}</span>
-                    {isIsolatedMode && (
-                      <span className="px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-700">
-                        隔离模式
-                      </span>
-                    )}
                   </div>
                 </div>
               </div>
@@ -1319,6 +1199,12 @@ export default function App() {
                   onClick={() => setCurrentView('home')}
                   icon={<LayoutDashboard size={18} />}
                   label="首页概览"
+                />
+                <NavButton
+                  active={currentView === 'inventory'}
+                  onClick={() => setCurrentView('inventory')}
+                  icon={<AlertTriangle size={18} />}
+                  label="库存概况"
                 />
                 <NavButton 
                   active={currentView === 'stock'} 
@@ -1383,11 +1269,17 @@ export default function App() {
                 setSelectedMonth={setSelectedMonth}
                   salesReport={salesReport}
                   formatStock={formatStock}
+                  homeMetrics={homeMetrics}
+                />
+              )}
+              {currentView === 'inventory' && (
+                <InventoryOverviewView
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
                   products={products}
-                  homeMetrics={homeMetrics}
+                  transactions={transactions}
+                  formatStock={formatStock}
                 />
               )}
               {currentView === 'stock' && (
@@ -1469,12 +1361,19 @@ export default function App() {
         aria-label="手机底部导航"
       >
         <div className="ios-dock p-2">
-          <div className="grid grid-cols-4 gap-1">
+          <div className="grid grid-cols-5 gap-1">
             <NavButton
               active={currentView === 'home'}
               onClick={() => setCurrentView('home')}
               icon={<LayoutDashboard size={18} />}
               label="首页"
+              variant="mobile"
+            />
+            <NavButton
+              active={currentView === 'inventory'}
+              onClick={() => setCurrentView('inventory')}
+              icon={<AlertTriangle size={18} />}
+              label="库存"
               variant="mobile"
             />
             <NavButton

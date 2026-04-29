@@ -27,12 +27,6 @@ Prerequisites:
 - Access to the configured Firebase project
 - A valid user in Firebase Auth
 
-### Isolation Mode (default)
-
-- The app now starts in isolated mode by default to protect production data.
-- In isolated mode, login/data CRUD are local-memory only and do not read/write Firebase.
-- To enable isolation mode (no Firebase reads/writes), set `VITE_ISOLATED_MODE=true` before running the app.
-
 Install dependencies:
 - npm install
 

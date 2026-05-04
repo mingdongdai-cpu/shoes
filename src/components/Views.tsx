@@ -558,10 +558,14 @@ export const InventoryOverviewView = ({
     });
   }, [products, totalSoldByProduct]);
 
-  const handleExportWarningList = () => {
+  const toRemainingBoxesNumber = (stock: number, spec: number): number => {
+    const boxes = stock / spec;
+    return Number.isInteger(boxes) ? boxes : Number(boxes.toFixed(2));
+  };
+
+  const exportStyledSheet = (rows: Array<Array<string | number>>, sheetName: string, fileName: string) => {
     const header = ['名称', '规格', '剩余库存'];
-    const body = sortedWarnings.map((p: Product) => [p.name, `${p.spec} 个/箱`, formatStock(p.stock, p.spec)]);
-    const table = [header, ...body];
+    const table = [header, ...rows];
 
     const worksheet = XLSX.utils.aoa_to_sheet(table);
     worksheet['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 18 }];
@@ -600,8 +604,18 @@ export const InventoryOverviewView = ({
     }
 
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, '要货列表');
-    XLSX.writeFile(workbook, '要货列表.xlsx');
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    XLSX.writeFile(workbook, fileName);
+  };
+
+  const handleExportWarningList = () => {
+    const rows = sortedWarnings.map((p: Product) => [p.name, `${p.spec} 个/箱`, toRemainingBoxesNumber(p.stock, p.spec)]);
+    exportStyledSheet(rows, '要货列表', '要货列表.xlsx');
+  };
+
+  const handleExportRemainingStock = () => {
+    const rows = sortedProducts.map((p: Product) => [p.name, `${p.spec} 个/箱`, toRemainingBoxesNumber(p.stock, p.spec)]);
+    exportStyledSheet(rows, '剩余库存', '剩余库存.xlsx');
   };
 
   return (
@@ -699,15 +713,25 @@ export const InventoryOverviewView = ({
       </div>
 
       <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
-        <div className="flex items-center justify-between mb-8">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-50/50 backdrop-blur-md rounded-xl border border-indigo-100/30">
               <Package className="text-indigo-600" size={24} />
             </div>
             <h2 className="text-xl font-black text-slate-800 tracking-tight">全店商品库存概览</h2>
           </div>
-          <div className="text-sm font-bold text-slate-400 bg-white/30 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20">
-            共 {products.length} 款商品
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleExportRemainingStock}
+              disabled={sortedProducts.length === 0}
+              className="inline-flex items-center justify-center rounded-xl border border-indigo-200/60 bg-indigo-500/90 px-4 py-2 text-sm font-bold text-white shadow-[0_12px_26px_rgba(99,102,241,0.28)] transition-all hover:bg-indigo-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
+            >
+              导出剩余库存
+            </button>
+            <div className="text-sm font-bold text-slate-400 bg-white/30 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20">
+              共 {products.length} 款商品
+            </div>
           </div>
         </div>
 

@@ -6,6 +6,7 @@ export interface Product {
   spec: number; // Items per box
   price: number; // Price per item
   stock: number; // Total items
+  isActive: boolean; // Whether product is on shelf
   createdAt?: Timestamp;
 }
 

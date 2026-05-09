@@ -239,6 +239,7 @@ function mapProductDoc(id: string, data: DocumentData): Product {
     spec: Number(data.spec ?? 0),
     price: Number(data.price ?? 0),
     stock: Number(data.stock ?? 0),
+    isActive: data.isActive !== false,
     createdAt: coerceProductCreatedAt(data.createdAt)
   };
 }
@@ -471,6 +472,10 @@ export default function App() {
     };
   }, [transactions]);
 
+  const activeProducts = useMemo(() => {
+    return products.filter((product) => product.isActive !== false);
+  }, [products]);
+
   const productRiskMetricsByProduct = useMemo(() => {
     const STOCK_WARNING_BOX_THRESHOLD = 30;
     const DAYS_OF_COVER_WARNING_THRESHOLD = 14;
@@ -486,7 +491,7 @@ export default function App() {
     const recentOutQtyByProduct: Record<string, number> = {};
     const lastSaleByProduct: Record<string, Date | null> = {};
 
-    for (const product of products) {
+    for (const product of activeProducts) {
       recentOutQtyByProduct[product.id] = 0;
       lastSaleByProduct[product.id] = null;
     }
@@ -507,7 +512,7 @@ export default function App() {
     }
 
     const metricsMap: Record<string, ProductRiskMetrics> = {};
-    for (const product of products) {
+    for (const product of activeProducts) {
       const spec = product.spec > 0 ? product.spec : 1;
       const stockBoxes = product.stock / spec;
       const outBoxes30d = recentOutQtyByProduct[product.id] / spec;
@@ -545,15 +550,15 @@ export default function App() {
     }
 
     return metricsMap;
-  }, [products, transactions]);
+  }, [activeProducts, transactions]);
 
   const warnings = useMemo(() => {
-    return products.filter((product) => productRiskMetricsByProduct[product.id]?.isWarning);
-  }, [products, productRiskMetricsByProduct]);
+    return activeProducts.filter((product) => productRiskMetricsByProduct[product.id]?.isWarning);
+  }, [activeProducts, productRiskMetricsByProduct]);
 
   const staleProducts = useMemo(() => {
-    return products.filter((product) => productRiskMetricsByProduct[product.id]?.isStale);
-  }, [products, productRiskMetricsByProduct]);
+    return activeProducts.filter((product) => productRiskMetricsByProduct[product.id]?.isStale);
+  }, [activeProducts, productRiskMetricsByProduct]);
 
   const currentReportRange = useMemo(() => {
     return getRangeByPeriod(reportPeriod, selectedDate, selectedWeek, selectedMonth);
@@ -751,6 +756,7 @@ export default function App() {
         spec,
         price,
         stock: 0,
+        isActive: true,
         createdAt: Timestamp.now()
       });
       showToast('商品添加成功');
@@ -837,6 +843,27 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `products/${id}`);
+      return false;
+    }
+  };
+
+  const toggleProductActive = async (id: string, nextActive: boolean) => {
+    if (user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    const targetProduct = products.find((product) => product.id === id);
+    if (!targetProduct) {
+      showToast('商品不存在', 'error');
+      return false;
+    }
+
+    try {
+      await updateDoc(doc(db, 'products', id), { isActive: nextActive });
+      showToast(nextActive ? '商品已重新上架' : '商品已下架（数据保留）');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `products/${id}/isActive`);
       return false;
     }
   };
@@ -998,6 +1025,7 @@ export default function App() {
             spec: pSpec,
             price: pPrice,
             stock: pStock,
+            isActive: true,
             createdAt
           });
 
@@ -1277,7 +1305,7 @@ export default function App() {
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
-                  products={products}
+                  products={activeProducts}
                   transactions={transactions}
                   formatStock={formatStock}
                 />
@@ -1321,6 +1349,7 @@ export default function App() {
                 addProduct={addProduct}
                 deleteProduct={deleteProduct}
                 updateProductStock={updateProductStock}
+                toggleProductActive={toggleProductActive}
                 showToast={showToast}
                 formatCurrency={formatCurrency}
                 formatStock={formatStock}

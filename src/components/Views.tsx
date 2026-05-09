@@ -14,6 +14,8 @@ import {
   Calendar,
   BarChart3,
   Pencil,
+  EyeOff,
+  Eye,
   Save,
   X,
   ChevronDown,
@@ -1545,6 +1547,7 @@ interface ProductsViewProps {
   addProduct: (name: string, spec: number, price: number) => Promise<boolean>;
   deleteProduct: (id: string) => void;
   updateProductStock: (id: string, newStock: number, nextName?: string, nextSpec?: number) => Promise<boolean>;
+  toggleProductActive: (id: string, nextActive: boolean) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error') => void;
   formatCurrency: (value: number) => string;
   formatStock: (total: number, spec: number) => string;
@@ -1562,7 +1565,7 @@ interface ProductsViewProps {
 }
 
 export const ProductsView = ({
-  user, products, addProduct, deleteProduct, updateProductStock, showToast, formatCurrency, formatStock,
+  user, products, addProduct, deleteProduct, updateProductStock, toggleProductActive, showToast, formatCurrency, formatStock,
   name, setName, spec, setSpec, price, setPrice, isBatchMode, setIsBatchMode, batchText, setBatchText,
   handleBatchImport
 }: ProductsViewProps) => {
@@ -1908,6 +1911,7 @@ export const ProductsView = ({
                 <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">规格</th>
                 <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">单价</th>
                 <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">当前库存</th>
+                <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">状态</th>
                 <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
               </tr>
             </thead>
@@ -1918,8 +1922,38 @@ export const ProductsView = ({
                   <td className="py-4 text-sm text-slate-600 font-bold">{p.spec} 个/箱</td>
                   <td className="py-4 text-sm text-slate-600 font-bold">{formatCurrency(p.price)}</td>
                   <td className="py-4 text-sm text-slate-600 font-bold">{formatStock(p.stock, p.spec)}</td>
+                  <td className="py-4 text-sm">
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${
+                      p.isActive !== false
+                        ? 'bg-emerald-100/60 text-emerald-700 border border-emerald-200/70'
+                        : 'bg-slate-100/80 text-slate-500 border border-slate-200/70'
+                    }`}>
+                      {p.isActive !== false ? '在售' : '已下架'}
+                    </span>
+                  </td>
                   <td className="py-4 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await toggleProductActive(p.id, p.isActive === false);
+                        }}
+                        disabled={user?.role !== 'admin'}
+                        className={`p-2 rounded-lg transition-all backdrop-blur-sm ${
+                          user?.role !== 'admin'
+                            ? 'text-slate-300 cursor-not-allowed'
+                            : (p.isActive !== false
+                              ? 'text-amber-500 hover:bg-amber-50/50'
+                              : 'text-emerald-500 hover:bg-emerald-50/50')
+                        }`}
+                        title={
+                          user?.role !== 'admin'
+                            ? '无权限'
+                            : (p.isActive !== false ? '下架商品（保留历史数据）' : '重新上架商品')
+                        }
+                      >
+                        {p.isActive !== false ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
                       <button
                         type="button"
                         onClick={() => openEditStockModal(p)}
@@ -1956,7 +1990,7 @@ export const ProductsView = ({
               ))}
               {products.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-slate-400 font-bold">暂无商品数据</td>
+                  <td colSpan={6} className="py-12 text-center text-slate-400 font-bold">暂无商品数据</td>
                 </tr>
               )}
             </tbody>

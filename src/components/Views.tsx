@@ -486,6 +486,8 @@ interface InventoryOverviewViewProps {
   formatStock: (total: number, spec: number) => string;
   weeklySalesComparisons: WeeklySalesComparison[];
   monthlySalesComparisons: WeeklySalesComparison[];
+  comparisonMode: 'week' | 'month';
+  setComparisonMode: (value: 'week' | 'month') => void;
 }
 
 export const InventoryOverviewView = ({
@@ -497,29 +499,36 @@ export const InventoryOverviewView = ({
   transactions,
   formatStock,
   weeklySalesComparisons,
-  monthlySalesComparisons
+  monthlySalesComparisons,
+  comparisonMode,
+  setComparisonMode
 }: InventoryOverviewViewProps) => {
-  const [comparisonMode, setComparisonMode] = useState<'week' | 'month'>('week');
-  const sortedWarnings = [...warnings].sort((a, b) => {
-    const weeklySalesDiff =
-      ((productRiskMetricsByProduct[b.id]?.avgDailyBoxes30d ?? 0) * 7) -
-      ((productRiskMetricsByProduct[a.id]?.avgDailyBoxes30d ?? 0) * 7);
-    if (weeklySalesDiff !== 0) return weeklySalesDiff;
-    return a.name.localeCompare(b.name);
-  });
+  const sortedWarnings = useMemo(() => {
+    if (mode !== 'warnings') return [] as Product[];
+    return [...warnings].sort((a, b) => {
+      const weeklySalesDiff =
+        ((productRiskMetricsByProduct[b.id]?.avgDailyBoxes30d ?? 0) * 7) -
+        ((productRiskMetricsByProduct[a.id]?.avgDailyBoxes30d ?? 0) * 7);
+      if (weeklySalesDiff !== 0) return weeklySalesDiff;
+      return a.name.localeCompare(b.name);
+    });
+  }, [mode, warnings, productRiskMetricsByProduct]);
 
-  const sortedStaleProducts = [...staleProducts].sort((a, b) => {
-    const aDays = productRiskMetricsByProduct[a.id]?.daysSinceLastSale ?? null;
-    const bDays = productRiskMetricsByProduct[b.id]?.daysSinceLastSale ?? null;
+  const sortedStaleProducts = useMemo(() => {
+    if (mode !== 'stale') return [] as Product[];
+    return [...staleProducts].sort((a, b) => {
+      const aDays = productRiskMetricsByProduct[a.id]?.daysSinceLastSale ?? null;
+      const bDays = productRiskMetricsByProduct[b.id]?.daysSinceLastSale ?? null;
 
-    if (aDays === null && bDays === null) return a.name.localeCompare(b.name);
-    if (aDays === null) return -1;
-    if (bDays === null) return 1;
+      if (aDays === null && bDays === null) return a.name.localeCompare(b.name);
+      if (aDays === null) return -1;
+      if (bDays === null) return 1;
 
-    const timeDiff = bDays - aDays;
-    if (timeDiff !== 0) return timeDiff;
-    return a.name.localeCompare(b.name);
-  });
+      const timeDiff = bDays - aDays;
+      if (timeDiff !== 0) return timeDiff;
+      return a.name.localeCompare(b.name);
+    });
+  }, [mode, staleProducts, productRiskMetricsByProduct]);
 
   const formatLastSaleDate = (metrics: ProductRiskMetrics | undefined) => {
     if (!metrics || metrics.daysSinceLastSale === null) return '暂无销售记录';
@@ -527,6 +536,7 @@ export const InventoryOverviewView = ({
   };
 
   const totalSoldByProduct = useMemo(() => {
+    if (mode !== 'stock') return {} as Record<string, number>;
     const soldMap: Record<string, number> = {};
     for (const product of products) {
       soldMap[product.id] = 0;
@@ -537,9 +547,10 @@ export const InventoryOverviewView = ({
       soldMap[transaction.productId] += transaction.quantity;
     }
     return soldMap;
-  }, [products, transactions]);
+  }, [mode, products, transactions]);
 
   const sortedProducts = useMemo(() => {
+    if (mode !== 'stock') return [] as Product[];
     return [...products].sort((a, b) => {
       const aBoxes = (totalSoldByProduct[a.id] ?? 0) / (a.spec || 1);
       const bBoxes = (totalSoldByProduct[b.id] ?? 0) / (b.spec || 1);
@@ -550,7 +561,7 @@ export const InventoryOverviewView = ({
 
       return a.name.localeCompare(b.name);
     });
-  }, [products, totalSoldByProduct]);
+  }, [mode, products, totalSoldByProduct]);
 
   const toRemainingBoxesNumber = (stock: number, spec: number): number => {
     const boxes = stock / spec;

@@ -267,6 +267,7 @@ export default function App() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [currentView, setCurrentView] = useState<View>('home');
   const [isInventoryMenuOpen, setIsInventoryMenuOpen] = useState(true);
+  const [inventoryComparisonMode, setInventoryComparisonMode] = useState<'week' | 'month'>('week');
   const [reportPeriod, setReportPeriod] = useState<'day' | 'week' | 'month'>('day');
   
   const [selectedDate, setSelectedDate] = useState(getTogoDate());
@@ -569,6 +570,17 @@ export default function App() {
     currentView === 'inventory-stock' ||
     currentView === 'inventory-comparison'
   );
+
+  const handleViewChange = (nextView: View) => {
+    setCurrentView(nextView);
+    const nextIsInventoryView = (
+      nextView === 'inventory-warnings' ||
+      nextView === 'inventory-stale' ||
+      nextView === 'inventory-stock' ||
+      nextView === 'inventory-comparison'
+    );
+    setIsInventoryMenuOpen(nextIsInventoryView);
+  };
 
   const weeklySalesComparisons = useMemo<WeeklySalesComparison[]>(() => {
     const getWeekStart = (input: Date) => {
@@ -1420,7 +1432,7 @@ export default function App() {
             <nav className="mt-7 flex flex-col gap-2">
               <NavButton
                 active={currentView === 'home'}
-                onClick={() => setCurrentView('home')}
+                onClick={() => handleViewChange('home')}
                 icon={<LayoutDashboard size={18} />}
                 label="首页概览"
                 variant="sidebar"
@@ -1429,7 +1441,7 @@ export default function App() {
                 type="button"
                 onClick={() => setIsInventoryMenuOpen((prev) => !prev)}
                 className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold transition-all flex items-center justify-between ${
-                  isInventoryView || isInventoryMenuOpen
+                  isInventoryView
                     ? 'bg-white/70 text-indigo-600'
                     : 'text-slate-600 hover:bg-white/55 hover:text-slate-800'
                 }`}
@@ -1444,28 +1456,28 @@ export default function App() {
                 <div className="ml-3 pl-3 border-l border-white/45 flex flex-col gap-1">
                   <NavButton
                     active={currentView === 'inventory-warnings'}
-                    onClick={() => setCurrentView('inventory-warnings')}
+                    onClick={() => handleViewChange('inventory-warnings')}
                     icon={<AlertTriangle size={16} />}
                     label="库存预警"
                     variant="sidebar-sub"
                   />
                   <NavButton
                     active={currentView === 'inventory-stale'}
-                    onClick={() => setCurrentView('inventory-stale')}
+                    onClick={() => handleViewChange('inventory-stale')}
                     icon={<AlertTriangle size={16} />}
                     label="滞销品"
                     variant="sidebar-sub"
                   />
                   <NavButton
                     active={currentView === 'inventory-stock'}
-                    onClick={() => setCurrentView('inventory-stock')}
+                    onClick={() => handleViewChange('inventory-stock')}
                     icon={<Package size={16} />}
                     label="库存总览"
                     variant="sidebar-sub"
                   />
                   <NavButton
                     active={currentView === 'inventory-comparison'}
-                    onClick={() => setCurrentView('inventory-comparison')}
+                    onClick={() => handleViewChange('inventory-comparison')}
                     icon={<LayoutDashboard size={16} />}
                     label="销售对比"
                     variant="sidebar-sub"
@@ -1474,21 +1486,21 @@ export default function App() {
               )}
               <NavButton
                 active={currentView === 'stock'}
-                onClick={() => setCurrentView('stock')}
+                onClick={() => handleViewChange('stock')}
                 icon={<ArrowLeftRight size={18} />}
                 label="进出库管理"
                 variant="sidebar"
               />
               <NavButton
                 active={currentView === 'products'}
-                onClick={() => setCurrentView('products')}
+                onClick={() => handleViewChange('products')}
                 icon={<Package size={18} />}
                 label="商品管理"
                 variant="sidebar"
               />
               <NavButton
                 active={currentView === 'expenses'}
-                onClick={() => setCurrentView('expenses')}
+                onClick={() => handleViewChange('expenses')}
                 icon={<Wallet size={18} />}
                 label="记账管理"
                 variant="sidebar"
@@ -1544,6 +1556,8 @@ export default function App() {
                   formatStock={formatStock}
                   weeklySalesComparisons={weeklySalesComparisons}
                   monthlySalesComparisons={monthlySalesComparisons}
+                  comparisonMode={inventoryComparisonMode}
+                  setComparisonMode={setInventoryComparisonMode}
                 />
               )}
               {currentView === 'inventory-stale' && (
@@ -1557,6 +1571,8 @@ export default function App() {
                   formatStock={formatStock}
                   weeklySalesComparisons={weeklySalesComparisons}
                   monthlySalesComparisons={monthlySalesComparisons}
+                  comparisonMode={inventoryComparisonMode}
+                  setComparisonMode={setInventoryComparisonMode}
                 />
               )}
               {currentView === 'inventory-stock' && (
@@ -1570,6 +1586,8 @@ export default function App() {
                   formatStock={formatStock}
                   weeklySalesComparisons={weeklySalesComparisons}
                   monthlySalesComparisons={monthlySalesComparisons}
+                  comparisonMode={inventoryComparisonMode}
+                  setComparisonMode={setInventoryComparisonMode}
                 />
               )}
               {currentView === 'inventory-comparison' && (
@@ -1583,6 +1601,8 @@ export default function App() {
                   formatStock={formatStock}
                   weeklySalesComparisons={weeklySalesComparisons}
                   monthlySalesComparisons={monthlySalesComparisons}
+                  comparisonMode={inventoryComparisonMode}
+                  setComparisonMode={setInventoryComparisonMode}
                 />
               )}
               {currentView === 'stock' && (
@@ -1669,35 +1689,35 @@ export default function App() {
           <div className="grid grid-cols-5 gap-1">
             <NavButton
               active={currentView === 'home'}
-              onClick={() => setCurrentView('home')}
+              onClick={() => handleViewChange('home')}
               icon={<LayoutDashboard size={18} />}
               label="首页"
               variant="mobile"
             />
             <NavButton
               active={isInventoryView}
-              onClick={() => setCurrentView('inventory-warnings')}
+              onClick={() => handleViewChange('inventory-warnings')}
               icon={<AlertTriangle size={18} />}
               label="库存"
               variant="mobile"
             />
             <NavButton
               active={currentView === 'stock'}
-              onClick={() => setCurrentView('stock')}
+              onClick={() => handleViewChange('stock')}
               icon={<ArrowLeftRight size={18} />}
               label="进出库"
               variant="mobile"
             />
             <NavButton
               active={currentView === 'products'}
-              onClick={() => setCurrentView('products')}
+              onClick={() => handleViewChange('products')}
               icon={<Package size={18} />}
               label="商品"
               variant="mobile"
             />
             <NavButton
               active={currentView === 'expenses'}
-              onClick={() => setCurrentView('expenses')}
+              onClick={() => handleViewChange('expenses')}
               icon={<Wallet size={18} />}
               label="记账"
               variant="mobile"

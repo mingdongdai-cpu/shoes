@@ -36,7 +36,15 @@ export interface Expense {
   remark: string;
 }
 
-export type View = 'home' | 'inventory' | 'stock' | 'products' | 'expenses';
+export type View =
+  | 'home'
+  | 'inventory-warnings'
+  | 'inventory-stale'
+  | 'inventory-stock'
+  | 'inventory-comparison'
+  | 'stock'
+  | 'products'
+  | 'expenses';
 
 export interface Toast {
   id: number;
@@ -54,4 +62,14 @@ export interface ProductRiskMetrics {
   isWarning: boolean;
   isStale: boolean;
   warningReasons: string[];
+}
+
+export interface WeeklySalesComparison {
+  productId: string;
+  name: string;
+  spec: number;
+  currentWeekBoxes: number;
+  previousWeekBoxes: number;
+  changePercent: number | null;
+  trend: 'up' | 'down' | 'flat' | 'new';
 }

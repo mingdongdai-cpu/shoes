@@ -24,7 +24,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
 import * as XLSX from 'xlsx-js-style';
-import { Product, ProductRiskMetrics, Transaction, User, Expense } from '../types';
+import { Product, ProductRiskMetrics, Transaction, User, Expense, WeeklySalesComparison } from '../types';
 import { formatDateTimeLabel, getRangeByMonth, isWithinRange, monthKeyFromTimestamp } from '../lib/timeWindow';
 
 // --- Components ---
@@ -241,7 +241,7 @@ export const HomeView = ({
   return (
     <div className="space-y-8">
     {/* Finance Dashboard */}
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
       <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
         <div className="absolute -right-6 -top-6 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl group-hover:bg-rose-500/10 transition-colors" />
         <div className="flex items-center gap-4 mb-4">
@@ -271,21 +271,6 @@ export const HomeView = ({
       </div>
 
       <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
-        <div className="absolute -right-6 -top-6 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl group-hover:bg-rose-500/10 transition-colors" />
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100/50">
-            <Wallet className="text-rose-500" size={24} />
-          </div>
-          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">本期支出</div>
-        </div>
-        <div className="text-xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
-          {formatCurrency(salesReport.totalExpenses).split(' ')[0]}
-          <span className="text-xs font-bold text-slate-400 uppercase">XOF</span>
-        </div>
-        <div className="text-[10px] font-bold text-slate-400 mt-2">记账管理中的支出</div>
-      </div>
-
-      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
         <div className="absolute -right-6 -top-6 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-colors" />
         <div className="flex items-center gap-4 mb-4 relative z-10">
           <div className="p-3 bg-indigo-50 rounded-2xl border border-indigo-100/50">
@@ -301,7 +286,7 @@ export const HomeView = ({
       </div>
     </div>
 
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
       <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
         <div className="absolute -right-6 -top-6 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-colors" />
         <div className="flex items-center gap-4 mb-4">
@@ -492,22 +477,29 @@ export const HomeView = ({
 };
 
 interface InventoryOverviewViewProps {
+  mode: 'warnings' | 'stale' | 'stock' | 'comparison';
   warnings: Product[];
   staleProducts: Product[];
   productRiskMetricsByProduct: Record<string, ProductRiskMetrics>;
   products: Product[];
   transactions: Transaction[];
   formatStock: (total: number, spec: number) => string;
+  weeklySalesComparisons: WeeklySalesComparison[];
+  monthlySalesComparisons: WeeklySalesComparison[];
 }
 
 export const InventoryOverviewView = ({
+  mode,
   warnings,
   staleProducts,
   productRiskMetricsByProduct,
   products,
   transactions,
-  formatStock
+  formatStock,
+  weeklySalesComparisons,
+  monthlySalesComparisons
 }: InventoryOverviewViewProps) => {
+  const [comparisonMode, setComparisonMode] = useState<'week' | 'month'>('week');
   const sortedWarnings = [...warnings].sort((a, b) => {
     const weeklySalesDiff =
       ((productRiskMetricsByProduct[b.id]?.avgDailyBoxes30d ?? 0) * 7) -
@@ -620,100 +612,224 @@ export const InventoryOverviewView = ({
     exportStyledSheet(rows, '剩余库存', '剩余库存.xlsx');
   };
 
+  const formatBoxesValue = (value: number) => {
+    return Number.isInteger(value) ? `${value}` : value.toFixed(1);
+  };
+
+  const formatComparisonPercent = (row: WeeklySalesComparison) => {
+    if (row.trend === 'new') return '新增销售';
+    if (row.changePercent === null) return '0.0%';
+    const sign = row.changePercent >= 0 ? '+' : '';
+    return `${sign}${row.changePercent.toFixed(1)}%`;
+  };
+
+  const trendToneByType: Record<WeeklySalesComparison['trend'], string> = {
+    up: 'text-emerald-600',
+    down: 'text-rose-600',
+    flat: 'text-slate-500',
+    new: 'text-indigo-600'
+  };
+
+  const renderTrendIcon = (trend: WeeklySalesComparison['trend']) => {
+    if (trend === 'up' || trend === 'new') return <TrendingUp size={16} className="text-emerald-600" />;
+    if (trend === 'down') return <TrendingDown size={16} className="text-rose-600" />;
+    return <div className="h-0.5 w-3 rounded-full bg-slate-400" />;
+  };
+
+  if (mode === 'warnings') {
+    return (
+      <div className="space-y-8">
+        <div className="glass rounded-2xl p-6 shadow-sm border-white/20">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="text-amber-500" size={20} />
+              <h2 className="text-lg font-semibold text-slate-800">库存预警 (库存&lt;30箱 或 可售&lt;14天)</h2>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportWarningList}
+              disabled={sortedWarnings.length === 0}
+              className="inline-flex items-center justify-center rounded-xl border border-indigo-200/60 bg-indigo-500/90 px-4 py-2 text-sm font-bold text-white shadow-[0_12px_26px_rgba(99,102,241,0.28)] transition-all hover:bg-indigo-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
+            >
+              导出要货列表
+            </button>
+          </div>
+          {sortedWarnings.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {sortedWarnings.map((p: Product) => (
+                <div key={p.id} className="relative overflow-hidden p-5 rounded-2xl border border-rose-200/45 bg-white/60 backdrop-blur-xl shadow-[0_18px_36px_rgba(244,63,94,0.12)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(244,63,94,0.16)]">
+                  {shoeBackgroundMap[normalizeComparableModelKey(p.name)] && (
+                    <>
+                      <div
+                        className="absolute inset-0 bg-center bg-cover opacity-[0.08] scale-110"
+                        style={{ backgroundImage: `url(${shoeBackgroundMap[normalizeComparableModelKey(p.name)]})` }}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-br from-white/96 via-white/88 to-rose-50/78" />
+                    </>
+                  )}
+                  <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
+                  <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
+                  <div className="relative z-10 mt-1 text-sm font-semibold text-slate-600">
+                    近30天周均销量: {((productRiskMetricsByProduct[p.id]?.avgDailyBoxes30d ?? 0) * 7).toFixed(1)} 箱
+                  </div>
+                  <div className="relative z-10 mt-1 text-xs font-semibold text-slate-600">
+                    可售天数: {Number.isFinite(productRiskMetricsByProduct[p.id]?.daysOfCover ?? Number.POSITIVE_INFINITY)
+                      ? `${(productRiskMetricsByProduct[p.id]?.daysOfCover ?? 0).toFixed(1)} 天`
+                      : '∞'}
+                  </div>
+                  <div className="relative z-10 mt-1 text-xs font-bold text-rose-600">
+                    触发原因: {(productRiskMetricsByProduct[p.id]?.warningReasons ?? []).join(' / ')}
+                  </div>
+                  <div className="relative z-10 mt-2 text-rose-600 font-black">
+                    当前库存: {formatStock(p.stock, p.spec)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50/30 backdrop-blur-sm p-4 rounded-xl border border-emerald-100/30">
+              <CheckCircle2 size={18} />
+              <span>库存充足，暂无预警商品</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'stale') {
+    return (
+      <div className="space-y-8">
+        <div className="rounded-2xl p-6 shadow-sm border border-amber-100/60 bg-amber-50/40 backdrop-blur-xl">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertTriangle className="text-amber-500" size={20} />
+            <h2 className="text-lg font-semibold text-slate-800">滞销品明细 (30天无销售且库存&gt;0)</h2>
+          </div>
+          {sortedStaleProducts.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {sortedStaleProducts.map((p: Product) => (
+                <div key={p.id} className="relative overflow-hidden p-5 rounded-2xl border border-amber-200/50 bg-amber-50/60 backdrop-blur-xl shadow-[0_18px_36px_rgba(251,191,36,0.14)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(251,191,36,0.18)]">
+                  {shoeBackgroundMap[normalizeComparableModelKey(p.name)] && (
+                    <>
+                      <div
+                        className="absolute inset-0 bg-center bg-cover opacity-[0.07] scale-110"
+                        style={{ backgroundImage: `url(${shoeBackgroundMap[normalizeComparableModelKey(p.name)]})` }}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-br from-amber-50/95 via-white/90 to-amber-100/70" />
+                    </>
+                  )}
+                  <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
+                  <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
+                  <div className="relative z-10 mt-1 text-sm font-semibold text-slate-600">
+                    {formatLastSaleDate(productRiskMetricsByProduct[p.id])}
+                  </div>
+                  <div className="relative z-10 mt-2 text-amber-700 font-black">
+                    当前库存: {formatStock(p.stock, p.spec)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50/40 backdrop-blur-sm p-4 rounded-xl border border-emerald-100/40">
+              <CheckCircle2 size={18} />
+              <span>暂无滞销品</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'comparison') {
+    const isWeekMode = comparisonMode === 'week';
+    const comparisonRows = isWeekMode ? weeklySalesComparisons : monthlySalesComparisons;
+    const title = isWeekMode ? '销售对比（本周 vs 上周）' : '销售对比（本月 vs 上月）';
+    const currentLabel = isWeekMode ? '本周销量' : '本月销量';
+    const previousLabel = isWeekMode ? '上周销量' : '上月销量';
+
+    return (
+      <div className="space-y-8">
+        <div className="glass rounded-3xl p-6 shadow-sm border-white/20">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="text-indigo-500" size={20} />
+              <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
+            </div>
+            <div className="inline-flex items-center rounded-xl border border-white/50 bg-white/35 p-1 backdrop-blur-xl">
+              <button
+                type="button"
+                onClick={() => setComparisonMode('week')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  comparisonMode === 'week'
+                    ? 'bg-white/90 text-indigo-600 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                每周对比
+              </button>
+              <button
+                type="button"
+                onClick={() => setComparisonMode('month')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  comparisonMode === 'month'
+                    ? 'bg-white/90 text-indigo-600 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                月度对比
+              </button>
+            </div>
+          </div>
+          <div className="rounded-2xl overflow-hidden border border-white/40 bg-white/28 backdrop-blur-xl">
+            <table className="w-full text-left">
+              <thead className="bg-white/40">
+                <tr>
+                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">商品</th>
+                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">{currentLabel}</th>
+                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">{previousLabel}</th>
+                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">环比</th>
+                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">趋势</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/20">
+                {comparisonRows.map((row) => (
+                  <tr key={row.productId} className="hover:bg-white/22 transition-all">
+                    <td className="px-4 py-3 text-sm font-bold text-slate-900">{row.name}</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-slate-700">{formatBoxesValue(row.currentWeekBoxes)} 箱</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-slate-500">{formatBoxesValue(row.previousWeekBoxes)} 箱</td>
+                    <td className={`px-4 py-3 text-sm font-black ${trendToneByType[row.trend]}`}>
+                      {formatComparisonPercent(row)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="inline-flex items-center gap-1.5 rounded-full bg-white/55 px-2.5 py-1 text-xs font-bold text-slate-600">
+                        {renderTrendIcon(row.trend)}
+                        <span>
+                          {row.trend === 'up' && '上升'}
+                          {row.trend === 'down' && '下降'}
+                          {row.trend === 'flat' && '持平'}
+                          {row.trend === 'new' && '新增'}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {comparisonRows.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm font-bold">
+                      暂无可对比数据
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
-      <div className="glass rounded-2xl p-6 shadow-sm border-white/20">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="text-amber-500" size={20} />
-            <h2 className="text-lg font-semibold text-slate-800">库存预警 (库存&lt;30箱 或 可售&lt;14天)</h2>
-          </div>
-          <button
-            type="button"
-            onClick={handleExportWarningList}
-            disabled={sortedWarnings.length === 0}
-            className="inline-flex items-center justify-center rounded-xl border border-indigo-200/60 bg-indigo-500/90 px-4 py-2 text-sm font-bold text-white shadow-[0_12px_26px_rgba(99,102,241,0.28)] transition-all hover:bg-indigo-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
-          >
-            导出要货列表
-          </button>
-        </div>
-        {sortedWarnings.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sortedWarnings.map((p: Product) => (
-              <div key={p.id} className="relative overflow-hidden p-5 rounded-2xl border border-rose-200/45 bg-white/60 backdrop-blur-xl shadow-[0_18px_36px_rgba(244,63,94,0.12)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(244,63,94,0.16)]">
-                {shoeBackgroundMap[normalizeComparableModelKey(p.name)] && (
-                  <>
-                    <div
-                      className="absolute inset-0 bg-center bg-cover opacity-[0.08] scale-110"
-                      style={{ backgroundImage: `url(${shoeBackgroundMap[normalizeComparableModelKey(p.name)]})` }}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-br from-white/96 via-white/88 to-rose-50/78" />
-                  </>
-                )}
-                <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
-                <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
-                <div className="relative z-10 mt-1 text-sm font-semibold text-slate-600">
-                  近30天周均销量: {((productRiskMetricsByProduct[p.id]?.avgDailyBoxes30d ?? 0) * 7).toFixed(1)} 箱
-                </div>
-                <div className="relative z-10 mt-1 text-xs font-semibold text-slate-600">
-                  可售天数: {Number.isFinite(productRiskMetricsByProduct[p.id]?.daysOfCover ?? Number.POSITIVE_INFINITY)
-                    ? `${(productRiskMetricsByProduct[p.id]?.daysOfCover ?? 0).toFixed(1)} 天`
-                    : '∞'}
-                </div>
-                <div className="relative z-10 mt-1 text-xs font-bold text-rose-600">
-                  触发原因: {(productRiskMetricsByProduct[p.id]?.warningReasons ?? []).join(' / ')}
-                </div>
-                <div className="relative z-10 mt-2 text-rose-600 font-black">
-                  当前库存: {formatStock(p.stock, p.spec)}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50/30 backdrop-blur-sm p-4 rounded-xl border border-emerald-100/30">
-            <CheckCircle2 size={18} />
-            <span>库存充足，暂无预警商品</span>
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-2xl p-6 shadow-sm border border-amber-100/60 bg-amber-50/40 backdrop-blur-xl">
-        <div className="flex items-center gap-2 mb-4">
-          <AlertTriangle className="text-amber-500" size={20} />
-          <h2 className="text-lg font-semibold text-slate-800">滞销品明细 (30天无销售且库存&gt;0)</h2>
-        </div>
-        {sortedStaleProducts.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sortedStaleProducts.map((p: Product) => (
-              <div key={p.id} className="relative overflow-hidden p-5 rounded-2xl border border-amber-200/50 bg-amber-50/60 backdrop-blur-xl shadow-[0_18px_36px_rgba(251,191,36,0.14)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(251,191,36,0.18)]">
-                {shoeBackgroundMap[normalizeComparableModelKey(p.name)] && (
-                  <>
-                    <div
-                      className="absolute inset-0 bg-center bg-cover opacity-[0.07] scale-110"
-                      style={{ backgroundImage: `url(${shoeBackgroundMap[normalizeComparableModelKey(p.name)]})` }}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-br from-amber-50/95 via-white/90 to-amber-100/70" />
-                  </>
-                )}
-                <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
-                <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
-                <div className="relative z-10 mt-1 text-sm font-semibold text-slate-600">
-                  {formatLastSaleDate(productRiskMetricsByProduct[p.id])}
-                </div>
-                <div className="relative z-10 mt-2 text-amber-700 font-black">
-                  当前库存: {formatStock(p.stock, p.spec)}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50/40 backdrop-blur-sm p-4 rounded-xl border border-emerald-100/40">
-            <CheckCircle2 size={18} />
-            <span>暂无滞销品</span>
-          </div>
-        )}
-      </div>
-
       <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
         <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
@@ -1546,7 +1662,7 @@ interface ProductsViewProps {
   products: Product[];
   addProduct: (name: string, spec: number, price: number) => Promise<boolean>;
   deleteProduct: (id: string) => void;
-  updateProductStock: (id: string, newStock: number, nextName?: string, nextSpec?: number) => Promise<boolean>;
+  updateProductStock: (id: string, newStock: number, nextName?: string, nextSpec?: number, nextPrice?: number) => Promise<boolean>;
   toggleProductActive: (id: string, nextActive: boolean) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error') => void;
   formatCurrency: (value: number) => string;
@@ -1573,6 +1689,7 @@ export const ProductsView = ({
   const [pendingDeleteProduct, setPendingDeleteProduct] = useState<Product | null>(null);
   const [editName, setEditName] = useState('');
   const [editSpec, setEditSpec] = useState('0');
+  const [editPrice, setEditPrice] = useState('0');
   const [editBoxes, setEditBoxes] = useState('0');
   const [editItems, setEditItems] = useState('0');
 
@@ -1593,6 +1710,7 @@ export const ProductsView = ({
     setEditingProduct(product);
     setEditName(product.name);
     setEditSpec(product.spec.toString());
+    setEditPrice(product.price.toString());
     setEditBoxes(Math.floor(product.stock / baseSpec).toString());
     setEditItems((product.stock % baseSpec).toString());
   };
@@ -1602,6 +1720,7 @@ export const ProductsView = ({
     const canEditMeta = editingProduct.stock === 0;
     const boxesValue = Number.parseInt(editBoxes, 10) || 0;
     const itemsValue = Number.parseInt(editItems, 10) || 0;
+    const priceValue = Number.parseInt(editPrice, 10);
     const nextName = canEditMeta ? editName.trim() : editingProduct.name;
     const nextSpec = canEditMeta ? (Number.parseInt(editSpec, 10) || 0) : editingProduct.spec;
 
@@ -1620,13 +1739,18 @@ export const ProductsView = ({
         return;
       }
     }
+    if (!Number.isInteger(priceValue) || priceValue < 0) {
+      showToast('单价必须是非负整数', 'error');
+      return;
+    }
 
     const totalStock = boxesValue * nextSpec + itemsValue;
     const success = await updateProductStock(
       editingProduct.id,
       totalStock,
       canEditMeta ? nextName : undefined,
-      canEditMeta ? nextSpec : undefined
+      canEditMeta ? nextSpec : undefined,
+      priceValue
     );
     if (success) {
       setEditingProduct(null);
@@ -1645,7 +1769,7 @@ export const ProductsView = ({
               className="glass rounded-3xl p-7 w-full max-w-md border border-white/55"
             >
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-black text-slate-800">编辑库存数量</h3>
+                <h3 className="text-xl font-black text-slate-800">编辑商品信息</h3>
                 <button
                   type="button"
                   onClick={() => setEditingProduct(null)}
@@ -1678,12 +1802,32 @@ export const ProductsView = ({
                           className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
                         />
                       </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">单价 (XOF/个)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={editPrice}
+                          onChange={(e) => setEditPrice(e.target.value)}
+                          className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
+                        />
+                      </div>
                     </div>
                   ) : (
                     <>
                       <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">商品</div>
                       <div className="mt-1 text-base font-black text-slate-800">{editingProduct.name}</div>
-                      <div className="text-sm font-semibold text-slate-500">规格: {editingProduct.spec} 个/箱</div>
+                      <div className="text-sm font-semibold text-slate-500">规格: {editingProduct.spec} 个/箱 · 单价: {editingProduct.price} XOF</div>
+                      <div className="mt-3">
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">单价 (XOF/个)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={editPrice}
+                          onChange={(e) => setEditPrice(e.target.value)}
+                          className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
+                        />
+                      </div>
                     </>
                   )}
                 </div>
@@ -1713,8 +1857,8 @@ export const ProductsView = ({
 
                 <div className="text-xs font-semibold text-slate-500 bg-indigo-50/60 border border-indigo-100/70 rounded-xl px-3 py-2">
                   {editingProduct.stock === 0
-                    ? '当前库存为0，可同步修改商品名、规格与库存。'
-                    : '仅修改库存，不会改动历史销售金额。'}
+                    ? '当前库存为0，可同步修改商品名、规格、单价与库存。历史已售金额不变。'
+                    : '可修改库存和单价，不会改动历史销售金额。'}
                 </div>
 
                 <div className="flex gap-3 pt-2">
@@ -1731,7 +1875,7 @@ export const ProductsView = ({
                     className="flex-1 py-3 rounded-xl font-bold text-white bg-indigo-600/90 hover:bg-indigo-700 shadow-lg shadow-indigo-200/50 transition-all flex items-center justify-center gap-2"
                   >
                     <Save size={16} />
-                    保存库存
+                    保存修改
                   </button>
                 </div>
               </div>

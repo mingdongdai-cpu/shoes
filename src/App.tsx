@@ -8,6 +8,8 @@ import {
   LayoutDashboard, 
   Package, 
   ArrowLeftRight, 
+  ChevronDown,
+  ChevronRight,
   XCircle,
   CheckCircle2,
   AlertTriangle,
@@ -39,7 +41,7 @@ import {
   type DocumentData,
   type QueryDocumentSnapshot
 } from 'firebase/firestore';
-import { Product, ProductRiskMetrics, Transaction, User, View, Toast, Expense } from './types';
+import { Product, ProductRiskMetrics, Transaction, User, View, Toast, Expense, WeeklySalesComparison } from './types';
 import { LoginView, HomeView, InventoryOverviewView, StockView, ProductsView, ExpensesView } from './components/Views';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate } from './lib/timeWindow';
 
@@ -94,7 +96,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  return errInfo;
 }
 
 interface ErrorBoundaryProps {
@@ -264,6 +266,7 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [currentView, setCurrentView] = useState<View>('home');
+  const [isInventoryMenuOpen, setIsInventoryMenuOpen] = useState(true);
   const [reportPeriod, setReportPeriod] = useState<'day' | 'week' | 'month'>('day');
   
   const [selectedDate, setSelectedDate] = useState(getTogoDate());
@@ -560,6 +563,150 @@ export default function App() {
     return activeProducts.filter((product) => productRiskMetricsByProduct[product.id]?.isStale);
   }, [activeProducts, productRiskMetricsByProduct]);
 
+  const isInventoryView = (
+    currentView === 'inventory-warnings' ||
+    currentView === 'inventory-stale' ||
+    currentView === 'inventory-stock' ||
+    currentView === 'inventory-comparison'
+  );
+
+  const weeklySalesComparisons = useMemo<WeeklySalesComparison[]>(() => {
+    const getWeekStart = (input: Date) => {
+      const date = new Date(input.getFullYear(), input.getMonth(), input.getDate());
+      const day = date.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      date.setDate(date.getDate() + diff);
+      date.setHours(0, 0, 0, 0);
+      return date;
+    };
+
+    const currentWeekStart = getWeekStart(new Date());
+    const nextWeekStart = new Date(currentWeekStart);
+    nextWeekStart.setDate(nextWeekStart.getDate() + 7);
+    const previousWeekStart = new Date(currentWeekStart);
+    previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+
+    const currentWeekOutByProduct: Record<string, number> = {};
+    const previousWeekOutByProduct: Record<string, number> = {};
+
+    for (const product of activeProducts) {
+      currentWeekOutByProduct[product.id] = 0;
+      previousWeekOutByProduct[product.id] = 0;
+    }
+
+    for (const transaction of transactions) {
+      if (transaction.type !== 'out') continue;
+      if (!(transaction.productId in currentWeekOutByProduct)) continue;
+      const occurredAt = timestampToDate(transaction.occurredAt);
+      if (occurredAt >= currentWeekStart && occurredAt < nextWeekStart) {
+        currentWeekOutByProduct[transaction.productId] += transaction.quantity;
+      } else if (occurredAt >= previousWeekStart && occurredAt < currentWeekStart) {
+        previousWeekOutByProduct[transaction.productId] += transaction.quantity;
+      }
+    }
+
+    return activeProducts
+      .map((product) => {
+        const spec = product.spec > 0 ? product.spec : 1;
+        const currentWeekBoxes = currentWeekOutByProduct[product.id] / spec;
+        const previousWeekBoxes = previousWeekOutByProduct[product.id] / spec;
+        const isNewGrowth = previousWeekBoxes === 0 && currentWeekBoxes > 0;
+        const changePercent = previousWeekBoxes > 0
+          ? ((currentWeekBoxes - previousWeekBoxes) / previousWeekBoxes) * 100
+          : null;
+        const trend: WeeklySalesComparison['trend'] =
+          isNewGrowth
+            ? 'new'
+            : changePercent === null || changePercent === 0
+              ? 'flat'
+              : changePercent > 0
+                ? 'up'
+                : 'down';
+
+        return {
+          productId: product.id,
+          name: product.name,
+          spec: product.spec,
+          currentWeekBoxes,
+          previousWeekBoxes,
+          changePercent,
+          trend
+        };
+      })
+      .sort((a, b) => {
+        const aScore = a.changePercent ?? (a.trend === 'new' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
+        const bScore = b.changePercent ?? (b.trend === 'new' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
+        if (aScore !== bScore) return bScore - aScore;
+        if (b.currentWeekBoxes !== a.currentWeekBoxes) return b.currentWeekBoxes - a.currentWeekBoxes;
+        return a.name.localeCompare(b.name);
+      });
+  }, [activeProducts, transactions]);
+
+  const monthlySalesComparisons = useMemo<WeeklySalesComparison[]>(() => {
+    const now = new Date();
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    currentMonthStart.setHours(0, 0, 0, 0);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    nextMonthStart.setHours(0, 0, 0, 0);
+    const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    previousMonthStart.setHours(0, 0, 0, 0);
+
+    const currentMonthOutByProduct: Record<string, number> = {};
+    const previousMonthOutByProduct: Record<string, number> = {};
+
+    for (const product of activeProducts) {
+      currentMonthOutByProduct[product.id] = 0;
+      previousMonthOutByProduct[product.id] = 0;
+    }
+
+    for (const transaction of transactions) {
+      if (transaction.type !== 'out') continue;
+      if (!(transaction.productId in currentMonthOutByProduct)) continue;
+      const occurredAt = timestampToDate(transaction.occurredAt);
+      if (occurredAt >= currentMonthStart && occurredAt < nextMonthStart) {
+        currentMonthOutByProduct[transaction.productId] += transaction.quantity;
+      } else if (occurredAt >= previousMonthStart && occurredAt < currentMonthStart) {
+        previousMonthOutByProduct[transaction.productId] += transaction.quantity;
+      }
+    }
+
+    return activeProducts
+      .map((product) => {
+        const spec = product.spec > 0 ? product.spec : 1;
+        const currentWeekBoxes = currentMonthOutByProduct[product.id] / spec;
+        const previousWeekBoxes = previousMonthOutByProduct[product.id] / spec;
+        const isNewGrowth = previousWeekBoxes === 0 && currentWeekBoxes > 0;
+        const changePercent = previousWeekBoxes > 0
+          ? ((currentWeekBoxes - previousWeekBoxes) / previousWeekBoxes) * 100
+          : null;
+        const trend: WeeklySalesComparison['trend'] =
+          isNewGrowth
+            ? 'new'
+            : changePercent === null || changePercent === 0
+              ? 'flat'
+              : changePercent > 0
+                ? 'up'
+                : 'down';
+
+        return {
+          productId: product.id,
+          name: product.name,
+          spec: product.spec,
+          currentWeekBoxes,
+          previousWeekBoxes,
+          changePercent,
+          trend
+        };
+      })
+      .sort((a, b) => {
+        const aScore = a.changePercent ?? (a.trend === 'new' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
+        const bScore = b.changePercent ?? (b.trend === 'new' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
+        if (aScore !== bScore) return bScore - aScore;
+        if (b.currentWeekBoxes !== a.currentWeekBoxes) return b.currentWeekBoxes - a.currentWeekBoxes;
+        return a.name.localeCompare(b.name);
+      });
+  }, [activeProducts, transactions]);
+
   const currentReportRange = useMemo(() => {
     return getRangeByPeriod(reportPeriod, selectedDate, selectedWeek, selectedMonth);
   }, [reportPeriod, selectedDate, selectedWeek, selectedMonth]);
@@ -785,7 +932,13 @@ export default function App() {
     }
   };
 
-  const updateProductStock = async (id: string, newStock: number, nextName?: string, nextSpec?: number) => {
+  const updateProductStock = async (
+    id: string,
+    newStock: number,
+    nextName?: string,
+    nextSpec?: number,
+    nextPrice?: number
+  ) => {
     if (user?.role !== 'admin') {
       showToast('权限不足', 'error');
       return false;
@@ -801,8 +954,8 @@ export default function App() {
       return false;
     }
 
-    const wantsMetaUpdate = nextName !== undefined || nextSpec !== undefined;
-    if (wantsMetaUpdate && targetProduct.stock !== 0) {
+    const wantsNameOrSpecUpdate = nextName !== undefined || nextSpec !== undefined;
+    if (wantsNameOrSpecUpdate && targetProduct.stock !== 0) {
       showToast('仅当库存为0时才可修改商品名和规格', 'error');
       return false;
     }
@@ -818,6 +971,11 @@ export default function App() {
       return false;
     }
 
+    if (nextPrice !== undefined && (!Number.isInteger(nextPrice) || nextPrice < 0)) {
+      showToast('单价必须是非负整数', 'error');
+      return false;
+    }
+
     if (normalizedName !== undefined) {
       const duplicated = products.some(
         (product) => product.id !== id && product.name.toLowerCase() === normalizedName.toLowerCase()
@@ -830,15 +988,19 @@ export default function App() {
 
     try {
       const productRef = doc(db, 'products', id);
-      const patch: { stock: number; name?: string; spec?: number } = { stock: newStock };
+      const patch: { stock: number; name?: string; spec?: number; price?: number } = { stock: newStock };
       if (normalizedName !== undefined) {
         patch.name = normalizedName;
       }
       if (nextSpec !== undefined) {
         patch.spec = nextSpec;
       }
+      if (nextPrice !== undefined) {
+        patch.price = nextPrice;
+      }
 
       await updateDoc(productRef, patch);
+      const wantsMetaUpdate = nextName !== undefined || nextSpec !== undefined || nextPrice !== undefined;
       showToast(wantsMetaUpdate ? '商品信息与库存修改成功' : '库存修改成功');
       return true;
     } catch (error) {
@@ -931,7 +1093,11 @@ export default function App() {
       return false;
     }
     const product = products.find(p => p.id === productId);
-    if (!product) return;
+    if (!product) return false;
+    if (product.isActive === false) {
+      showToast('商品已下架，无法进出库', 'error');
+      return false;
+    }
 
     const totalQuantity = boxes * product.spec + items;
     
@@ -954,7 +1120,9 @@ export default function App() {
         const currentStock = Number(productData.stock ?? 0);
         const dbSpec = Number(productData.spec ?? 0);
         const dbUnitPrice = Number(productData.price ?? 0);
+        const dbIsActive = productData.isActive !== false;
         if (dbSpec <= 0) throw new Error('商品规格错误');
+        if (!dbIsActive) throw new Error('商品已下架，无法进出库');
 
         const nextStock = type === 'in' ? currentStock + totalQuantity : currentStock - totalQuantity;
         if (nextStock < 0) throw new Error('库存不足');
@@ -1102,6 +1270,8 @@ export default function App() {
         const newProductData = newProductSnap.data() as Product;
         const newCurrentStock = Number(newProductData.stock ?? 0);
         const newUnitPrice = Number(newProductData.price ?? 0);
+        const finalUnitPrice =
+          currentTx.productId === newProductId ? Number(currentTx.unitPrice ?? newUnitPrice) : newUnitPrice;
 
         const revertedOldStock =
           currentTx.type === 'in'
@@ -1133,7 +1303,7 @@ export default function App() {
           productId: newProductId,
           type: newType,
           quantity: newQuantity,
-          unitPrice: newUnitPrice,
+          unitPrice: finalUnitPrice,
           operatorUid: auth.currentUser.uid,
           remark: newRemark
         });
@@ -1202,10 +1372,10 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="ios-shell min-h-screen font-sans text-slate-900 pb-28 md:pb-20">
-        {/* Header & Nav */}
-      <header className="glass sticky top-0 z-20 border-b border-white/55">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="ios-shell min-h-screen font-sans text-slate-900 pb-28 md:pb-8">
+        {/* Mobile Header */}
+      <header className="md:hidden glass sticky top-0 z-20 border-b border-white/55">
+        <div className="px-4 sm:px-6">
           <div className="flex items-center justify-between py-3.5 gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-11 h-11 rounded-2xl ios-primary flex items-center justify-center border border-white/30">
@@ -1219,52 +1389,9 @@ export default function App() {
                   </div>
                 </div>
               </div>
-
-            <div className="hidden md:flex w-full md:w-auto items-center justify-between md:justify-end gap-3">
-              <nav className="ios-segmented flex flex-wrap items-center gap-1">
-                <NavButton 
-                  active={currentView === 'home'} 
-                  onClick={() => setCurrentView('home')}
-                  icon={<LayoutDashboard size={18} />}
-                  label="首页概览"
-                />
-                <NavButton
-                  active={currentView === 'inventory'}
-                  onClick={() => setCurrentView('inventory')}
-                  icon={<AlertTriangle size={18} />}
-                  label="库存概况"
-                />
-                <NavButton 
-                  active={currentView === 'stock'} 
-                  onClick={() => setCurrentView('stock')}
-                  icon={<ArrowLeftRight size={18} />}
-                  label="进出库管理"
-                />
-                <NavButton 
-                  active={currentView === 'products'} 
-                  onClick={() => setCurrentView('products')}
-                  icon={<Package size={18} />}
-                  label="商品管理"
-                />
-                <NavButton 
-                  active={currentView === 'expenses'} 
-                  onClick={() => setCurrentView('expenses')}
-                  icon={<Wallet size={18} />}
-                  label="记账管理"
-                />
-              </nav>
-              <button 
-                onClick={handleLogout}
-                className="ios-float-button p-2.5 rounded-xl text-slate-500 hover:text-rose-500 transition-all"
-                title="退出登录"
-              >
-                <XCircle size={20} />
-              </button>
-            </div>
-
             <button
               onClick={handleLogout}
-              className="md:hidden ios-float-button p-2.5 rounded-xl text-slate-500 hover:text-rose-500 transition-all shrink-0"
+              className="ios-float-button p-2.5 rounded-xl text-slate-500 hover:text-rose-500 transition-all shrink-0"
               title="退出登录"
             >
               <XCircle size={20} />
@@ -1273,8 +1400,114 @@ export default function App() {
         </div>
       </header>
 
+      <div className="md:flex md:items-start md:gap-5 md:px-5 md:pt-6">
+        {/* Desktop Sidebar */}
+        <aside className="hidden md:block md:w-[250px] md:shrink-0">
+          <div className="glass fixed left-5 top-6 h-[calc(100vh-3rem)] w-[250px] rounded-3xl border border-white/60 shadow-xl p-5 flex flex-col">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-2xl ios-primary flex items-center justify-center border border-white/30">
+                <Package className="text-white" size={24} />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-black tracking-tight text-slate-900 truncate">TOP STAR</h1>
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                  <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                  <span className="truncate">{user.role === 'admin' ? '管理员' : '查询员'} · {user.username}</span>
+                </div>
+              </div>
+            </div>
+
+            <nav className="mt-7 flex flex-col gap-2">
+              <NavButton
+                active={currentView === 'home'}
+                onClick={() => setCurrentView('home')}
+                icon={<LayoutDashboard size={18} />}
+                label="首页概览"
+                variant="sidebar"
+              />
+              <button
+                type="button"
+                onClick={() => setIsInventoryMenuOpen((prev) => !prev)}
+                className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold transition-all flex items-center justify-between ${
+                  isInventoryView || isInventoryMenuOpen
+                    ? 'bg-white/70 text-indigo-600'
+                    : 'text-slate-600 hover:bg-white/55 hover:text-slate-800'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <AlertTriangle size={18} />
+                  <span>库存概况</span>
+                </span>
+                {isInventoryMenuOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </button>
+              {isInventoryMenuOpen && (
+                <div className="ml-3 pl-3 border-l border-white/45 flex flex-col gap-1">
+                  <NavButton
+                    active={currentView === 'inventory-warnings'}
+                    onClick={() => setCurrentView('inventory-warnings')}
+                    icon={<AlertTriangle size={16} />}
+                    label="库存预警"
+                    variant="sidebar-sub"
+                  />
+                  <NavButton
+                    active={currentView === 'inventory-stale'}
+                    onClick={() => setCurrentView('inventory-stale')}
+                    icon={<AlertTriangle size={16} />}
+                    label="滞销品"
+                    variant="sidebar-sub"
+                  />
+                  <NavButton
+                    active={currentView === 'inventory-stock'}
+                    onClick={() => setCurrentView('inventory-stock')}
+                    icon={<Package size={16} />}
+                    label="库存总览"
+                    variant="sidebar-sub"
+                  />
+                  <NavButton
+                    active={currentView === 'inventory-comparison'}
+                    onClick={() => setCurrentView('inventory-comparison')}
+                    icon={<LayoutDashboard size={16} />}
+                    label="销售对比"
+                    variant="sidebar-sub"
+                  />
+                </div>
+              )}
+              <NavButton
+                active={currentView === 'stock'}
+                onClick={() => setCurrentView('stock')}
+                icon={<ArrowLeftRight size={18} />}
+                label="进出库管理"
+                variant="sidebar"
+              />
+              <NavButton
+                active={currentView === 'products'}
+                onClick={() => setCurrentView('products')}
+                icon={<Package size={18} />}
+                label="商品管理"
+                variant="sidebar"
+              />
+              <NavButton
+                active={currentView === 'expenses'}
+                onClick={() => setCurrentView('expenses')}
+                icon={<Wallet size={18} />}
+                label="记账管理"
+                variant="sidebar"
+              />
+            </nav>
+
+            <button
+              onClick={handleLogout}
+              className="mt-auto ios-float-button rounded-2xl px-4 py-3 text-slate-600 hover:text-rose-500 transition-all flex items-center gap-2 justify-center font-semibold"
+              title="退出登录"
+            >
+              <XCircle size={18} />
+              <span>退出登录</span>
+            </button>
+          </div>
+        </aside>
+
       {/* Main Content */}
-      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-28 md:pb-8">
+      <main className="relative z-10 flex-1 min-w-0 px-4 sm:px-6 lg:px-8 pt-8 pb-28 md:px-0 md:pt-0 md:pb-8">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentView}
@@ -1300,19 +1533,61 @@ export default function App() {
                   homeMetrics={homeMetrics}
                 />
               )}
-              {currentView === 'inventory' && (
+              {currentView === 'inventory-warnings' && (
                 <InventoryOverviewView
+                  mode="warnings"
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
                   products={activeProducts}
                   transactions={transactions}
                   formatStock={formatStock}
+                  weeklySalesComparisons={weeklySalesComparisons}
+                  monthlySalesComparisons={monthlySalesComparisons}
+                />
+              )}
+              {currentView === 'inventory-stale' && (
+                <InventoryOverviewView
+                  mode="stale"
+                  warnings={warnings}
+                  staleProducts={staleProducts}
+                  productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  products={activeProducts}
+                  transactions={transactions}
+                  formatStock={formatStock}
+                  weeklySalesComparisons={weeklySalesComparisons}
+                  monthlySalesComparisons={monthlySalesComparisons}
+                />
+              )}
+              {currentView === 'inventory-stock' && (
+                <InventoryOverviewView
+                  mode="stock"
+                  warnings={warnings}
+                  staleProducts={staleProducts}
+                  productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  products={activeProducts}
+                  transactions={transactions}
+                  formatStock={formatStock}
+                  weeklySalesComparisons={weeklySalesComparisons}
+                  monthlySalesComparisons={monthlySalesComparisons}
+                />
+              )}
+              {currentView === 'inventory-comparison' && (
+                <InventoryOverviewView
+                  mode="comparison"
+                  warnings={warnings}
+                  staleProducts={staleProducts}
+                  productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  products={activeProducts}
+                  transactions={transactions}
+                  formatStock={formatStock}
+                  weeklySalesComparisons={weeklySalesComparisons}
+                  monthlySalesComparisons={monthlySalesComparisons}
                 />
               )}
               {currentView === 'stock' && (
                 <StockView 
-                  products={products}
+                  products={activeProducts}
                 transactions={transactions}
                 handleTransaction={handleTransaction}
                 deleteTransaction={setConfirmDeleteId}
@@ -1383,6 +1658,7 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
+      </div>
 
       {/* Mobile Dock */}
       <nav
@@ -1399,8 +1675,8 @@ export default function App() {
               variant="mobile"
             />
             <NavButton
-              active={currentView === 'inventory'}
-              onClick={() => setCurrentView('inventory')}
+              active={isInventoryView}
+              onClick={() => setCurrentView('inventory-warnings')}
               icon={<AlertTriangle size={18} />}
               label="库存"
               variant="mobile"
@@ -1537,7 +1813,7 @@ function NavButton({
   onClick: () => void,
   icon: React.ReactNode,
   label: string,
-  variant?: 'desktop' | 'mobile'
+  variant?: 'desktop' | 'mobile' | 'sidebar' | 'sidebar-sub'
 }) {
   if (variant === 'mobile') {
     return (
@@ -1545,6 +1821,38 @@ function NavButton({
         onClick={onClick}
         className={`ios-dock-item flex flex-col items-center justify-center gap-0.5 py-2 px-1 text-[11px] font-bold ${
           active ? 'ios-dock-item-active' : 'text-slate-500'
+        }`}
+      >
+        {icon}
+        <span>{label}</span>
+      </button>
+    );
+  }
+
+  if (variant === 'sidebar') {
+    return (
+      <button
+        onClick={onClick}
+        className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold transition-all flex items-center gap-2 ${
+          active
+            ? 'bg-white/85 text-indigo-600 shadow-[0_10px_26px_rgba(99,102,241,0.18)]'
+            : 'text-slate-600 hover:bg-white/55 hover:text-slate-800'
+        }`}
+      >
+        {icon}
+        <span>{label}</span>
+      </button>
+    );
+  }
+
+  if (variant === 'sidebar-sub') {
+    return (
+      <button
+        onClick={onClick}
+        className={`w-full rounded-xl px-3 py-2 text-xs font-semibold transition-all flex items-center gap-2 ${
+          active
+            ? 'bg-white/88 text-indigo-600 shadow-[0_8px_20px_rgba(99,102,241,0.16)]'
+            : 'text-slate-500 hover:bg-white/60 hover:text-slate-700'
         }`}
       >
         {icon}

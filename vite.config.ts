@@ -13,6 +13,7 @@ export default defineConfig({
     hmr: process.env.DISABLE_HMR !== 'true',
   },
   build: {
+    chunkSizeWarningLimit: 900,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -20,8 +21,8 @@ export default defineConfig({
           if (id.includes('firebase')) {
             return 'firebase';
           }
-          if (id.includes('react') || id.includes('react-dom')) {
-            return 'react-vendor';
+          if (id.includes('xlsx-js-style')) {
+            return 'xlsx-vendor';
           }
           if (id.includes('lucide-react') || id.includes('motion')) {
             return 'ui-vendor';

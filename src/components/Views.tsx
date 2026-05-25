@@ -23,7 +23,6 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
-import * as XLSX from 'xlsx-js-style';
 import { Product, ProductRiskMetrics, Transaction, User, Expense, WeeklySalesComparison } from '../types';
 import { formatDateTimeLabel, getRangeByMonth, isWithinRange, monthKeyFromTimestamp } from '../lib/timeWindow';
 
@@ -53,6 +52,8 @@ const shoeBackgroundMap = Object.entries(shoeImageModules).reduce<Record<string,
 
   return acc;
 }, {});
+
+const loadXlsxModule = () => import('xlsx-js-style');
 
 function PickerChip({
   type,
@@ -488,6 +489,7 @@ interface InventoryOverviewViewProps {
   monthlySalesComparisons: WeeklySalesComparison[];
   comparisonMode: 'week' | 'month';
   setComparisonMode: (value: 'week' | 'month') => void;
+  showToast: (message: string, type?: 'success' | 'error') => void;
 }
 
 export const InventoryOverviewView = ({
@@ -501,7 +503,8 @@ export const InventoryOverviewView = ({
   weeklySalesComparisons,
   monthlySalesComparisons,
   comparisonMode,
-  setComparisonMode
+  setComparisonMode,
+  showToast
 }: InventoryOverviewViewProps) => {
   const sortedWarnings = useMemo(() => {
     if (mode !== 'warnings') return [] as Product[];
@@ -568,7 +571,8 @@ export const InventoryOverviewView = ({
     return Number.isInteger(boxes) ? boxes : Number(boxes.toFixed(2));
   };
 
-  const exportStyledSheet = (rows: Array<Array<string | number>>, sheetName: string, fileName: string) => {
+  const exportStyledSheet = async (rows: Array<Array<string | number>>, sheetName: string, fileName: string) => {
+    const XLSX = await loadXlsxModule();
     const header = ['名称', '规格', '剩余库存'];
     const table = [header, ...rows];
 
@@ -613,14 +617,24 @@ export const InventoryOverviewView = ({
     XLSX.writeFile(workbook, fileName);
   };
 
-  const handleExportWarningList = () => {
-    const rows = sortedWarnings.map((p: Product) => [p.name, `${p.spec} 个/箱`, toRemainingBoxesNumber(p.stock, p.spec)]);
-    exportStyledSheet(rows, '要货列表', '要货列表.xlsx');
+  const handleExportWarningList = async () => {
+    try {
+      const rows = sortedWarnings.map((p: Product) => [p.name, `${p.spec} 个/箱`, toRemainingBoxesNumber(p.stock, p.spec)]);
+      await exportStyledSheet(rows, '要货列表', '要货列表.xlsx');
+    } catch (error) {
+      console.error('Export warning list failed:', error);
+      showToast('导出失败，请重试', 'error');
+    }
   };
 
-  const handleExportRemainingStock = () => {
-    const rows = sortedProducts.map((p: Product) => [p.name, `${p.spec} 个/箱`, toRemainingBoxesNumber(p.stock, p.spec)]);
-    exportStyledSheet(rows, '剩余库存', '剩余库存.xlsx');
+  const handleExportRemainingStock = async () => {
+    try {
+      const rows = sortedProducts.map((p: Product) => [p.name, `${p.spec} 个/箱`, toRemainingBoxesNumber(p.stock, p.spec)]);
+      await exportStyledSheet(rows, '剩余库存', '剩余库存.xlsx');
+    } catch (error) {
+      console.error('Export remaining stock failed:', error);
+      showToast('导出失败，请重试', 'error');
+    }
   };
 
   const formatBoxesValue = (value: number) => {
@@ -1025,9 +1039,6 @@ interface StockViewProps {
   remark: string;
   setRemark: (value: string) => void;
   formatDateTime: (value: Transaction['occurredAt']) => string;
-  hasMoreTransactions: boolean;
-  loadingMoreTransactions: boolean;
-  loadMoreTransactions: () => Promise<void>;
 }
 
 export const StockView = ({
@@ -1036,7 +1047,7 @@ export const StockView = ({
   user, formatStock, showToast,
   type, setType, selectedId, setSelectedId, searchTerm, setSearchTerm, showDropdown, setShowDropdown,
   boxes, setBoxes, items, setItems, remark, setRemark,
-  formatDateTime, hasMoreTransactions, loadingMoreTransactions, loadMoreTransactions
+  formatDateTime
 }: StockViewProps) => {
   const [editBoxes, setEditBoxes] = useState('');
   const [editItems, setEditItems] = useState('');
@@ -1048,6 +1059,16 @@ export const StockView = ({
   const [visibleTransactionCount, setVisibleTransactionCount] = useState(20);
   const [collapsedMonthMap, setCollapsedMonthMap] = useState<Record<string, boolean>>({});
   const [historySummaryQuery, setHistorySummaryQuery] = useState('');
+  const [historyFilterMode, setHistoryFilterMode] = useState<'all' | 'day' | 'month'>('all');
+  const [historyFilterDate, setHistoryFilterDate] = useState('');
+  const [historyFilterMonth, setHistoryFilterMonth] = useState('');
+
+  const toLocalDateInputValue = (date: Date) => {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
   const filteredProducts = useMemo(() => {
     if (!searchTerm) return products;
@@ -1070,9 +1091,25 @@ export const StockView = ({
     return [...transactions].sort((a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis());
   }, [transactions]);
 
+  const filteredTransactions = useMemo(() => {
+    if (historyFilterMode === 'day') {
+      const selectedDate = historyFilterDate.trim();
+      if (!selectedDate) return sortedTransactions;
+      return sortedTransactions.filter((tx) =>
+        toLocalDateInputValue(tx.occurredAt.toDate()) === selectedDate
+      );
+    }
+    if (historyFilterMode === 'month') {
+      const selectedMonth = historyFilterMonth.trim();
+      if (!selectedMonth) return sortedTransactions;
+      return sortedTransactions.filter((tx) => monthKeyFromTimestamp(tx.occurredAt) === selectedMonth);
+    }
+    return sortedTransactions;
+  }, [historyFilterMode, historyFilterDate, historyFilterMonth, sortedTransactions]);
+
   const visibleTransactions = useMemo(() => {
-    return sortedTransactions.slice(0, visibleTransactionCount);
-  }, [sortedTransactions, visibleTransactionCount]);
+    return filteredTransactions.slice(0, visibleTransactionCount);
+  }, [filteredTransactions, visibleTransactionCount]);
 
   const groupedVisibleTransactions = useMemo(() => {
     const groups = new Map<string, Transaction[]>();
@@ -1129,7 +1166,7 @@ export const StockView = ({
       });
   }, [historySummaryQuery, products, transactions]);
 
-  const canShowMoreLocal = visibleTransactionCount < sortedTransactions.length;
+  const canShowMoreLocal = visibleTransactionCount < filteredTransactions.length;
 
   const formatMonthTitle = (monthKey: string) => {
     const [year, month] = monthKey.split('-');
@@ -1140,15 +1177,9 @@ export const StockView = ({
     setCollapsedMonthMap((prev) => ({ ...prev, [monthKey]: !prev[monthKey] }));
   };
 
-  const handleShowMore = async () => {
-    if (canShowMoreLocal) {
-      setVisibleTransactionCount((prev) => prev + 20);
-      return;
-    }
-    if (hasMoreTransactions) {
-      await loadMoreTransactions();
-      setVisibleTransactionCount((prev) => prev + 20);
-    }
+  const handleShowMore = () => {
+    if (!canShowMoreLocal) return;
+    setVisibleTransactionCount((prev) => prev + 20);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1528,8 +1559,90 @@ export const StockView = ({
                 placeholder="输入型号查看进出库汇总"
                 className="w-full sm:w-64 rounded-xl border-white/40 bg-white/40 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2 text-sm font-bold !text-left"
               />
+              <div className="flex bg-white/35 backdrop-blur-md p-1 rounded-xl border border-white/40">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryFilterMode('all');
+                    setVisibleTransactionCount(20);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
+                    historyFilterMode === 'all' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  全部
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryFilterMode('day');
+                    setHistoryFilterMonth('');
+                    setVisibleTransactionCount(20);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
+                    historyFilterMode === 'day' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  按日
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryFilterMode('month');
+                    setHistoryFilterDate('');
+                    setVisibleTransactionCount(20);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
+                    historyFilterMode === 'month' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  按月
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                {historyFilterMode === 'day' && (
+                  <PickerChip
+                    type="date"
+                    value={historyFilterDate}
+                    onChange={(value) => {
+                      setHistoryFilterDate(value);
+                      setVisibleTransactionCount(20);
+                    }}
+                    displayValue={historyFilterDate ? historyFilterDate.replaceAll('-', '/') : '按日筛选'}
+                    ariaLabel="按日期筛选近期流水明细"
+                    className="whitespace-nowrap"
+                  />
+                )}
+                {historyFilterMode === 'month' && (
+                  <PickerChip
+                    type="month"
+                    value={historyFilterMonth}
+                    onChange={(value) => {
+                      setHistoryFilterMonth(value);
+                      setVisibleTransactionCount(20);
+                    }}
+                    displayValue={historyFilterMonth ? historyFilterMonth.replace('-', '/') : '按月筛选'}
+                    ariaLabel="按月份筛选近期流水明细"
+                    className="whitespace-nowrap"
+                  />
+                )}
+                {(historyFilterDate || historyFilterMonth || historyFilterMode !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistoryFilterMode('all');
+                      setHistoryFilterDate('');
+                      setHistoryFilterMonth('');
+                      setVisibleTransactionCount(20);
+                    }}
+                    className="rounded-xl border border-white/50 bg-white/45 px-3 py-2 text-xs font-bold text-slate-500 transition-all hover:bg-white/70"
+                  >
+                    清空
+                  </button>
+                )}
+              </div>
               <div className="text-xs font-bold text-slate-400 bg-white/40 rounded-full px-3 py-1 border border-white/50 text-center">
-                已显示 {visibleTransactions.length} / {transactions.length} 条
+                已显示 {visibleTransactions.length} / {filteredTransactions.length} 条
               </div>
             </div>
           </div>
@@ -1649,15 +1762,14 @@ export const StockView = ({
               <div className="py-12 text-center text-slate-400 font-bold">暂无流水记录</div>
             )}
 
-            {(canShowMoreLocal || hasMoreTransactions) && (
+            {canShowMoreLocal && (
               <div className="pt-2 text-center">
                 <button
                   type="button"
                   onClick={handleShowMore}
-                  disabled={loadingMoreTransactions}
                   className="px-4 py-2 rounded-xl bg-white/45 border border-white/50 text-slate-700 font-bold hover:bg-white/70 transition-all disabled:opacity-50"
                 >
-                  {loadingMoreTransactions ? '加载中...' : '显示更多（+20条）'}
+                  显示更多（+20条）
                 </button>
               </div>
             )}
@@ -2158,7 +2270,7 @@ export const ProductsView = ({
 
 export const ExpensesView = ({
   expenses, transactions, addExpense, deleteExpense, formatCurrency, user,
-  formatDateTime, hasMoreExpenses, loadingMoreExpenses, loadMoreExpenses
+  formatDateTime
 }: {
   expenses: Expense[],
   transactions: Transaction[],
@@ -2166,10 +2278,7 @@ export const ExpensesView = ({
   deleteExpense: (id: string | null) => void,
   formatCurrency: (val: number) => string,
   user: User | null,
-  formatDateTime: (value: Expense['occurredAt']) => string,
-  hasMoreExpenses: boolean,
-  loadingMoreExpenses: boolean,
-  loadMoreExpenses: () => Promise<void>
+  formatDateTime: (value: Expense['occurredAt']) => string
 }) => {
   const expenseCategoryOptions = [
     '日常运营',
@@ -2183,6 +2292,7 @@ export const ExpensesView = ({
   const [remark, setRemark] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [visibleExpenseCount, setVisibleExpenseCount] = useState(20);
   const dateLabel = date.replaceAll('-', '/');
   const filterMonthLabel = filterMonth.replace('-', '/');
 
@@ -2204,6 +2314,12 @@ export const ExpensesView = ({
     const range = getRangeByMonth(filterMonth);
     return expenses.filter(e => isWithinRange(e.occurredAt, range));
   }, [expenses, filterMonth]);
+
+  const visibleExpenses = useMemo(() => {
+    return filteredExpenses.slice(0, visibleExpenseCount);
+  }, [filteredExpenses, visibleExpenseCount]);
+
+  const canShowMoreExpensesLocal = visibleExpenseCount < filteredExpenses.length;
 
   const monthlyTotal = useMemo(() => {
     return filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -2450,7 +2566,7 @@ export const ExpensesView = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
-                  {filteredExpenses.map((e: Expense) => (
+                  {visibleExpenses.map((e: Expense) => (
                     <tr key={e.id} className="hover:bg-white/20 transition-colors">
                       <td className="py-4 text-sm font-medium text-slate-500">{formatDateTime(e.occurredAt)}</td>
                       <td className="py-4">
@@ -2475,7 +2591,7 @@ export const ExpensesView = ({
                       </td>
                     </tr>
                   ))}
-                  {filteredExpenses.length === 0 && (
+                  {visibleExpenses.length === 0 && (
                     <tr>
                       <td colSpan={5} className="py-20 text-center">
                         <div className="flex flex-col items-center gap-2 text-slate-400">
@@ -2487,15 +2603,14 @@ export const ExpensesView = ({
                   )}
                 </tbody>
               </table>
-              {hasMoreExpenses && (
+              {canShowMoreExpensesLocal && (
                 <div className="mt-4 text-center">
                   <button
                     type="button"
-                    onClick={loadMoreExpenses}
-                    disabled={loadingMoreExpenses}
+                    onClick={() => setVisibleExpenseCount((prev) => prev + 20)}
                     className="px-4 py-2 rounded-xl bg-white/45 border border-white/50 text-slate-700 font-bold hover:bg-white/70 transition-all disabled:opacity-50"
                   >
-                    {loadingMoreExpenses ? '加载中...' : '加载更多支出'}
+                    显示更多支出（+20条）
                   </button>
                 </div>
               )}

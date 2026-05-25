@@ -74,11 +74,13 @@ service cloud.firestore {
     }
 
     function isValidProduct(data) {
-      return hasOnlyAllowedFields(['name', 'spec', 'price', 'stock']) &&
+      return hasOnlyAllowedFields(['name', 'spec', 'price', 'stock', 'isActive', 'createdAt']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.spec is number && data.spec > 0 &&
              data.price is number && data.price >= 0 &&
-             data.stock is number && data.stock >= 0;
+             data.stock is number && data.stock >= 0 &&
+             (!('isActive' in data) || data.isActive is bool) &&
+             (!('createdAt' in data) || data.createdAt is timestamp);
     }
 
     function isValidTransaction(data) {

@@ -33,13 +33,10 @@ import {
   doc, 
   query, 
   orderBy,
-  getDocs,
-  limit,
+  getDoc,
   runTransaction,
-  startAfter,
   Timestamp,
-  type DocumentData,
-  type QueryDocumentSnapshot
+  type DocumentData
 } from 'firebase/firestore';
 import { Product, ProductRiskMetrics, Transaction, User, View, Toast, Expense, WeeklySalesComparison } from './types';
 import { LoginView, HomeView, InventoryOverviewView, StockView, ProductsView, ExpensesView } from './components/Views';
@@ -164,8 +161,19 @@ const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('zh-CN').format(amount) + ' XOF';
 };
 
-const getTogoDate = () => new Date().toISOString().split('T')[0];
-const getTogoMonth = () => new Date().toISOString().slice(0, 7);
+const toLocalDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const getTogoDate = () => toLocalDateInputValue(new Date());
+const getTogoMonth = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, '0');
+  return `${year}-${month}`;
+};
 const getPreviousMonth = (monthValue: string) => {
   const [year, month] = monthValue.split('-');
   const base = new Date(Number.parseInt(year, 10), Number.parseInt(month, 10) - 1, 1);
@@ -183,7 +191,6 @@ const getTogoWeek = () => {
   return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`;
 };
 
-const PAGE_SIZE = 200;
 const IN_TOTAL_BASELINE_VALUE = 193154500;
 const IN_TOTAL_BASELINE_DATE = new Date(2026, 3, 23, 0, 0, 0, 0);
 
@@ -278,12 +285,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteExpenseId, setConfirmDeleteExpenseId] = useState<string | null>(null);
-  const [transactionsCursor, setTransactionsCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [expensesCursor, setExpensesCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [hasMoreTransactions, setHasMoreTransactions] = useState(false);
-  const [hasMoreExpenses, setHasMoreExpenses] = useState(false);
-  const [loadingMoreTransactions, setLoadingMoreTransactions] = useState(false);
-  const [loadingMoreExpenses, setLoadingMoreExpenses] = useState(false);
 
   // --- StockView State (Persistent) ---
   const [stockType, setStockType] = useState<'in' | 'out'>('in');
@@ -317,16 +318,27 @@ export default function App() {
             setProducts([]);
             setTransactions([]);
             setExpenses([]);
-            setTransactionsCursor(null);
-            setExpensesCursor(null);
-            setHasMoreTransactions(false);
-            setHasMoreExpenses(false);
             setLoading(false);
             return;
           }
 
           try {
-            const role: User['role'] = firebaseUser.email === 'admin@topstar.com' ? 'admin' : 'staff';
+            const email = (firebaseUser.email ?? '').toLowerCase();
+            const adminEmails = new Set(['admin@topstar.com', 'mingdongdai@gmail.com']);
+            let role: User['role'] = adminEmails.has(email) ? 'admin' : 'staff';
+
+            try {
+              const profileSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
+              if (profileSnap.exists()) {
+                const profileRole = profileSnap.data().role;
+                if (profileRole === 'admin' || profileRole === 'staff') {
+                  role = profileRole;
+                }
+              }
+            } catch (profileError) {
+              handleFirestoreError(profileError, OperationType.GET, `users/${firebaseUser.uid}`);
+            }
+
             setUser({
               uid: firebaseUser.uid,
               username: firebaseUser.email?.split('@')[0] || firebaseUser.uid,
@@ -380,8 +392,6 @@ export default function App() {
         (a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis()
       );
       setTransactions(merged);
-      setTransactionsCursor(null);
-      setHasMoreTransactions(false);
     };
 
     const qTransactionsModern = query(collection(db, 'transactions'), orderBy('occurredAt', 'desc'));
@@ -416,8 +426,6 @@ export default function App() {
         (a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis()
       );
       setExpenses(merged);
-      setExpensesCursor(null);
-      setHasMoreExpenses(false);
     };
 
     const qExpensesModern = query(collection(db, 'expenses'), orderBy('occurredAt', 'desc'));
@@ -802,64 +810,6 @@ export default function App() {
     };
   }, [selectedMonth, transactions, expenses, warnings.length, staleProducts.length]);
 
-  const loadMoreTransactions = async () => {
-    if (!transactionsCursor || loadingMoreTransactions || !hasMoreTransactions) return;
-    try {
-      setLoadingMoreTransactions(true);
-      const q = query(
-        collection(db, 'transactions'),
-        orderBy('occurredAt', 'desc'),
-        startAfter(transactionsCursor),
-        limit(PAGE_SIZE)
-      );
-      const snap = await getDocs(q);
-      const next = snap.docs.map((itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data()));
-      setTransactions(prev => {
-        const ids = new Set(prev.map(item => item.id));
-        const merged = [...prev];
-        for (const item of next) {
-          if (!ids.has(item.id)) merged.push(item);
-        }
-        return merged;
-      });
-      setTransactionsCursor(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null);
-      setHasMoreTransactions(snap.docs.length === PAGE_SIZE);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'transactions');
-    } finally {
-      setLoadingMoreTransactions(false);
-    }
-  };
-
-  const loadMoreExpenses = async () => {
-    if (!expensesCursor || loadingMoreExpenses || !hasMoreExpenses) return;
-    try {
-      setLoadingMoreExpenses(true);
-      const q = query(
-        collection(db, 'expenses'),
-        orderBy('occurredAt', 'desc'),
-        startAfter(expensesCursor),
-        limit(PAGE_SIZE)
-      );
-      const snap = await getDocs(q);
-      const next = snap.docs.map((itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data()));
-      setExpenses(prev => {
-        const ids = new Set(prev.map(item => item.id));
-        const merged = [...prev];
-        for (const item of next) {
-          if (!ids.has(item.id)) merged.push(item);
-        }
-        return merged;
-      });
-      setExpensesCursor(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null);
-      setHasMoreExpenses(snap.docs.length === PAGE_SIZE);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, 'expenses');
-    } finally {
-      setLoadingMoreExpenses(false);
-    }
-  };
-
   // --- Actions ---
   const handleLogin = async (username: string, pass: string) => {
     const normalized = username.trim().toLowerCase();
@@ -1166,6 +1116,10 @@ export default function App() {
     const lines = batchText.trim().split('\n');
     let successCount = 0;
     let errorCount = 0;
+    const existingNames = new Set(
+      products.map((product) => product.name.trim().toLowerCase())
+    );
+    const importedNames = new Set<string>();
 
     showToast('正在开始批量导入...', 'success');
 
@@ -1178,18 +1132,27 @@ export default function App() {
       }
 
       const pName = columns[0].trim();
-      const pSpec = parseInt(columns[1]);
-      const pPrice = parseInt(columns[2]);
-      const pBoxes = columns[3] ? parseInt(columns[3]) : 0;
+      const pSpec = Number.parseInt(columns[1], 10);
+      const pPrice = Number.parseInt(columns[2], 10);
+      const pBoxes = columns[3] ? Number.parseInt(columns[3], 10) : 0;
       const pStock = pBoxes * pSpec;
+      const normalizedName = pName.toLowerCase();
 
-      if (!pName || isNaN(pSpec) || isNaN(pPrice)) {
+      if (
+        !pName ||
+        Number.isNaN(pSpec) ||
+        Number.isNaN(pPrice) ||
+        Number.isNaN(pBoxes) ||
+        pSpec <= 0 ||
+        pPrice < 0 ||
+        pBoxes < 0
+      ) {
         errorCount++;
         continue;
       }
 
-      // Check duplicate
-      if (products.some(p => p.name === pName)) {
+      // Block duplicates against existing list and the same import batch.
+      if (existingNames.has(normalizedName) || importedNames.has(normalizedName)) {
         errorCount++;
         continue;
       }
@@ -1222,6 +1185,7 @@ export default function App() {
           }
         });
         successCount++;
+        importedNames.add(normalizedName);
       } catch (e) {
         handleFirestoreError(e, OperationType.WRITE, 'batch_import');
         errorCount++;
@@ -1558,6 +1522,7 @@ export default function App() {
                   monthlySalesComparisons={monthlySalesComparisons}
                   comparisonMode={inventoryComparisonMode}
                   setComparisonMode={setInventoryComparisonMode}
+                  showToast={showToast}
                 />
               )}
               {currentView === 'inventory-stale' && (
@@ -1573,6 +1538,7 @@ export default function App() {
                   monthlySalesComparisons={monthlySalesComparisons}
                   comparisonMode={inventoryComparisonMode}
                   setComparisonMode={setInventoryComparisonMode}
+                  showToast={showToast}
                 />
               )}
               {currentView === 'inventory-stock' && (
@@ -1588,6 +1554,7 @@ export default function App() {
                   monthlySalesComparisons={monthlySalesComparisons}
                   comparisonMode={inventoryComparisonMode}
                   setComparisonMode={setInventoryComparisonMode}
+                  showToast={showToast}
                 />
               )}
               {currentView === 'inventory-comparison' && (
@@ -1603,6 +1570,7 @@ export default function App() {
                   monthlySalesComparisons={monthlySalesComparisons}
                   comparisonMode={inventoryComparisonMode}
                   setComparisonMode={setInventoryComparisonMode}
+                  showToast={showToast}
                 />
               )}
               {currentView === 'stock' && (
@@ -1632,9 +1600,6 @@ export default function App() {
                   remark={stockRemark}
                   setRemark={setStockRemark}
                   formatDateTime={formatDateTimeLabel}
-                  hasMoreTransactions={hasMoreTransactions}
-                  loadingMoreTransactions={loadingMoreTransactions}
-                  loadMoreTransactions={loadMoreTransactions}
                 />
               )}
             {currentView === 'products' && (
@@ -1670,9 +1635,6 @@ export default function App() {
                   formatCurrency={formatCurrency}
                   user={user}
                   formatDateTime={formatDateTimeLabel}
-                  hasMoreExpenses={hasMoreExpenses}
-                  loadingMoreExpenses={loadingMoreExpenses}
-                  loadMoreExpenses={loadMoreExpenses}
                 />
               )}
           </motion.div>

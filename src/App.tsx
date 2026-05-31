@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useMemo, Component } from 'react';
 import { 
   LayoutDashboard, 
+  BarChart3,
   Package, 
   ArrowLeftRight, 
   ChevronDown,
@@ -38,8 +39,8 @@ import {
   Timestamp,
   type DocumentData
 } from 'firebase/firestore';
-import { Product, ProductRiskMetrics, Transaction, User, View, Toast, Expense, WeeklySalesComparison } from './types';
-import { LoginView, HomeView, InventoryOverviewView, StockView, ProductsView, ExpensesView } from './components/Views';
+import { Product, ProductRiskMetrics, Transaction, User, View, Toast, Expense, WeeklySalesComparison, DashboardMetrics } from './types';
+import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, ProductsView, ExpensesView } from './components/Views';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate } from './lib/timeWindow';
 
 
@@ -273,7 +274,7 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [currentView, setCurrentView] = useState<View>('home');
-  const [isInventoryMenuOpen, setIsInventoryMenuOpen] = useState(true);
+  const [isInventoryMenuOpen, setIsInventoryMenuOpen] = useState(false);
   const [inventoryComparisonMode, setInventoryComparisonMode] = useState<'week' | 'month'>('week');
   const [reportPeriod, setReportPeriod] = useState<'day' | 'week' | 'month'>('day');
   
@@ -809,6 +810,146 @@ export default function App() {
       expenseMoM
     };
   }, [selectedMonth, transactions, expenses, warnings.length, staleProducts.length]);
+
+  const dashboardMetrics = useMemo<DashboardMetrics>(() => {
+    const now = new Date();
+    const selectedYear = now.getFullYear();
+    const currentMonthIndex = now.getMonth();
+    const selectedMonthKey = `${selectedYear}-${`${currentMonthIndex + 1}`.padStart(2, '0')}`;
+
+    const monthlyBuckets = Array.from({ length: currentMonthIndex + 1 }, (_, monthIndex) => {
+      const monthKey = `${selectedYear}-${`${monthIndex + 1}`.padStart(2, '0')}`;
+      return {
+        monthKey,
+        monthLabel: `${monthIndex + 1}月`,
+        salesTotal: 0
+      };
+    });
+
+    type ProductAggItem = {
+      productId: string;
+      productName: string;
+      spec: number;
+      amount: number;
+      quantity: number;
+      boxes: number;
+    };
+
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const currentMonthByProduct = new Map<string, ProductAggItem>();
+
+    for (const transaction of transactions) {
+      if (transaction.type !== 'out') continue;
+
+      const occurredAt = timestampToDate(transaction.occurredAt);
+      if (occurredAt.getFullYear() !== selectedYear) continue;
+
+      const monthIndex = occurredAt.getMonth();
+      if (monthIndex < 0 || monthIndex > currentMonthIndex) continue;
+
+      const amount = transaction.quantity * transaction.unitPrice;
+      monthlyBuckets[monthIndex].salesTotal += amount;
+
+      const monthKey = monthlyBuckets[monthIndex].monthKey;
+      if (monthKey !== selectedMonthKey) continue;
+
+      const product = productById.get(transaction.productId);
+      const spec = product && product.spec > 0 ? product.spec : 1;
+      const existing = currentMonthByProduct.get(transaction.productId);
+      if (existing) {
+        existing.amount += amount;
+        existing.quantity += transaction.quantity;
+        existing.boxes += transaction.quantity / spec;
+        continue;
+      }
+
+      currentMonthByProduct.set(transaction.productId, {
+        productId: transaction.productId,
+        productName: product?.name || '未知商品',
+        spec,
+        amount,
+        quantity: transaction.quantity,
+        boxes: transaction.quantity / spec
+      });
+    }
+
+    const monthlySalesSeries = monthlyBuckets.map((bucket) => ({
+      monthKey: bucket.monthKey,
+      monthLabel: bucket.monthLabel,
+      salesTotal: bucket.salesTotal
+    }));
+
+    const monthlyMomSeries = monthlyBuckets.map((bucket, index) => {
+      if (index === 0) {
+        return {
+          monthKey: bucket.monthKey,
+          salesMoM: null
+        };
+      }
+
+      const previous = monthlyBuckets[index - 1];
+      const salesMoM = previous.salesTotal > 0
+        ? ((bucket.salesTotal - previous.salesTotal) / previous.salesTotal) * 100
+        : null;
+
+      return {
+        monthKey: bucket.monthKey,
+        salesMoM
+      };
+    });
+
+    const currentMonthSalesTotal = monthlyBuckets[currentMonthIndex]?.salesTotal ?? 0;
+    const currentMonthSalesMoM = monthlyMomSeries[monthlyMomSeries.length - 1]?.salesMoM ?? null;
+
+    const currentMonthProducts = [...currentMonthByProduct.values()];
+    const totalAmount = currentMonthProducts.reduce((sum, item) => sum + item.amount, 0);
+    const totalBoxes = currentMonthProducts.reduce((sum, item) => sum + item.boxes, 0);
+
+    const hotByAmount = [...currentMonthProducts]
+      .sort((a, b) => {
+        if (b.amount !== a.amount) return b.amount - a.amount;
+        if (b.boxes !== a.boxes) return b.boxes - a.boxes;
+        return a.productName.localeCompare(b.productName);
+      })
+      .slice(0, 5)
+      .map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        value: item.amount,
+        share: totalAmount > 0 ? (item.amount / totalAmount) * 100 : 0,
+        quantity: item.quantity,
+        boxes: item.boxes,
+        spec: item.spec
+      }));
+
+    const hotByVolume = [...currentMonthProducts]
+      .sort((a, b) => {
+        if (b.boxes !== a.boxes) return b.boxes - a.boxes;
+        if (b.amount !== a.amount) return b.amount - a.amount;
+        return a.productName.localeCompare(b.productName);
+      })
+      .slice(0, 5)
+      .map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        value: item.boxes,
+        share: totalBoxes > 0 ? (item.boxes / totalBoxes) * 100 : 0,
+        quantity: item.quantity,
+        boxes: item.boxes,
+        spec: item.spec
+      }));
+
+    return {
+      selectedYear,
+      selectedMonthKey,
+      monthlySalesSeries,
+      monthlyMomSeries,
+      currentMonthSalesTotal,
+      currentMonthSalesMoM,
+      hotByAmount,
+      hotByVolume
+    };
+  }, [transactions, products]);
 
   // --- Actions ---
   const handleLogin = async (username: string, pass: string) => {
@@ -1401,6 +1542,13 @@ export default function App() {
                 label="首页概览"
                 variant="sidebar"
               />
+              <NavButton
+                active={currentView === 'dashboard'}
+                onClick={() => handleViewChange('dashboard')}
+                icon={<BarChart3 size={18} />}
+                label="数据看板"
+                variant="sidebar"
+              />
               <button
                 type="button"
                 onClick={() => setIsInventoryMenuOpen((prev) => !prev)}
@@ -1624,6 +1772,13 @@ export default function App() {
                 batchText={batchText}
                 setBatchText={setBatchText}
                 handleBatchImport={handleBatchImport}
+              />
+            )}
+            {currentView === 'dashboard' && (
+              <DashboardView
+                metrics={dashboardMetrics}
+                formatCurrency={formatCurrency}
+                formatStock={formatStock}
               />
             )}
             {currentView === 'expenses' && (

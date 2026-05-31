@@ -38,6 +38,7 @@ export interface Expense {
 
 export type View =
   | 'home'
+  | 'dashboard'
   | 'inventory-warnings'
   | 'inventory-stale'
   | 'inventory-stock'
@@ -72,4 +73,36 @@ export interface WeeklySalesComparison {
   previousWeekBoxes: number;
   changePercent: number | null;
   trend: 'up' | 'down' | 'flat' | 'new';
+}
+
+export interface MonthlySalesSeriesItem {
+  monthKey: string;
+  monthLabel: string;
+  salesTotal: number;
+}
+
+export interface MonthlyMoMSeriesItem {
+  monthKey: string;
+  salesMoM: number | null;
+}
+
+export interface HotProductItem {
+  productId: string;
+  productName: string;
+  value: number;
+  share: number;
+  quantity: number;
+  boxes: number;
+  spec: number;
+}
+
+export interface DashboardMetrics {
+  selectedYear: number;
+  selectedMonthKey: string;
+  monthlySalesSeries: MonthlySalesSeriesItem[];
+  monthlyMomSeries: MonthlyMoMSeriesItem[];
+  currentMonthSalesTotal: number;
+  currentMonthSalesMoM: number | null;
+  hotByAmount: HotProductItem[];
+  hotByVolume: HotProductItem[];
 }

@@ -1449,7 +1449,7 @@ export const StockView = ({
     return [...transactions].sort((a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis());
   }, [transactions]);
 
-  const filteredTransactions = useMemo(() => {
+  const periodFilteredTransactions = useMemo(() => {
     if (historyFilterMode === 'day') {
       return sortedTransactions.filter((tx) =>
         toLocalDateInputValue(tx.occurredAt.toDate()) === historyFilterDate
@@ -1465,6 +1465,23 @@ export const StockView = ({
     }
     return [];
   }, [historyFilterMode, historyFilterDate, historyFilterWeek, historyFilterMonth, sortedTransactions]);
+
+  const filteredTransactions = useMemo(() => {
+    const keyword = historySummaryQuery.trim().toLowerCase();
+    if (!keyword) return periodFilteredTransactions;
+
+    const matchedProductIds = new Set(
+      products
+        .filter((product) => product.name.toLowerCase().includes(keyword))
+        .map((product) => product.id)
+    );
+
+    if (matchedProductIds.size === 0) return [];
+
+    return sortedTransactions.filter((transaction) =>
+      transaction.type === 'in' && matchedProductIds.has(transaction.productId)
+    );
+  }, [historySummaryQuery, periodFilteredTransactions, products, sortedTransactions]);
 
   const visibleTransactions = useMemo(() => {
     return filteredTransactions.slice(0, visibleTransactionCount);
@@ -1891,8 +1908,11 @@ export const StockView = ({
               <input
                 type="text"
                 value={historySummaryQuery}
-                onChange={(e) => setHistorySummaryQuery(e.target.value)}
-                placeholder="输入型号查看进出库汇总"
+                onChange={(e) => {
+                  setHistorySummaryQuery(e.target.value);
+                  setVisibleTransactionCount(20);
+                }}
+                placeholder="输入型号查看进出库汇总和入库明细"
                 className="w-full sm:w-64 rounded-xl border-white/40 bg-white/40 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2 text-sm font-bold !text-left"
               />
               <div className="flex bg-white/35 backdrop-blur-md p-1 rounded-xl border border-white/40">
@@ -1975,7 +1995,7 @@ export const StockView = ({
                 )}
               </div>
               <div className="text-xs font-bold text-slate-400 bg-white/40 rounded-full px-3 py-1 border border-white/50 text-center">
-                已显示 {visibleTransactions.length} / {filteredTransactions.length} 条
+                已显示 {visibleTransactions.length} / {filteredTransactions.length} 条{historySummaryQuery.trim() ? '入库明细' : ''}
               </div>
             </div>
           </div>

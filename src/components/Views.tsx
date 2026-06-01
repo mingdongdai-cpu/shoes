@@ -477,6 +477,7 @@ export const HomeView = ({
 
 interface DashboardViewProps {
   metrics: DashboardMetrics;
+  setHotMonth: (value: string) => void;
   formatCurrency: (value: number) => string;
   formatStock: (total: number, spec: number) => string;
 }
@@ -487,8 +488,9 @@ const formatMomText = (value: number | null) => {
   return `${sign}${value.toFixed(1)}%`;
 };
 
-export const DashboardView = ({ metrics, formatCurrency, formatStock }: DashboardViewProps) => {
+export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStock }: DashboardViewProps) => {
   const selectedMonthLabel = `${metrics.selectedMonthKey.slice(0, 4)}年${metrics.selectedMonthKey.slice(5)}月`;
+  const hotMonthLabel = `${metrics.hotMonthKey.slice(0, 4)}年${metrics.hotMonthKey.slice(5)}月`;
   const hasSalesSeriesData = metrics.monthlySalesSeries.some((item) => item.salesTotal > 0);
   const barChart = useMemo(() => {
     const width = 760;
@@ -811,15 +813,37 @@ export const DashboardView = ({ metrics, formatCurrency, formatStock }: Dashboar
         </section>
       </div>
 
-      <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 rounded-[26px] border border-white/70 bg-white/78 px-6 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-black text-slate-800">热门产品月销售对比</h2>
+            <p className="mt-1 text-xs font-bold text-slate-400">按选择月份查看销售额与销量 Top5</p>
+          </div>
+          <PickerChip
+            type="month"
+            value={metrics.hotMonthKey}
+            onChange={setHotMonth}
+            displayValue={metrics.hotMonthKey.replace('-', '/')}
+            ariaLabel="选择热门产品对比月份"
+            className="w-full sm:w-auto"
+          />
+        </div>
+        <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
         <section className="rounded-[26px] border border-white/70 bg-white/84 p-6 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-          <h2 className="text-lg font-black text-slate-800 mb-5">热门产品销售额占比 Top5</h2>
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-black text-slate-800">热门产品销售额占比 Top5</h2>
+            <span className="shrink-0 text-xs font-bold text-slate-400">{hotMonthLabel}</span>
+          </div>
           {renderHotList(metrics.hotByAmount, 'amount')}
         </section>
         <section className="rounded-[26px] border border-white/70 bg-white/84 p-6 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-          <h2 className="text-lg font-black text-slate-800 mb-5">热门产品销量占比 Top5</h2>
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-black text-slate-800">热门产品销量占比 Top5</h2>
+            <span className="shrink-0 text-xs font-bold text-slate-400">{hotMonthLabel}</span>
+          </div>
           {renderHotList(metrics.hotByVolume, 'volume')}
         </section>
+        </div>
       </div>
     </div>
   );

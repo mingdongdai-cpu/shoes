@@ -255,6 +255,7 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(getTogoDate());
   const [selectedWeek, setSelectedWeek] = useState(getTogoWeek()); 
   const [selectedMonth, setSelectedMonth] = useState(getTogoMonth());
+  const [dashboardHotMonth, setDashboardHotMonth] = useState(getTogoMonth());
   
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [loading, setLoading] = useState(true);
@@ -810,26 +811,25 @@ export default function App() {
     };
 
     const productById = new Map(products.map((product) => [product.id, product]));
-    const currentMonthByProduct = new Map<string, ProductAggItem>();
+    const hotMonthByProduct = new Map<string, ProductAggItem>();
 
     for (const transaction of transactions) {
       if (transaction.type !== 'out') continue;
 
       const occurredAt = timestampToDate(transaction.occurredAt);
-      if (occurredAt.getFullYear() !== selectedYear) continue;
-
       const monthIndex = occurredAt.getMonth();
-      if (monthIndex < 0 || monthIndex > currentMonthIndex) continue;
-
       const amount = transaction.quantity * transaction.unitPrice;
-      monthlyBuckets[monthIndex].salesTotal += amount;
+      const monthKey = `${occurredAt.getFullYear()}-${`${monthIndex + 1}`.padStart(2, '0')}`;
 
-      const monthKey = monthlyBuckets[monthIndex].monthKey;
-      if (monthKey !== selectedMonthKey) continue;
+      if (occurredAt.getFullYear() === selectedYear && monthIndex >= 0 && monthIndex <= currentMonthIndex) {
+        monthlyBuckets[monthIndex].salesTotal += amount;
+      }
+
+      if (monthKey !== dashboardHotMonth) continue;
 
       const product = productById.get(transaction.productId);
       const spec = product && product.spec > 0 ? product.spec : 1;
-      const existing = currentMonthByProduct.get(transaction.productId);
+      const existing = hotMonthByProduct.get(transaction.productId);
       if (existing) {
         existing.amount += amount;
         existing.quantity += transaction.quantity;
@@ -837,7 +837,7 @@ export default function App() {
         continue;
       }
 
-      currentMonthByProduct.set(transaction.productId, {
+      hotMonthByProduct.set(transaction.productId, {
         productId: transaction.productId,
         productName: product?.name || '未知商品',
         spec,
@@ -875,7 +875,7 @@ export default function App() {
     const currentMonthSalesTotal = monthlyBuckets[currentMonthIndex]?.salesTotal ?? 0;
     const currentMonthSalesMoM = monthlyMomSeries[monthlyMomSeries.length - 1]?.salesMoM ?? null;
 
-    const currentMonthProducts = [...currentMonthByProduct.values()];
+    const currentMonthProducts = [...hotMonthByProduct.values()];
     const totalAmount = currentMonthProducts.reduce((sum, item) => sum + item.amount, 0);
     const totalBoxes = currentMonthProducts.reduce((sum, item) => sum + item.boxes, 0);
 
@@ -916,6 +916,7 @@ export default function App() {
     return {
       selectedYear,
       selectedMonthKey,
+      hotMonthKey: dashboardHotMonth,
       monthlySalesSeries,
       monthlyMomSeries,
       currentMonthSalesTotal,
@@ -923,7 +924,7 @@ export default function App() {
       hotByAmount,
       hotByVolume
     };
-  }, [transactions, products]);
+  }, [transactions, products, dashboardHotMonth]);
 
   // --- Actions ---
   const handleLogin = async (username: string, pass: string) => {
@@ -1751,6 +1752,7 @@ export default function App() {
             {currentView === 'dashboard' && (
               <DashboardView
                 metrics={dashboardMetrics}
+                setHotMonth={setDashboardHotMonth}
                 formatCurrency={formatCurrency}
                 formatStock={formatStock}
               />

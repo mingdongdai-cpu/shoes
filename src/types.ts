@@ -99,6 +99,7 @@ export interface HotProductItem {
 export interface DashboardMetrics {
   selectedYear: number;
   selectedMonthKey: string;
+  hotMonthKey: string;
   monthlySalesSeries: MonthlySalesSeriesItem[];
   monthlyMomSeries: MonthlyMoMSeriesItem[];
   currentMonthSalesTotal: number;

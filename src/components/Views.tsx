@@ -488,10 +488,23 @@ const formatMomText = (value: number | null) => {
   return `${sign}${value.toFixed(1)}%`;
 };
 
+const formatDashboardCompactCurrency = (value: number) => {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+  return `${Math.round(value)}`;
+};
+
 export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStock }: DashboardViewProps) => {
   const selectedMonthLabel = `${metrics.selectedMonthKey.slice(0, 4)}年${metrics.selectedMonthKey.slice(5)}月`;
   const hotMonthLabel = `${metrics.hotMonthKey.slice(0, 4)}年${metrics.hotMonthKey.slice(5)}月`;
   const hasSalesSeriesData = metrics.monthlySalesSeries.some((item) => item.salesTotal > 0);
+  const yearSalesTotal = metrics.monthlySalesSeries.reduce((total, item) => total + item.salesTotal, 0);
+  const bestMonth = metrics.monthlySalesSeries.reduce(
+    (best, item) => (item.salesTotal > best.salesTotal ? item : best),
+    metrics.monthlySalesSeries[0] ?? { monthKey: '', monthLabel: '--', salesTotal: 0 }
+  );
+  const bestMonthLabel = hasSalesSeriesData ? bestMonth.monthLabel : '--';
+
   const barChart = useMemo(() => {
     const width = 760;
     const height = 330;
@@ -587,17 +600,29 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
       title: '当月销售额',
       value: formatCurrency(metrics.currentMonthSalesTotal),
       month: selectedMonthLabel,
+      helper: `年度累计 ${formatDashboardCompactCurrency(yearSalesTotal)}`,
       icon: <BarChart3 size={22} className="text-white" />,
-      valueClassName: 'text-slate-900',
-      iconClassName: 'bg-gradient-to-br from-indigo-500 to-violet-500 shadow-[0_10px_26px_rgba(99,102,241,0.42)]'
+      valueClassName: 'text-slate-950',
+      iconClassName: 'bg-[#5b5df7] shadow-[0_16px_34px_rgba(91,93,247,0.32)]',
+      accentClassName: 'from-[#eef2ff] via-white to-white',
+      sparkClassName: 'bg-[#5b5df7]/14'
     },
     {
       title: '销售环比',
       value: formatMomText(metrics.currentMonthSalesMoM),
       month: selectedMonthLabel,
-      icon: <TrendingDown size={22} className="text-white" />,
-      valueClassName: metrics.currentMonthSalesMoM !== null && metrics.currentMonthSalesMoM < 0 ? 'text-rose-500' : 'text-slate-900',
-      iconClassName: 'bg-gradient-to-br from-rose-500 to-red-400 shadow-[0_10px_26px_rgba(244,63,94,0.35)]'
+      helper: metrics.currentMonthSalesMoM === null ? '首月暂无环比' : (metrics.currentMonthSalesMoM >= 0 ? '较上月增长' : '较上月回落'),
+      icon: metrics.currentMonthSalesMoM !== null && metrics.currentMonthSalesMoM >= 0
+        ? <TrendingUp size={22} className="text-white" />
+        : <TrendingDown size={22} className="text-white" />,
+      valueClassName: metrics.currentMonthSalesMoM !== null && metrics.currentMonthSalesMoM < 0 ? 'text-rose-500' : 'text-emerald-500',
+      iconClassName: metrics.currentMonthSalesMoM !== null && metrics.currentMonthSalesMoM < 0
+        ? 'bg-[#e94b62] shadow-[0_16px_34px_rgba(233,75,98,0.28)]'
+        : 'bg-[#47b881] shadow-[0_16px_34px_rgba(71,184,129,0.28)]',
+      accentClassName: metrics.currentMonthSalesMoM !== null && metrics.currentMonthSalesMoM < 0
+        ? 'from-[#fff1f3] via-white to-white'
+        : 'from-[#ecfdf5] via-white to-white',
+      sparkClassName: metrics.currentMonthSalesMoM !== null && metrics.currentMonthSalesMoM < 0 ? 'bg-rose-400/14' : 'bg-emerald-400/16'
     }
   ] as const;
 
@@ -609,26 +634,37 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
   };
 
   const renderHotList = (items: DashboardMetrics['hotByAmount'], mode: 'amount' | 'volume') => {
+    const barClassName = mode === 'amount'
+      ? 'bg-gradient-to-r from-[#5b5df7] to-[#9aa3ff]'
+      : 'bg-gradient-to-r from-[#20b486] to-[#8ddcb1]';
+    const shareClassName = mode === 'amount' ? 'text-[#5b5df7]' : 'text-[#17966f]';
+
     if (items.length === 0) {
       return (
-        <div className="rounded-2xl border border-dashed border-slate-200/70 bg-white/65 px-4 py-10 text-center text-sm font-semibold text-slate-400">
-          暂无数据
+        <div className="flex min-h-[186px] items-center justify-center rounded-[24px] border border-dashed border-slate-200/80 bg-gradient-to-br from-white to-slate-50/80 px-4 py-10 text-center">
+          <div>
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+              <BarChart3 size={20} />
+            </div>
+            <div className="text-sm font-black text-slate-400">暂无数据</div>
+            <div className="mt-1 text-xs font-bold text-slate-300">{hotMonthLabel} 没有销售记录</div>
+          </div>
         </div>
       );
     }
 
     return (
-      <div className="space-y-5">
+      <div className="space-y-4">
         {items.map((item, index) => (
-          <div key={`${mode}-${item.productId}-${index}`} className="space-y-2.5">
-            <div className="flex items-start gap-4">
-              <div className={`mt-0.5 h-7 w-7 shrink-0 rounded-md text-center text-xs font-black leading-7 ${getRankBadgeClassName(index)}`}>
+          <div key={`${mode}-${item.productId}-${index}`} className="rounded-[20px] border border-slate-100 bg-white/80 px-4 py-3.5 shadow-[0_10px_22px_rgba(15,23,42,0.045)]">
+            <div className="flex items-start gap-3">
+              <div className={`mt-0.5 h-8 w-8 shrink-0 rounded-xl text-center text-xs font-black leading-8 shadow-sm ${getRankBadgeClassName(index)}`}>
                 {index + 1}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-base font-black text-slate-800">{item.productName}</div>
+                    <div className="truncate text-base font-black text-slate-900">{item.productName}</div>
                     <div className="text-xs font-semibold text-slate-400">
                       {mode === 'amount' ? formatStock(item.quantity, item.spec) : `${item.boxes.toFixed(2)} 箱`}
                     </div>
@@ -637,18 +673,18 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
                     <div className="text-sm font-black text-slate-900">
                       {mode === 'amount' ? formatCurrency(item.value) : `${item.boxes.toFixed(2)} 箱`}
                     </div>
-                    <div className={`text-xs font-black ${mode === 'amount' ? 'text-indigo-500' : 'text-emerald-500'}`}>
+                    <div className={`text-xs font-black ${shareClassName}`}>
                       {item.share.toFixed(1)}%
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-            <div className="ml-11 h-2.5 w-[calc(100%-2.75rem)] overflow-hidden rounded-full bg-slate-100/90">
+            <div className="ml-11 mt-3 h-2.5 w-[calc(100%-2.75rem)] overflow-hidden rounded-full bg-slate-100/90">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${Math.min(item.share, 100)}%` }}
-                className={`h-full rounded-full ${mode === 'amount' ? 'bg-indigo-400' : 'bg-emerald-400'}`}
+                className={`h-full rounded-full ${barClassName}`}
               />
             </div>
           </div>
@@ -658,23 +694,53 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-7">
+      <section className="relative overflow-hidden rounded-[32px] border border-white/70 bg-[radial-gradient(circle_at_15%_15%,rgba(91,93,247,0.14),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.94),rgba(248,250,252,0.82))] p-6 shadow-[0_18px_42px_rgba(15,23,42,0.09)] backdrop-blur-xl">
+        <div className="absolute right-6 top-6 hidden h-24 w-24 rounded-full border border-[#5b5df7]/12 bg-white/45 lg:block" />
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#5b5df7]/12 bg-white/74 px-3 py-1.5 text-xs font-black text-[#5b5df7] shadow-sm">
+              <BarChart3 size={15} />
+              销售数据看板
+            </div>
+            <h1 className="text-3xl font-black tracking-tight text-slate-950">从月度趋势到热门产品，一屏看清销售表现</h1>
+            <p className="mt-2 max-w-2xl text-sm font-bold leading-6 text-slate-500">
+              当前看板按实际出库流水计算销售额，展示 {metrics.selectedYear} 年 1 月至当前月的销售趋势、环比变化和选定月份的产品排行。
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:flex">
+            <div className="rounded-2xl border border-white/80 bg-white/78 px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+              <div className="text-xs font-black text-slate-400">当前月份</div>
+              <div className="mt-1 text-lg font-black text-slate-900">{selectedMonthLabel}</div>
+            </div>
+            <div className="rounded-2xl border border-white/80 bg-white/78 px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+              <div className="text-xs font-black text-slate-400">最高月份</div>
+              <div className="mt-1 text-lg font-black text-slate-900">{bestMonthLabel}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {summaryCards.map((card) => (
-          <div key={card.title} className="relative overflow-hidden rounded-[26px] border border-white/70 bg-white/85 px-6 py-5 shadow-[0_12px_28px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+          <div key={card.title} className={`relative overflow-hidden rounded-[28px] border border-white/75 bg-gradient-to-br ${card.accentClassName} px-6 py-5 shadow-[0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl`}>
+            <div className="absolute -right-10 -top-12 h-36 w-36 rounded-full bg-white/55" />
             <div className="flex items-start justify-between gap-4">
-              <div className={`h-14 w-14 rounded-2xl flex items-center justify-center ${card.iconClassName}`}>
+              <div className={`flex h-16 w-16 items-center justify-center rounded-[22px] ${card.iconClassName}`}>
                 {card.icon}
               </div>
-              <div className="flex-1">
+              <div className="relative flex-1">
                 <div className="text-sm font-black text-slate-500 mb-1">{card.title}</div>
                 <div className={`text-4xl leading-tight font-black ${card.valueClassName ?? 'text-slate-900'}`}>{card.value}</div>
-                <div className="mt-1 text-xs font-bold text-slate-400">{card.month}</div>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
+                  <span className="rounded-full bg-white/80 px-2.5 py-1 text-slate-400">{card.month}</span>
+                  <span className="rounded-full bg-white/80 px-2.5 py-1 text-slate-400">{card.helper}</span>
+                </div>
               </div>
               <div className="hidden sm:flex items-end gap-1.5 opacity-30 pt-2">
-                <span className="h-6 w-3 rounded-md bg-slate-300" />
-                <span className="h-9 w-3 rounded-md bg-slate-300" />
-                <span className="h-12 w-3 rounded-md bg-slate-300" />
+                <span className={`h-6 w-3 rounded-md ${card.sparkClassName}`} />
+                <span className={`h-9 w-3 rounded-md ${card.sparkClassName}`} />
+                <span className={`h-12 w-3 rounded-md ${card.sparkClassName}`} />
               </div>
             </div>
           </div>
@@ -682,18 +748,21 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
       </div>
 
       <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
-        <section className="rounded-[26px] border border-white/70 bg-white/84 p-6 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-lg font-black text-slate-800">月销售柱形图</h2>
-            <span className="text-xs font-bold text-slate-400">{metrics.selectedYear}年 1月 - 当前月</span>
+        <section className="rounded-[30px] border border-white/70 bg-white/86 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">月销售柱形图</h2>
+              <p className="mt-1 text-xs font-bold text-slate-400">每根柱代表当月出库销售额</p>
+            </div>
+            <span className="rounded-full bg-slate-100/80 px-3 py-1.5 text-xs font-black text-slate-500">{metrics.selectedYear}年 1月 - 当前月</span>
           </div>
           {!hasSalesSeriesData && (
-            <div className="rounded-2xl border border-dashed border-slate-200/70 bg-white/65 px-4 py-10 text-center text-sm font-semibold text-slate-400">
+            <div className="rounded-[24px] border border-dashed border-slate-200/70 bg-gradient-to-br from-white to-slate-50/80 px-4 py-16 text-center text-sm font-semibold text-slate-400">
               暂无数据
             </div>
           )}
           {hasSalesSeriesData && (
-            <div className="rounded-2xl border border-slate-100 bg-white px-2 py-3">
+            <div className="rounded-[24px] border border-slate-100 bg-gradient-to-br from-white to-slate-50/70 px-2 py-3 shadow-inner">
               <svg viewBox={`0 0 ${barChart.width} ${barChart.height}`} className="h-[320px] w-full overflow-visible">
                 <defs>
                   <linearGradient id="dashboardSalesBarGradient" x1="0" x2="0" y1="0" y2="1">
@@ -719,7 +788,7 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
                         strokeDasharray="4 5"
                       />
                       <text x={10} y={y + 4} fill="#94a3b8" fontSize="14" fontWeight="800">
-                        {tick === 0 ? '0' : `${(tick / 1000000).toFixed(0)}M`}
+                        {tick === 0 ? '0' : formatDashboardCompactCurrency(tick)}
                       </text>
                     </g>
                   );
@@ -752,20 +821,28 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
           )}
         </section>
 
-        <section className="rounded-[26px] border border-white/70 bg-white/84 p-6 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-lg font-black text-slate-800">月环比对比图</h2>
-            <span className="text-xs font-bold text-slate-400">销售额</span>
+        <section className="rounded-[30px] border border-white/70 bg-white/86 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">销售环比趋势图</h2>
+              <p className="mt-1 text-xs font-bold text-slate-400">只展示销售额相对上月的变化</p>
+            </div>
+            <span className="rounded-full bg-[#5b5df7]/10 px-3 py-1.5 text-xs font-black text-[#5b5df7]">销售额</span>
           </div>
           {!momChart.hasData && (
-            <div className="rounded-2xl border border-dashed border-slate-200/70 bg-white/65 px-4 py-10 text-center text-sm font-semibold text-slate-400">
+            <div className="rounded-[24px] border border-dashed border-slate-200/70 bg-gradient-to-br from-white to-slate-50/80 px-4 py-16 text-center text-sm font-semibold text-slate-400">
               暂无数据
             </div>
           )}
           {momChart.hasData && (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-slate-100 bg-white px-2 py-3">
+              <div className="rounded-[24px] border border-slate-100 bg-gradient-to-br from-white to-slate-50/70 px-2 py-3 shadow-inner">
                 <svg viewBox={`0 0 ${momChart.width} ${momChart.height}`} className="h-[320px] w-full overflow-visible">
+                  <defs>
+                    <filter id="dashboardMomLineGlow" x="-20%" y="-20%" width="140%" height="140%">
+                      <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#5b5df7" floodOpacity="0.18" />
+                    </filter>
+                  </defs>
                   {momChart.ticks.map((tick) => {
                     const y = momChart.margin.top + ((momChart.maxValue - tick) / (momChart.maxValue - momChart.minValue)) * momChart.plotHeight;
                     return (
@@ -783,12 +860,15 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
                     );
                   })}
                   {momChart.salesPolyline && (
-                    <polyline fill="none" stroke="#5b5df7" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points={momChart.salesPolyline} />
+                    <polyline fill="none" stroke="#5b5df7" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={momChart.salesPolyline} filter="url(#dashboardMomLineGlow)" />
                   )}
                   {momChart.salesPoints.map((point, index) => (
-                    <circle key={`sales-dot-${index}`} cx={point.x} cy={point.y} r="4.5" fill="#5b5df7">
-                      <title>{`销售额环比 ${formatMomText(point.value)}`}</title>
-                    </circle>
+                    <g key={`sales-dot-${index}`}>
+                      <circle cx={point.x} cy={point.y} r="8" fill="#5b5df7" opacity="0.12" />
+                      <circle cx={point.x} cy={point.y} r="4.8" fill="#5b5df7">
+                        <title>{`销售额环比 ${formatMomText(point.value)}`}</title>
+                      </circle>
+                    </g>
                   ))}
                   {metrics.monthlySalesSeries.map((item, index) => {
                     const x = metrics.monthlySalesSeries.length > 1
@@ -807,6 +887,7 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
                   <span className="h-2.5 w-2.5 rounded-full bg-[#5b5df7]" />
                   销售额环比
                 </span>
+                <span className="text-slate-300">0% 线表示与上月持平</span>
               </div>
             </div>
           )}
@@ -814,10 +895,10 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
       </div>
 
       <div className="space-y-4">
-        <div className="flex flex-col gap-3 rounded-[26px] border border-white/70 bg-white/78 px-6 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-[30px] border border-white/70 bg-white/82 px-6 py-4 shadow-[0_14px_32px_rgba(15,23,42,0.07)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-black text-slate-800">热门产品月销售对比</h2>
-            <p className="mt-1 text-xs font-bold text-slate-400">按选择月份查看销售额与销量 Top5</p>
+            <h2 className="text-xl font-black text-slate-900">热门产品月销售对比</h2>
+            <p className="mt-1 text-xs font-bold text-slate-400">选择月份后，同步查看销售额 Top5 与销量 Top5</p>
           </div>
           <PickerChip
             type="month"
@@ -829,17 +910,23 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
           />
         </div>
         <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
-        <section className="rounded-[26px] border border-white/70 bg-white/84 p-6 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+        <section className="rounded-[30px] border border-white/70 bg-white/86 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl">
           <div className="mb-5 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-black text-slate-800">热门产品销售额占比 Top5</h2>
-            <span className="shrink-0 text-xs font-bold text-slate-400">{hotMonthLabel}</span>
+            <div>
+              <h2 className="text-lg font-black text-slate-900">热门产品销售额占比 Top5</h2>
+              <p className="mt-1 text-xs font-bold text-slate-400">按销售额排序</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-[#5b5df7]/10 px-3 py-1.5 text-xs font-black text-[#5b5df7]">{hotMonthLabel}</span>
           </div>
           {renderHotList(metrics.hotByAmount, 'amount')}
         </section>
-        <section className="rounded-[26px] border border-white/70 bg-white/84 p-6 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+        <section className="rounded-[30px] border border-white/70 bg-white/86 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl">
           <div className="mb-5 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-black text-slate-800">热门产品销量占比 Top5</h2>
-            <span className="shrink-0 text-xs font-bold text-slate-400">{hotMonthLabel}</span>
+            <div>
+              <h2 className="text-lg font-black text-slate-900">热门产品销量占比 Top5</h2>
+              <p className="mt-1 text-xs font-bold text-slate-400">按箱数排序</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-emerald-400/12 px-3 py-1.5 text-xs font-black text-emerald-600">{hotMonthLabel}</span>
           </div>
           {renderHotList(metrics.hotByVolume, 'volume')}
         </section>

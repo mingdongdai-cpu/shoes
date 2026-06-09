@@ -13,6 +13,7 @@ import {
   History,
   Calendar,
   BarChart3,
+  Download,
   Pencil,
   EyeOff,
   Eye,
@@ -2257,6 +2258,64 @@ export const ProductsView = ({
   const [editBoxes, setEditBoxes] = useState('0');
   const [editItems, setEditItems] = useState('0');
 
+  const handleExportProductList = async () => {
+    try {
+      const XLSX = await loadXlsxModule();
+      const rows = products.map((product) => [
+        product.name,
+        `${product.spec} 个/箱`,
+        product.price,
+        product.price * product.spec
+      ]);
+      const table = [['名称', '规格', '单价', '每箱价格'], ...rows];
+      const worksheet = XLSX.utils.aoa_to_sheet(table);
+
+      worksheet['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 18 }, { wch: 20 }];
+      worksheet['!rows'] = table.map((_, index) => ({ hpt: index === 0 ? 30 : 24 }));
+
+      const range = XLSX.utils.decode_range(worksheet['!ref'] ?? 'A1:D1');
+      for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex += 1) {
+        for (let colIndex = range.s.c; colIndex <= range.e.c; colIndex += 1) {
+          const cellAddress = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+          const cell = worksheet[cellAddress];
+          if (!cell) continue;
+
+          const isHeader = rowIndex === 0;
+          const isEvenRow = rowIndex > 0 && rowIndex % 2 === 0;
+          cell.s = {
+            alignment: {
+              horizontal: 'center',
+              vertical: 'center'
+            },
+            font: {
+              name: 'Microsoft YaHei',
+              sz: isHeader ? 13 : 11,
+              bold: isHeader,
+              color: { rgb: isHeader ? 'FFFFFF' : '1E293B' }
+            },
+            fill: {
+              fgColor: { rgb: isHeader ? '4F46E5' : (isEvenRow ? 'F8FAFC' : 'FFFFFF') }
+            },
+            border: {
+              top: { style: 'thin', color: { rgb: 'D6DCE8' } },
+              bottom: { style: 'thin', color: { rgb: 'D6DCE8' } },
+              left: { style: 'thin', color: { rgb: 'D6DCE8' } },
+              right: { style: 'thin', color: { rgb: 'D6DCE8' } }
+            }
+          };
+        }
+      }
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, '商品列表');
+      XLSX.writeFile(workbook, '商品列表.xlsx');
+      showToast('商品列表已导出', 'success');
+    } catch (error) {
+      console.error('Export product list failed:', error);
+      showToast('导出失败，请重试', 'error');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !spec || !price) return showToast('请填写所有必填项', 'error');
@@ -2607,10 +2666,25 @@ export const ProductsView = ({
 
       {/* Product List */}
       <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
-        <h2 className="text-xl font-black text-slate-800 tracking-tight mb-8 flex items-center gap-2">
-          <Package size={24} className="text-slate-600" />
-          商品列表维护
-        </h2>
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+            <Package size={24} className="text-slate-600" />
+            商品列表维护
+          </h2>
+          <button
+            type="button"
+            onClick={handleExportProductList}
+            disabled={products.length === 0}
+            className={`inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-black shadow-lg transition-all active:scale-95 ${
+              products.length === 0
+                ? 'cursor-not-allowed bg-slate-200/50 text-slate-400 shadow-none'
+                : 'bg-indigo-600/90 text-white shadow-indigo-200/50 hover:bg-indigo-700'
+            }`}
+          >
+            <Download size={17} />
+            导出表格
+          </button>
+        </div>
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left">
             <thead>

@@ -1779,7 +1779,7 @@ export default function App() {
         aria-label="手机底部导航"
       >
         <div className="ios-dock p-2">
-          <div className="grid grid-cols-5 gap-1">
+          <div className="grid grid-cols-6 gap-1">
             <NavButton
               active={currentView === 'home'}
               onClick={() => handleViewChange('home')}
@@ -1788,9 +1788,16 @@ export default function App() {
               variant="mobile"
             />
             <NavButton
+              active={currentView === 'dashboard'}
+              onClick={() => handleViewChange('dashboard')}
+              icon={<BarChart3 size={18} />}
+              label="看板"
+              variant="mobile"
+            />
+            <NavButton
               active={isInventoryView}
-              onClick={() => handleViewChange('inventory-warnings')}
-              icon={<AlertTriangle size={18} />}
+              onClick={() => handleViewChange('inventory-stock')}
+              icon={<Package size={18} />}
               label="库存"
               variant="mobile"
             />
@@ -1932,7 +1939,7 @@ function NavButton({
     return (
       <button
         onClick={onClick}
-        className={`ios-dock-item flex flex-col items-center justify-center gap-0.5 py-2 px-1 text-[11px] font-bold ${
+        className={`ios-dock-item flex flex-col items-center justify-center gap-0.5 py-2 px-0.5 text-[10px] font-bold ${
           active ? 'ios-dock-item-active' : 'text-slate-500'
         }`}
       >

@@ -695,8 +695,8 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
   };
 
   return (
-    <div className="space-y-7">
-      <section className="relative overflow-hidden rounded-[32px] border border-white/70 bg-[radial-gradient(circle_at_15%_15%,rgba(91,93,247,0.14),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.94),rgba(248,250,252,0.82))] p-6 shadow-[0_18px_42px_rgba(15,23,42,0.09)] backdrop-blur-xl">
+    <div className="space-y-5 sm:space-y-7">
+      <section className="relative overflow-hidden rounded-[26px] border border-white/70 bg-[radial-gradient(circle_at_15%_15%,rgba(91,93,247,0.14),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.94),rgba(248,250,252,0.82))] p-4 shadow-[0_18px_42px_rgba(15,23,42,0.09)] backdrop-blur-xl sm:rounded-[32px] sm:p-6">
         <div className="absolute right-6 top-6 hidden h-24 w-24 rounded-full border border-[#5b5df7]/12 bg-white/45 lg:block" />
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -704,8 +704,8 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
               <BarChart3 size={15} />
               销售数据看板
             </div>
-            <h1 className="text-3xl font-black tracking-tight text-slate-950">从月度趋势到热门产品，一屏看清销售表现</h1>
-            <p className="mt-2 max-w-2xl text-sm font-bold leading-6 text-slate-500">
+            <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">从月度趋势到热门产品，一屏看清销售表现</h1>
+            <p className="mt-2 max-w-2xl text-xs font-bold leading-5 text-slate-500 sm:text-sm sm:leading-6">
               当前看板按实际出库流水计算销售额，展示 {metrics.selectedYear} 年 1 月至当前月的销售趋势、环比变化和选定月份的产品排行。
             </p>
           </div>
@@ -722,17 +722,17 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
         </div>
       </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
         {summaryCards.map((card) => (
-          <div key={card.title} className={`relative overflow-hidden rounded-[28px] border border-white/75 bg-gradient-to-br ${card.accentClassName} px-6 py-5 shadow-[0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl`}>
+          <div key={card.title} className={`relative overflow-hidden rounded-[24px] border border-white/75 bg-gradient-to-br ${card.accentClassName} px-4 py-4 shadow-[0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:rounded-[28px] sm:px-6 sm:py-5`}>
             <div className="absolute -right-10 -top-12 h-36 w-36 rounded-full bg-white/55" />
-            <div className="flex items-start justify-between gap-4">
-              <div className={`flex h-16 w-16 items-center justify-center rounded-[22px] ${card.iconClassName}`}>
+            <div className="flex items-start justify-between gap-3 sm:gap-4">
+              <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] sm:h-16 sm:w-16 sm:rounded-[22px] ${card.iconClassName}`}>
                 {card.icon}
               </div>
               <div className="relative flex-1">
                 <div className="text-sm font-black text-slate-500 mb-1">{card.title}</div>
-                <div className={`text-4xl leading-tight font-black ${card.valueClassName ?? 'text-slate-900'}`}>{card.value}</div>
+                <div className={`text-3xl leading-tight font-black sm:text-4xl ${card.valueClassName ?? 'text-slate-900'}`}>{card.value}</div>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
                   <span className="rounded-full bg-white/80 px-2.5 py-1 text-slate-400">{card.month}</span>
                   <span className="rounded-full bg-white/80 px-2.5 py-1 text-slate-400">{card.helper}</span>
@@ -748,11 +748,11 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
         ))}
       </div>
 
-      <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
-        <section className="rounded-[30px] border border-white/70 bg-white/86 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2 2xl:gap-6">
+        <section className="rounded-[26px] border border-white/70 bg-white/86 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:rounded-[30px] sm:p-6">
           <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-black text-slate-900">月销售柱形图</h2>
+              <h2 className="text-lg font-black text-slate-900 sm:text-xl">月销售柱形图</h2>
               <p className="mt-1 text-xs font-bold text-slate-400">每根柱代表当月出库销售额</p>
             </div>
             <span className="rounded-full bg-slate-100/80 px-3 py-1.5 text-xs font-black text-slate-500">{metrics.selectedYear}年 1月 - 当前月</span>
@@ -763,8 +763,8 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
             </div>
           )}
           {hasSalesSeriesData && (
-            <div className="rounded-[24px] border border-slate-100 bg-gradient-to-br from-white to-slate-50/70 px-2 py-3 shadow-inner">
-              <svg viewBox={`0 0 ${barChart.width} ${barChart.height}`} className="h-[320px] w-full overflow-visible">
+            <div className="rounded-[22px] border border-slate-100 bg-gradient-to-br from-white to-slate-50/70 px-1 py-2 shadow-inner sm:rounded-[24px] sm:px-2 sm:py-3">
+              <svg viewBox={`0 0 ${barChart.width} ${barChart.height}`} className="h-[240px] w-full overflow-visible sm:h-[320px]">
                 <defs>
                   <linearGradient id="dashboardSalesBarGradient" x1="0" x2="0" y1="0" y2="1">
                     <stop offset="0%" stopColor="#aab1ff" />
@@ -822,10 +822,10 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
           )}
         </section>
 
-        <section className="rounded-[30px] border border-white/70 bg-white/86 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+        <section className="rounded-[26px] border border-white/70 bg-white/86 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:rounded-[30px] sm:p-6">
           <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-black text-slate-900">销售环比趋势图</h2>
+              <h2 className="text-lg font-black text-slate-900 sm:text-xl">销售环比趋势图</h2>
               <p className="mt-1 text-xs font-bold text-slate-400">只展示销售额相对上月的变化</p>
             </div>
             <span className="rounded-full bg-[#5b5df7]/10 px-3 py-1.5 text-xs font-black text-[#5b5df7]">销售额</span>
@@ -837,8 +837,8 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
           )}
           {momChart.hasData && (
             <div className="space-y-4">
-              <div className="rounded-[24px] border border-slate-100 bg-gradient-to-br from-white to-slate-50/70 px-2 py-3 shadow-inner">
-                <svg viewBox={`0 0 ${momChart.width} ${momChart.height}`} className="h-[320px] w-full overflow-visible">
+              <div className="rounded-[22px] border border-slate-100 bg-gradient-to-br from-white to-slate-50/70 px-1 py-2 shadow-inner sm:rounded-[24px] sm:px-2 sm:py-3">
+                <svg viewBox={`0 0 ${momChart.width} ${momChart.height}`} className="h-[240px] w-full overflow-visible sm:h-[320px]">
                   <defs>
                     <filter id="dashboardMomLineGlow" x="-20%" y="-20%" width="140%" height="140%">
                       <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#5b5df7" floodOpacity="0.18" />
@@ -863,14 +863,39 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
                   {momChart.salesPolyline && (
                     <polyline fill="none" stroke="#5b5df7" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={momChart.salesPolyline} filter="url(#dashboardMomLineGlow)" />
                   )}
-                  {momChart.salesPoints.map((point, index) => (
-                    <g key={`sales-dot-${index}`}>
-                      <circle cx={point.x} cy={point.y} r="8" fill="#5b5df7" opacity="0.12" />
-                      <circle cx={point.x} cy={point.y} r="4.8" fill="#5b5df7">
-                        <title>{`销售额环比 ${formatMomText(point.value)}`}</title>
-                      </circle>
-                    </g>
-                  ))}
+                  {momChart.salesPoints.map((point, index) => {
+                    const labelY = Math.max(
+                      momChart.margin.top + 12,
+                      Math.min(
+                        point.y + (point.value < 0 ? 22 : -16),
+                        momChart.margin.top + momChart.plotHeight - 8
+                      )
+                    );
+                    const labelTone = point.value < 0 ? '#e11d48' : '#4f46e5';
+
+                    return (
+                      <g key={`sales-dot-${index}`}>
+                        <circle cx={point.x} cy={point.y} r="8" fill="#5b5df7" opacity="0.12" />
+                        <circle cx={point.x} cy={point.y} r="4.8" fill="#5b5df7">
+                          <title>{`销售额环比 ${formatMomText(point.value)}`}</title>
+                        </circle>
+                        <text
+                          x={point.x}
+                          y={labelY}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                          fill={labelTone}
+                          stroke="#ffffff"
+                          strokeWidth="5"
+                          paintOrder="stroke"
+                          fontSize="13"
+                          fontWeight="900"
+                        >
+                          {formatMomText(point.value)}
+                        </text>
+                      </g>
+                    );
+                  })}
                   {metrics.monthlySalesSeries.map((item, index) => {
                     const x = metrics.monthlySalesSeries.length > 1
                       ? momChart.margin.left + (momChart.plotWidth / (metrics.monthlySalesSeries.length - 1)) * index
@@ -896,9 +921,9 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
       </div>
 
       <div className="space-y-4">
-        <div className="flex flex-col gap-3 rounded-[30px] border border-white/70 bg-white/82 px-6 py-4 shadow-[0_14px_32px_rgba(15,23,42,0.07)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-[26px] border border-white/70 bg-white/82 px-4 py-4 shadow-[0_14px_32px_rgba(15,23,42,0.07)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between sm:rounded-[30px] sm:px-6">
           <div>
-            <h2 className="text-xl font-black text-slate-900">热门产品月销售对比</h2>
+            <h2 className="text-lg font-black text-slate-900 sm:text-xl">热门产品月销售对比</h2>
             <p className="mt-1 text-xs font-bold text-slate-400">选择月份后，同步查看销售额 Top5 与销量 Top5</p>
           </div>
           <PickerChip
@@ -910,8 +935,8 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
             className="w-full sm:w-auto"
           />
         </div>
-        <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
-        <section className="rounded-[30px] border border-white/70 bg-white/86 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2 2xl:gap-6">
+        <section className="rounded-[26px] border border-white/70 bg-white/86 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:rounded-[30px] sm:p-6">
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black text-slate-900">热门产品销售额占比 Top5</h2>
@@ -921,7 +946,7 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
           </div>
           {renderHotList(metrics.hotByAmount, 'amount')}
         </section>
-        <section className="rounded-[30px] border border-white/70 bg-white/86 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+        <section className="rounded-[26px] border border-white/70 bg-white/86 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:rounded-[30px] sm:p-6">
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black text-slate-900">热门产品销量占比 Top5</h2>
@@ -1314,9 +1339,9 @@ export const InventoryOverviewView = ({
   }
 
   return (
-    <div className="space-y-8">
-      <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
-        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-6 sm:space-y-8">
+      <div className="glass rounded-[26px] border-white/30 p-4 shadow-xl sm:rounded-3xl sm:p-8">
+        <div className="mb-5 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-50/50 backdrop-blur-md rounded-xl border border-indigo-100/30">
               <Package className="text-indigo-600" size={24} />
@@ -1338,7 +1363,7 @@ export const InventoryOverviewView = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
           {sortedProducts.map((p: Product) => {
             const isLowStock = p.stock < p.spec * 30;
             const cardBackground = shoeBackgroundMap[normalizeComparableModelKey(p.name)];
@@ -1347,7 +1372,7 @@ export const InventoryOverviewView = ({
               <motion.div
                 key={p.id}
                 whileHover={{ y: -4 }}
-                className={`relative group overflow-hidden p-6 rounded-3xl border transition-all duration-300 backdrop-blur-md ${
+                className={`relative group overflow-hidden rounded-[24px] border p-5 transition-all duration-300 backdrop-blur-md sm:rounded-3xl sm:p-6 ${
                   isLowStock
                     ? 'bg-rose-50/40 border-rose-100/50 hover:shadow-rose-100/50 shadow-lg'
                     : 'bg-white/40 border-white/30 hover:shadow-indigo-100/30 shadow-md'

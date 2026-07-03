@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, Component } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Component } from 'react';
 import { 
   LayoutDashboard, 
   BarChart3,
@@ -258,6 +258,7 @@ export default function App() {
   const [dashboardHotMonth, setDashboardHotMonth] = useState(getTogoMonth());
   
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastIdRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteExpenseId, setConfirmDeleteExpenseId] = useState<string | null>(null);
@@ -284,35 +285,40 @@ export default function App() {
   // --- Firebase Auth & Persistence ---
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
+    const builtInRoles: Record<string, User['role']> = {
+      'admin@topstar.com': 'admin',
+      'staff@topstar.com': 'staff'
+    };
+    const clearLocalSession = () => {
+      setUser(null);
+      setProducts([]);
+      setTransactions([]);
+      setExpenses([]);
+    };
 
     // Set persistence to session-based (requires re-login after closing browser)
     setPersistence(auth, browserSessionPersistence)
       .then(() => {
         unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
           if (!firebaseUser) {
-            setUser(null);
-            setProducts([]);
-            setTransactions([]);
-            setExpenses([]);
+            clearLocalSession();
             setLoading(false);
             return;
           }
 
           try {
             const email = (firebaseUser.email ?? '').toLowerCase();
-            const adminEmails = new Set(['admin@topstar.com', 'mingdongdai@gmail.com']);
-            let role: User['role'] = adminEmails.has(email) ? 'admin' : 'staff';
+            const profileSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
+            const profileRole = profileSnap.exists() ? profileSnap.data().role : null;
+            const role = profileRole === 'admin' || profileRole === 'staff'
+              ? profileRole
+              : builtInRoles[email];
 
-            try {
-              const profileSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
-              if (profileSnap.exists()) {
-                const profileRole = profileSnap.data().role;
-                if (profileRole === 'admin' || profileRole === 'staff') {
-                  role = profileRole;
-                }
-              }
-            } catch (profileError) {
-              handleFirestoreError(profileError, OperationType.GET, `users/${firebaseUser.uid}`);
+            if (!role) {
+              clearLocalSession();
+              showToast('账号未配置权限，请先在用户表配置角色', 'error');
+              await signOut(auth);
+              return;
             }
 
             setUser({
@@ -322,6 +328,8 @@ export default function App() {
             });
           } catch (error) {
             handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
+            clearLocalSession();
+            await signOut(auth);
           } finally {
             setLoading(false);
           }
@@ -436,7 +444,8 @@ export default function App() {
 
   // --- Toast Logic ---
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    const id = Date.now();
+    toastIdRef.current += 1;
+    const id = toastIdRef.current;
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
@@ -930,12 +939,11 @@ export default function App() {
   const handleLogin = async (username: string, pass: string) => {
     const normalized = username.trim().toLowerCase();
     try {
-      // 统一用户名输入，确保 admin/staff 可稳定登录
       const emailAliasMap: Record<string, string> = {
         admin: 'admin@topstar.com',
         staff: 'staff@topstar.com'
       };
-      const email = emailAliasMap[normalized] ?? (normalized.includes('@') ? normalized : `${normalized}@topstar.com`);
+      const email = emailAliasMap[normalized] ?? normalized;
       await signInWithEmailAndPassword(auth, email, pass);
       showToast('登录成功');
       return true;
@@ -1154,7 +1162,7 @@ export default function App() {
       });
       showToast('流水已成功删除，库存已回滚', 'success');
       setConfirmDeleteId(null);
-    } catch (error: any) {
+    } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `transactions/${id}`);
     }
   };
@@ -1164,7 +1172,8 @@ export default function App() {
     type: 'in' | 'out', 
     boxes: number, 
     items: number, 
-    remark: string
+    remark: string,
+    silentSuccess = false
   ) => {
     if (user?.role !== 'admin') {
       showToast('权限不足', 'error');
@@ -1217,7 +1226,9 @@ export default function App() {
         trx.update(productRef, { stock: nextStock });
       });
 
-      showToast(type === 'in' ? '入库成功' : '出库成功');
+      if (!silentSuccess) {
+        showToast(type === 'in' ? '入库成功' : '出库成功');
+      }
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'transactions/products');

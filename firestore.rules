@@ -53,15 +53,14 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         roleOf(request.auth.uid) == 'admin' ||
-        (request.auth.token.email == "mingdongdai@gmail.com" && request.auth.token.email_verified == true) ||
-        (request.auth.token.email == "admin@topstar.com" && request.auth.token.email_verified == true)
+        request.auth.token.email == "admin@topstar.com"
       );
     }
 
     function isStaff() {
       return isAuthenticated() && (
         roleOf(request.auth.uid) in ['staff', 'admin'] ||
-        request.auth.token.email.matches(".*@topstar.com$")
+        request.auth.token.email in ["admin@topstar.com", "staff@topstar.com"]
       );
     }
 
@@ -116,8 +115,8 @@ service cloud.firestore {
 
     // Products collection
     match /products/{productId} {
-      // All authenticated users can read products
-      allow read: if isAuthenticated();
+      // Staff and admins can read products
+      allow read: if isStaff();
       
       // Only admins can create, update, or delete products
       allow create: if isAdmin() && isValidProduct(request.resource.data);
@@ -127,8 +126,8 @@ service cloud.firestore {
 
     // Transactions collection
     match /transactions/{transactionId} {
-      // All authenticated users can read transactions
-      allow read: if isAuthenticated();
+      // Staff and admins can read transactions
+      allow read: if isStaff();
       
       // Only admins can create, update, or delete transactions
       allow create: if isAdmin() && isValidTransaction(request.resource.data);
@@ -138,8 +137,8 @@ service cloud.firestore {
 
     // Expenses collection
     match /expenses/{expenseId} {
-      // All authenticated users can read expenses
-      allow read: if isAuthenticated();
+      // Staff and admins can read expenses
+      allow read: if isStaff();
       
       // Only admins can create, update, or delete expenses
       allow create: if isAdmin() && isValidExpense(request.resource.data);

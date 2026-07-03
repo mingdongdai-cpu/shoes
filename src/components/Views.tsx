@@ -1495,7 +1495,7 @@ export const InventoryOverviewView = ({
 interface StockViewProps {
   products: Product[];
   transactions: Transaction[];
-  handleTransaction: (productId: string, type: 'in' | 'out', boxes: number, items: number, remark: string) => Promise<boolean | undefined>;
+  handleTransaction: (productId: string, type: 'in' | 'out', boxes: number, items: number, remark: string, silentSuccess?: boolean) => Promise<boolean | undefined>;
   deleteTransaction: (id: string | null) => void;
   updateTransaction: (
     transactionId: string,
@@ -1544,6 +1544,10 @@ export const StockView = ({
   const [visibleTransactionCount, setVisibleTransactionCount] = useState(20);
   const [historySummaryQuery, setHistorySummaryQuery] = useState('');
   const [historyFilterMode, setHistoryFilterMode] = useState<'day' | 'week' | 'month'>('day');
+  const [isBatchOutMode, setIsBatchOutMode] = useState(false);
+  const [batchOutText, setBatchOutText] = useState('');
+  const [isBatchOutSubmitting, setIsBatchOutSubmitting] = useState(false);
+  const [batchOutResult, setBatchOutResult] = useState<{ successCount: number; issues: string[] } | null>(null);
 
   const toLocalDateInputValue = (date: Date) => {
     const year = date.getFullYear();
@@ -1581,6 +1585,64 @@ export const StockView = ({
 
   const selectedProduct = products.find((p: Product) => p.id === selectedId);
   const editingProduct = products.find((p: Product) => p.id === editProductId);
+
+  interface ParsedBatchOutRow {
+    lineNumber: number;
+    productName: string;
+    boxes: number;
+  }
+
+  interface BatchOutTarget {
+    lineNumber: number;
+    product: Product;
+    boxes: number;
+  }
+
+  const parseBatchOutMarkdown = (source: string): { rows: ParsedBatchOutRow[]; errors: string[] } => {
+    const rows: ParsedBatchOutRow[] = [];
+    const errors: string[] = [];
+    const lines = source.split('\n');
+
+    lines.forEach((line, index) => {
+      const lineNumber = index + 1;
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      if (!trimmed.includes('|')) {
+        errors.push(`第 ${lineNumber} 行不是 Markdown 表格行`);
+        return;
+      }
+
+      const cells = trimmed
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map((cell) => cell.trim());
+
+      if (cells.length < 2) {
+        errors.push(`第 ${lineNumber} 行缺少款式或箱数`);
+        return;
+      }
+
+      const isDividerRow = cells.every((cell) => /^:?-+:?$/.test(cell.replace(/\s+/g, '')));
+      if (isDividerRow) return;
+      if (normalizeModelKey(cells[0]) === normalizeModelKey('款式')) return;
+
+      const productName = cells[0];
+      const boxesValue = Number.parseInt(cells[1].replace(/[^\d-]/g, ''), 10);
+      if (!productName) {
+        errors.push(`第 ${lineNumber} 行款式为空`);
+        return;
+      }
+      if (!Number.isInteger(boxesValue) || boxesValue <= 0) {
+        errors.push(`第 ${lineNumber} 行箱数无效`);
+        return;
+      }
+
+      rows.push({ lineNumber, productName, boxes: boxesValue });
+    });
+
+    return { rows, errors };
+  };
 
   const sortedTransactions = useMemo(() => {
     return [...transactions].sort((a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis());
@@ -1685,6 +1747,103 @@ export const StockView = ({
       setItems('');
       setRemark('');
       // Do not reset type or selectedId to maintain current action
+    }
+  };
+
+  const handleBatchOutSubmit = async () => {
+    if (user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return;
+    }
+    if (!batchOutText.trim()) {
+      showToast('请粘贴批量出库 Markdown 表格', 'error');
+      return;
+    }
+
+    const { rows, errors } = parseBatchOutMarkdown(batchOutText);
+    if (rows.length === 0) {
+      setBatchOutResult({ successCount: 0, issues: errors.length > 0 ? errors : ['未读取到可出库数据'] });
+      showToast('未读取到可出库数据', 'error');
+      return;
+    }
+    const issues = [...errors];
+
+    const productByName = new Map<string, Product>();
+    const duplicateNames = new Set<string>();
+    const remainingStockByProductId: Record<string, number> = {};
+    for (const product of products) {
+      remainingStockByProductId[product.id] = product.stock;
+      const key = normalizeModelKey(product.name);
+      if (productByName.has(key)) {
+        duplicateNames.add(key);
+      } else {
+        productByName.set(key, product);
+      }
+    }
+
+    const targets: BatchOutTarget[] = [];
+    for (const row of rows) {
+      const key = normalizeModelKey(row.productName);
+      if (duplicateNames.has(key)) {
+        issues.push(`第 ${row.lineNumber} 行商品名重复，请先处理商品列表：${row.productName}`);
+        continue;
+      }
+
+      const product = productByName.get(key);
+      if (!product) {
+        issues.push(`第 ${row.lineNumber} 行未找到商品：${row.productName}`);
+        continue;
+      }
+      if (product.isActive === false) {
+        issues.push(`第 ${row.lineNumber} 行商品已下架：${product.name}`);
+        continue;
+      }
+
+      const quantity = row.boxes * product.spec;
+      const remainingStock = remainingStockByProductId[product.id] ?? 0;
+      if (quantity > remainingStock) {
+        issues.push(`第 ${row.lineNumber} 行库存不足：${product.name}，需要 ${formatStock(quantity, product.spec)}，剩余 ${formatStock(remainingStock, product.spec)}`);
+        continue;
+      }
+
+      remainingStockByProductId[product.id] = remainingStock - quantity;
+      targets.push({ lineNumber: row.lineNumber, product, boxes: row.boxes });
+    }
+
+    if (targets.length === 0) {
+      setBatchOutResult({ successCount: 0, issues });
+      showToast('没有可出库数据', 'error');
+      return;
+    }
+
+    setIsBatchOutSubmitting(true);
+    let successCount = 0;
+    try {
+      for (const target of targets) {
+        const success = await handleTransaction(
+          target.product.id,
+          'out',
+          target.boxes,
+          0,
+          remark.trim() || '批量出库',
+          true
+        );
+        if (!success) {
+          issues.push(`第 ${target.lineNumber} 行出库失败：${target.product.name}`);
+          continue;
+        }
+        successCount += 1;
+      }
+
+      setBatchOutResult({ successCount, issues });
+      showToast(`批量出库完成！成功: ${successCount}, 失败: ${issues.length}`, issues.length > 0 ? 'error' : 'success');
+      if (successCount > 0) {
+        setBatchOutText('');
+        setRemark('');
+        setIsBatchOutMode(false);
+      }
+    } finally {
+      setIsBatchOutSubmitting(false);
     }
   };
 
@@ -1875,6 +2034,59 @@ export const StockView = ({
           </div>
         )}
       </AnimatePresence>
+      <AnimatePresence>
+        {batchOutResult && (
+          <div className="fixed inset-0 bg-black/35 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              className="glass rounded-3xl p-7 w-full max-w-lg border border-white/55"
+            >
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div>
+                  <h3 className="text-xl font-black text-slate-800">批量出库结果</h3>
+                  <p className="mt-1 text-sm font-bold text-slate-500">
+                    成功出库 {batchOutResult.successCount} 条，失败 {batchOutResult.issues.length} 条
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBatchOutResult(null)}
+                  className="p-2 rounded-full hover:bg-white/45 transition-all text-slate-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {batchOutResult.issues.length > 0 ? (
+                <div className="max-h-72 overflow-y-auto custom-scrollbar rounded-2xl border border-rose-100/70 bg-rose-50/45 p-4">
+                  <div className="mb-3 text-sm font-black text-rose-700">以下行未录入：</div>
+                  <ul className="space-y-2">
+                    {batchOutResult.issues.map((issue, index) => (
+                      <li key={`${issue}-${index}`} className="rounded-xl bg-white/70 px-3 py-2 text-sm font-bold text-rose-700">
+                        {issue}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-emerald-100/70 bg-emerald-50/55 px-4 py-5 text-sm font-black text-emerald-700">
+                  所有批量出库记录都已成功录入。
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setBatchOutResult(null)}
+                className="mt-5 w-full rounded-2xl bg-indigo-600/90 py-3 font-black text-white shadow-lg shadow-indigo-200/50 transition-all hover:bg-indigo-700"
+              >
+                我知道了
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       {/* Form */}
       <div className="lg:col-span-1">
         <div className="glass rounded-2xl p-6 shadow-sm border-white/20 sticky top-24">
@@ -1888,7 +2100,10 @@ export const StockView = ({
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setType('in')}
+                  onClick={() => {
+                    setType('in');
+                    setIsBatchOutMode(false);
+                  }}
                   className={`py-2 rounded-xl border-2 transition-all flex items-center justify-center gap-2 font-bold ${
                     type === 'in' 
                       ? 'border-emerald-500 bg-emerald-50/50 text-emerald-700 backdrop-blur-sm' 
@@ -1911,122 +2126,188 @@ export const StockView = ({
               </div>
             </div>
 
-            <div className="relative">
-              <label className="block text-sm font-medium text-slate-700 mb-2">选择商品</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="输入商品名称搜索..."
-                  value={selectedProduct ? selectedProduct.name : searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value);
-                    if (selectedId) setSelectedId('');
-                    setShowDropdown(true);
-                  }}
-                  onFocus={() => setShowDropdown(true)}
-                  className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 pr-10 font-bold"
-                />
-                {selectedId && (
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setSelectedId('');
-                      setSearchTerm('');
-                    }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    <XCircle size={16} />
-                  </button>
-                )}
-              </div>
-              
-              {showDropdown && !selectedId && (
-                <div className="absolute z-50 w-full mt-1 bg-white/80 backdrop-blur-xl border border-white/30 rounded-xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar">
-                  {filteredProducts.length > 0 ? (
-                    filteredProducts.map((p: Product) => (
-                      <button
-                        key={p.id}
+            {type === 'out' && (
+              <button
+                type="button"
+                onClick={() => setIsBatchOutMode((prev) => !prev)}
+                className={`w-full rounded-xl border px-4 py-2.5 text-sm font-black transition-all ${
+                  isBatchOutMode
+                    ? 'border-rose-200 bg-rose-50/70 text-rose-600 shadow-sm'
+                    : 'border-white/40 bg-white/35 text-slate-600 hover:bg-white/55'
+                }`}
+              >
+                {isBatchOutMode ? '切换为单个出库' : '切换为批量出库'}
+              </button>
+            )}
+
+            {isBatchOutMode ? (
+              <>
+                <div className="rounded-2xl border border-rose-100/70 bg-rose-50/35 p-4 text-xs font-bold leading-5 text-rose-700">
+                  <div>粘贴 Markdown 表格后，系统只读取“款式”和“箱数”两列。</div>
+                  <div>商品名必须和系统商品名一致；双数、金额等列会被忽略。</div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">批量出库 Markdown 表格</label>
+                  <textarea
+                    value={batchOutText}
+                    onChange={(e) => setBatchOutText(e.target.value)}
+                    placeholder="| 款式 | 箱数 | 双数 | 金额 |&#10;| --- | -: | --: | ---: |&#10;| 56-81 | 5 | 120 | 384,000 |"
+                    className="h-56 w-full rounded-xl border-white/40 bg-white/30 p-4 font-mono text-sm font-bold !text-left backdrop-blur-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">操作时间</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={formatDateTimeLabel(Timestamp.now())}
+                    className="w-full rounded-xl border-white/20 bg-white/10 text-slate-400 cursor-not-allowed backdrop-blur-sm font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">备注</label>
+                  <textarea
+                    value={remark}
+                    onChange={(e) => setRemark(e.target.value)}
+                    placeholder="选填，默认：批量出库"
+                    className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 h-20 font-bold"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleBatchOutSubmit}
+                  disabled={user?.role !== 'admin' || isBatchOutSubmitting}
+                  className={`w-full py-3 rounded-xl font-bold text-white shadow-lg transition-all active:scale-95 backdrop-blur-md ${
+                    user?.role !== 'admin' || isBatchOutSubmitting
+                      ? 'bg-slate-300/50 cursor-not-allowed shadow-none'
+                      : 'bg-rose-500/90 hover:bg-rose-600'
+                  }`}
+                >
+                  {user?.role !== 'admin'
+                    ? '无操作权限'
+                    : (isBatchOutSubmitting ? '正在批量出库...' : '确认批量出库')}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="relative">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">选择商品</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="输入商品名称搜索..."
+                      value={selectedProduct ? selectedProduct.name : searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        if (selectedId) setSelectedId('');
+                        setShowDropdown(true);
+                      }}
+                      onFocus={() => setShowDropdown(true)}
+                      className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 pr-10 font-bold"
+                    />
+                    {selectedId && (
+                      <button 
                         type="button"
                         onClick={() => {
-                          setSelectedId(p.id);
+                          setSelectedId('');
                           setSearchTerm('');
-                          setShowDropdown(false);
                         }}
-                        className="w-full text-left px-4 py-3 hover:bg-indigo-50/50 transition-colors border-b border-white/10 last:border-0"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       >
-                        <div className="font-bold text-slate-900">{p.name}</div>
-                        <div className="text-xs font-bold text-slate-500">规格: {p.spec} | 库存: {formatStock(p.stock, p.spec)}</div>
+                        <XCircle size={16} />
                       </button>
-                    ))
-                  ) : (
-                    <div className="px-4 py-3 text-sm text-slate-400 italic font-bold">未找到匹配商品</div>
+                    )}
+                  </div>
+                  
+                  {showDropdown && !selectedId && (
+                    <div className="absolute z-50 w-full mt-1 bg-white/80 backdrop-blur-xl border border-white/30 rounded-xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar">
+                      {filteredProducts.length > 0 ? (
+                        filteredProducts.map((p: Product) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedId(p.id);
+                              setSearchTerm('');
+                              setShowDropdown(false);
+                            }}
+                            className="w-full text-left px-4 py-3 hover:bg-indigo-50/50 transition-colors border-b border-white/10 last:border-0"
+                          >
+                            <div className="font-bold text-slate-900">{p.name}</div>
+                            <div className="text-xs font-bold text-slate-500">规格: {p.spec} | 库存: {formatStock(p.stock, p.spec)}</div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-slate-400 italic font-bold">未找到匹配商品</div>
+                      )}
+                    </div>
+                  )}
+                  {showDropdown && !selectedId && (
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowDropdown(false)}
+                    />
                   )}
                 </div>
-              )}
-              {showDropdown && !selectedId && (
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setShowDropdown(false)}
-                />
-              )}
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">箱数</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={boxes}
-                  onChange={(e) => setBoxes(e.target.value)}
-                  placeholder="0"
-                  className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 font-bold"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">个数 (零头)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={items}
-                  onChange={(e) => setItems(e.target.value)}
-                  placeholder="0"
-                  className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 font-bold"
-                />
-              </div>
-            </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">箱数</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={boxes}
+                      onChange={(e) => setBoxes(e.target.value)}
+                      placeholder="0"
+                      className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">个数 (零头)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={items}
+                      onChange={(e) => setItems(e.target.value)}
+                      placeholder="0"
+                      className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 font-bold"
+                    />
+                  </div>
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">操作时间</label>
-              <input
-                type="text"
-                disabled
-                value={formatDateTimeLabel(Timestamp.now())}
-                className="w-full rounded-xl border-white/20 bg-white/10 text-slate-400 cursor-not-allowed backdrop-blur-sm font-bold"
-              />
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">操作时间</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={formatDateTimeLabel(Timestamp.now())}
+                    className="w-full rounded-xl border-white/20 bg-white/10 text-slate-400 cursor-not-allowed backdrop-blur-sm font-bold"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">备注</label>
-              <textarea
-                value={remark}
-                onChange={(e) => setRemark(e.target.value)}
-                placeholder="选填..."
-                className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 h-20 font-bold"
-              />
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">备注</label>
+                  <textarea
+                    value={remark}
+                    onChange={(e) => setRemark(e.target.value)}
+                    placeholder="选填..."
+                    className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 h-20 font-bold"
+                  />
+                </div>
 
-            <button
-              type="submit"
-              disabled={user?.role !== 'admin'}
-              className={`w-full py-3 rounded-xl font-bold text-white shadow-lg transition-all active:scale-95 backdrop-blur-md ${
-                user?.role !== 'admin' 
-                  ? 'bg-slate-300/50 cursor-not-allowed shadow-none' 
-                  : (type === 'in' ? 'bg-emerald-500/90 hover:bg-emerald-600' : 'bg-rose-500/90 hover:bg-rose-600')
-              }`}
-            >
-              {user?.role !== 'admin' ? '无操作权限' : '确认提交'}
-            </button>
+                <button
+                  type="submit"
+                  disabled={user?.role !== 'admin'}
+                  className={`w-full py-3 rounded-xl font-bold text-white shadow-lg transition-all active:scale-95 backdrop-blur-md ${
+                    user?.role !== 'admin' 
+                      ? 'bg-slate-300/50 cursor-not-allowed shadow-none' 
+                      : (type === 'in' ? 'bg-emerald-500/90 hover:bg-emerald-600' : 'bg-rose-500/90 hover:bg-rose-600')
+                  }`}
+                >
+                  {user?.role !== 'admin' ? '无操作权限' : '确认提交'}
+                </button>
+              </>
+            )}
           </form>
         </div>
       </div>

@@ -2288,11 +2288,11 @@ export const ProductsView = ({
       const XLSX = await loadXlsxModule();
       const rows = products.map((product) => [
         product.name,
-        `${product.spec} 个/箱`,
+        product.spec,
         product.price,
         product.price * product.spec
       ]);
-      const table = [['名称', '规格', '单价', '每箱价格'], ...rows];
+      const table = [['Nom', 'Qté par carton', 'Prix unitaire', 'Prix par carton'], ...rows];
       const worksheet = XLSX.utils.aoa_to_sheet(table);
 
       worksheet['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 18 }, { wch: 20 }];
@@ -2332,8 +2332,8 @@ export const ProductsView = ({
       }
 
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, '商品列表');
-      XLSX.writeFile(workbook, '商品列表.xlsx');
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Produits');
+      XLSX.writeFile(workbook, 'Liste des produits.xlsx');
       showToast('商品列表已导出', 'success');
     } catch (error) {
       console.error('Export product list failed:', error);

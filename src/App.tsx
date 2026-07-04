@@ -33,8 +33,11 @@ import {
   updateDoc,
   doc, 
   query, 
+  where,
   orderBy,
   getDoc,
+  getDocs,
+  writeBatch,
   runTransaction,
   Timestamp,
   type DocumentData
@@ -1040,12 +1043,6 @@ export default function App() {
       return false;
     }
 
-    const wantsNameOrSpecUpdate = nextName !== undefined || nextSpec !== undefined;
-    if (wantsNameOrSpecUpdate && targetProduct.stock !== 0) {
-      showToast('仅当库存为0时才可修改商品名和规格', 'error');
-      return false;
-    }
-
     const normalizedName = nextName?.trim();
     if (normalizedName !== undefined && !normalizedName) {
       showToast('商品名不能为空', 'error');
@@ -1085,9 +1082,52 @@ export default function App() {
         patch.price = nextPrice;
       }
 
-      await updateDoc(productRef, patch);
+      const nextSpecValue = nextSpec ?? targetProduct.spec;
+      const shouldSyncTransactionUnitPrice = nextPrice !== undefined;
+      const shouldSyncTransactionQuantity = nextSpec !== undefined && nextSpec !== targetProduct.spec;
+      const shouldSyncTransactions = shouldSyncTransactionUnitPrice || shouldSyncTransactionQuantity;
+      const transactionQuery = query(collection(db, 'transactions'), where('productId', '==', id));
+      const transactionSnapshot = shouldSyncTransactions ? await getDocs(transactionQuery) : null;
+      const transactionDocs = transactionSnapshot?.docs ?? [];
+      const batchSize = 450;
+      let batch = writeBatch(db);
+      let operationCount = 0;
+
+      batch.update(productRef, patch);
+      operationCount += 1;
+
+      for (const transactionDoc of transactionDocs) {
+        const transactionData = mapTransactionDoc(transactionDoc.id, transactionDoc.data());
+        const transactionPatch: { unitPrice?: number; quantity?: number } = {};
+
+        if (shouldSyncTransactionUnitPrice) {
+          transactionPatch.unitPrice = nextPrice;
+        }
+
+        if (shouldSyncTransactionQuantity) {
+          const originalBoxes = Math.max(1, Math.round(transactionData.quantity / targetProduct.spec));
+          transactionPatch.quantity = originalBoxes * nextSpecValue;
+        }
+
+        batch.update(transactionDoc.ref, transactionPatch);
+        operationCount += 1;
+
+        if (operationCount >= batchSize) {
+          await batch.commit();
+          batch = writeBatch(db);
+          operationCount = 0;
+        }
+      }
+
+      if (operationCount > 0) {
+        await batch.commit();
+      }
       const wantsMetaUpdate = nextName !== undefined || nextSpec !== undefined || nextPrice !== undefined;
-      showToast(wantsMetaUpdate ? '商品信息与库存修改成功' : '库存修改成功');
+      showToast(
+        wantsMetaUpdate
+          ? `商品信息与库存修改成功，已同步 ${transactionDocs.length} 条历史流水`
+          : '库存修改成功'
+      );
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `products/${id}`);
@@ -1407,7 +1447,6 @@ export default function App() {
           type: newType,
           quantity: newQuantity,
           unitPrice: finalUnitPrice,
-          operatorUid: auth.currentUser.uid,
           remark: newRemark
         });
       });

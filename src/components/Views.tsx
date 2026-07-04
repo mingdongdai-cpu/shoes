@@ -2646,27 +2646,24 @@ export const ProductsView = ({
 
   const handleSaveStock = async () => {
     if (!editingProduct) return;
-    const canEditMeta = editingProduct.stock === 0;
     const boxesValue = Number.parseInt(editBoxes, 10) || 0;
     const itemsValue = Number.parseInt(editItems, 10) || 0;
     const priceValue = Number.parseInt(editPrice, 10);
-    const nextName = canEditMeta ? editName.trim() : editingProduct.name;
-    const nextSpec = canEditMeta ? (Number.parseInt(editSpec, 10) || 0) : editingProduct.spec;
+    const nextName = editName.trim();
+    const nextSpec = Number.parseInt(editSpec, 10);
 
     if (boxesValue < 0 || itemsValue < 0) {
       showToast('库存不能为负数', 'error');
       return;
     }
 
-    if (canEditMeta) {
-      if (!nextName) {
-        showToast('商品名不能为空', 'error');
-        return;
-      }
-      if (!Number.isInteger(nextSpec) || nextSpec <= 0) {
-        showToast('规格必须是大于0的整数', 'error');
-        return;
-      }
+    if (!nextName) {
+      showToast('商品名不能为空', 'error');
+      return;
+    }
+    if (!Number.isInteger(nextSpec) || nextSpec <= 0) {
+      showToast('规格必须是大于0的整数', 'error');
+      return;
     }
     if (!Number.isInteger(priceValue) || priceValue < 0) {
       showToast('单价必须是非负整数', 'error');
@@ -2677,8 +2674,8 @@ export const ProductsView = ({
     const success = await updateProductStock(
       editingProduct.id,
       totalStock,
-      canEditMeta ? nextName : undefined,
-      canEditMeta ? nextSpec : undefined,
+      nextName,
+      nextSpec,
       priceValue
     );
     if (success) {
@@ -2710,55 +2707,37 @@ export const ProductsView = ({
 
               <div className="space-y-5">
                 <div className="rounded-2xl bg-white/40 border border-white/50 p-4">
-                  {editingProduct.stock === 0 ? (
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">商品名</label>
-                        <input
-                          type="text"
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">规格 (个/箱)</label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={editSpec}
-                          onChange={(e) => setEditSpec(e.target.value)}
-                          className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">单价 (XOF/个)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={editPrice}
-                          onChange={(e) => setEditPrice(e.target.value)}
-                          className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
-                        />
-                      </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">商品名</label>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
+                      />
                     </div>
-                  ) : (
-                    <>
-                      <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">商品</div>
-                      <div className="mt-1 text-base font-black text-slate-800">{editingProduct.name}</div>
-                      <div className="text-sm font-semibold text-slate-500">规格: {editingProduct.spec} 个/箱 · 单价: {editingProduct.price} XOF</div>
-                      <div className="mt-3">
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">单价 (XOF/个)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={editPrice}
-                          onChange={(e) => setEditPrice(e.target.value)}
-                          className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
-                        />
-                      </div>
-                    </>
-                  )}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">规格 (个/箱)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={editSpec}
+                        onChange={(e) => setEditSpec(e.target.value)}
+                        className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">单价 (XOF/个)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={editPrice}
+                        onChange={(e) => setEditPrice(e.target.value)}
+                        className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -2785,9 +2764,7 @@ export const ProductsView = ({
                 </div>
 
                 <div className="text-xs font-semibold text-slate-500 bg-indigo-50/60 border border-indigo-100/70 rounded-xl px-3 py-2">
-                  {editingProduct.stock === 0
-                    ? '当前库存为0，可同步修改商品名、规格、单价与库存。历史已售金额不变。'
-                    : '可修改库存和单价，不会改动历史销售金额。'}
+                  可修改商品名、规格、库存和单价；保存后会同步更新该商品历史流水单价，历史销售金额会按新单价重新计算。
                 </div>
 
                 <div className="flex gap-3 pt-2">

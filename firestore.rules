@@ -82,7 +82,7 @@ service cloud.firestore {
              (!('createdAt' in data) || data.createdAt is timestamp);
     }
 
-    function isValidTransaction(data) {
+    function isValidTransactionShape(data) {
       return hasOnlyAllowedFields(['productId', 'type', 'quantity', 'unitPrice', 'occurredAt', 'operatorUid', 'remark']) &&
              data.productId is string &&
              data.type in ['in', 'out'] &&
@@ -90,8 +90,15 @@ service cloud.firestore {
              data.unitPrice is number && data.unitPrice >= 0 &&
              data.occurredAt is timestamp &&
              data.operatorUid is string &&
-             data.operatorUid == request.auth.uid &&
              (!('remark' in data) || (data.remark is string && data.remark.size() < 500));
+    }
+
+    function isValidNewTransaction(data) {
+      return isValidTransactionShape(data) && data.operatorUid == request.auth.uid;
+    }
+
+    function isValidTransactionUpdate(data) {
+      return isValidTransactionShape(data) && data.operatorUid == resource.data.operatorUid;
     }
 
     function isValidExpense(data) {
@@ -130,8 +137,8 @@ service cloud.firestore {
       allow read: if isStaff();
       
       // Only admins can create, update, or delete transactions
-      allow create: if isAdmin() && isValidTransaction(request.resource.data);
-      allow update: if isAdmin() && isValidTransaction(request.resource.data);
+      allow create: if isAdmin() && isValidNewTransaction(request.resource.data);
+      allow update: if isAdmin() && isValidTransactionUpdate(request.resource.data);
       allow delete: if isAdmin();
     }
 

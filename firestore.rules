@@ -64,8 +64,11 @@ service cloud.firestore {
       );
     }
 
-    function hasRequiredFields(fields) {
-      return request.resource.data.keys().hasAll(fields);
+    function isOrderUser() {
+      return isAuthenticated() && (
+        roleOf(request.auth.uid) == 'order' ||
+        request.auth.token.email == "order@topstar.com"
+      );
     }
 
     function hasOnlyAllowedFields(fields) {
@@ -80,6 +83,13 @@ service cloud.firestore {
              data.stock is number && data.stock >= 0 &&
              (!('isActive' in data) || data.isActive is bool) &&
              (!('createdAt' in data) || data.createdAt is timestamp);
+    }
+
+    function isValidOrderProduct(data) {
+      return hasOnlyAllowedFields(['name', 'spec', 'price']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.spec is number && data.spec > 0 &&
+             data.price is number && data.price >= 0;
     }
 
     function isValidTransactionShape(data) {
@@ -128,6 +138,13 @@ service cloud.firestore {
       // Only admins can create, update, or delete products
       allow create: if isAdmin() && isValidProduct(request.resource.data);
       allow update: if isAdmin() && isValidProduct(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Sanitized catalog for order-entry-only accounts. Stock is intentionally excluded.
+    match /orderCatalog/{productId} {
+      allow read: if isStaff() || isOrderUser();
+      allow create, update: if isAdmin() && isValidOrderProduct(request.resource.data);
       allow delete: if isAdmin();
     }
 

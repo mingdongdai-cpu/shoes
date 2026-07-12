@@ -10,6 +10,13 @@ export interface Product {
   createdAt?: Timestamp;
 }
 
+export interface OrderProduct {
+  id: string;
+  name: string;
+  spec: number;
+  price: number;
+}
+
 export interface Transaction {
   id: string;
   productId: string;
@@ -24,7 +31,7 @@ export interface Transaction {
 export interface User {
   uid: string;
   username: string;
-  role: 'admin' | 'staff';
+  role: 'admin' | 'staff' | 'order';
 }
 
 export interface Expense {
@@ -44,6 +51,7 @@ export type View =
   | 'inventory-stock'
   | 'inventory-comparison'
   | 'stock'
+  | 'order-entry'
   | 'products'
   | 'expenses';
 

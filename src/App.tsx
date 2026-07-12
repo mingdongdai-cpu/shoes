@@ -14,7 +14,8 @@ import {
   XCircle,
   CheckCircle2,
   AlertTriangle,
-  Wallet
+  Wallet,
+  ClipboardList
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth } from './firebase';
@@ -42,8 +43,8 @@ import {
   Timestamp,
   type DocumentData
 } from 'firebase/firestore';
-import { Product, ProductRiskMetrics, Transaction, User, View, Toast, Expense, WeeklySalesComparison, DashboardMetrics } from './types';
-import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, ProductsView, ExpensesView } from './components/Views';
+import { Product, OrderProduct, ProductRiskMetrics, Transaction, User, View, Toast, Expense, WeeklySalesComparison, DashboardMetrics } from './types';
+import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView } from './components/Views';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate } from './lib/timeWindow';
 
 
@@ -231,6 +232,15 @@ function mapProductDoc(id: string, data: DocumentData): Product {
   };
 }
 
+function mapOrderProductDoc(id: string, data: DocumentData): OrderProduct {
+  return {
+    id,
+    name: String(data.name ?? ''),
+    spec: Number(data.spec ?? 0),
+    price: Number(data.price ?? 0)
+  };
+}
+
 function sortProductsByCreatedAtDesc(items: Product[]): Product[] {
   return [...items].sort((a, b) => {
     const millisDiff = (b.createdAt?.toMillis() ?? 0) - (a.createdAt?.toMillis() ?? 0);
@@ -248,6 +258,8 @@ export default function App() {
   // --- State ---
   const [user, setUser] = useState<User | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  const [orderProducts, setOrderProducts] = useState<OrderProduct[]>([]);
+  const [productsLoaded, setProductsLoaded] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [currentView, setCurrentView] = useState<View>('home');
@@ -290,11 +302,14 @@ export default function App() {
     let unsubscribe: (() => void) | undefined;
     const builtInRoles: Record<string, User['role']> = {
       'admin@topstar.com': 'admin',
-      'staff@topstar.com': 'staff'
+      'staff@topstar.com': 'staff',
+      'order@topstar.com': 'order'
     };
     const clearLocalSession = () => {
       setUser(null);
       setProducts([]);
+      setOrderProducts([]);
+      setProductsLoaded(false);
       setTransactions([]);
       setExpenses([]);
     };
@@ -313,7 +328,7 @@ export default function App() {
             const email = (firebaseUser.email ?? '').toLowerCase();
             const profileSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
             const profileRole = profileSnap.exists() ? profileSnap.data().role : null;
-            const role = profileRole === 'admin' || profileRole === 'staff'
+            const role = profileRole === 'admin' || profileRole === 'staff' || profileRole === 'order'
               ? profileRole
               : builtInRoles[email];
 
@@ -329,6 +344,7 @@ export default function App() {
               username: firebaseUser.email?.split('@')[0] || firebaseUser.uid,
               role
             });
+            setCurrentView(role === 'order' ? 'order-entry' : 'home');
           } catch (error) {
             handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
             clearLocalSession();
@@ -353,6 +369,22 @@ export default function App() {
     // 确保不仅 user 状态存在，Firebase 底层 auth 对象也已识别到当前用户
     if (!user || !auth.currentUser) return;
 
+    if (user.role === 'order') {
+      const qOrderProducts = query(collection(db, 'orderCatalog'));
+      return onSnapshot(
+        qOrderProducts,
+        (snapshot) => {
+          const catalog = snapshot.docs
+            .map((itemDoc) => mapOrderProductDoc(itemDoc.id, itemDoc.data()))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          setOrderProducts(catalog);
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.GET, 'orderCatalog');
+        }
+      );
+    }
+
     // Sync Products
     const qProducts = query(collection(db, 'products'));
     const unsubscribeProducts = onSnapshot(qProducts, 
@@ -362,6 +394,7 @@ export default function App() {
           productsData.push(mapProductDoc(itemDoc.id, itemDoc.data()));
         });
         setProducts(sortProductsByCreatedAtDesc(productsData));
+        setProductsLoaded(true);
       },
       (error) => {
         handleFirestoreError(error, OperationType.GET, 'products');
@@ -444,6 +477,58 @@ export default function App() {
       unsubscribeExpensesLegacy();
     };
   }, [user]);
+
+  useEffect(() => {
+    if (user?.role !== 'admin' || !productsLoaded) return;
+
+    const syncOrderCatalog = async () => {
+      try {
+        const catalogSnapshot = await getDocs(collection(db, 'orderCatalog'));
+        const catalogById = new Map(
+          catalogSnapshot.docs.map((itemDoc) => [itemDoc.id, mapOrderProductDoc(itemDoc.id, itemDoc.data())])
+        );
+        const activeProductsById = new Map(
+          products
+            .filter((product) => product.isActive !== false)
+            .map((product) => [product.id, product])
+        );
+        const batch = writeBatch(db);
+        let operationCount = 0;
+
+        for (const [productId, product] of activeProductsById) {
+          const catalogProduct = catalogById.get(productId);
+          if (
+            !catalogProduct ||
+            catalogProduct.name !== product.name ||
+            catalogProduct.spec !== product.spec ||
+            catalogProduct.price !== product.price
+          ) {
+            batch.set(doc(db, 'orderCatalog', productId), {
+              name: product.name,
+              spec: product.spec,
+              price: product.price
+            });
+            operationCount += 1;
+          }
+        }
+
+        for (const catalogProduct of catalogSnapshot.docs) {
+          if (!activeProductsById.has(catalogProduct.id)) {
+            batch.delete(catalogProduct.ref);
+            operationCount += 1;
+          }
+        }
+
+        if (operationCount > 0) {
+          await batch.commit();
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'orderCatalog');
+      }
+    };
+
+    void syncOrderCatalog();
+  }, [products, productsLoaded, user?.role]);
 
   // --- Toast Logic ---
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -568,6 +653,10 @@ export default function App() {
   );
 
   const handleViewChange = (nextView: View) => {
+    if (user?.role === 'order') {
+      setCurrentView('order-entry');
+      return;
+    }
     setCurrentView(nextView);
     const nextIsInventoryView = (
       nextView === 'inventory-warnings' ||
@@ -944,11 +1033,12 @@ export default function App() {
     try {
       const emailAliasMap: Record<string, string> = {
         admin: 'admin@topstar.com',
-        staff: 'staff@topstar.com'
+        staff: 'staff@topstar.com',
+        order: 'order@topstar.com'
       };
       const email = emailAliasMap[normalized] ?? normalized;
       await signInWithEmailAndPassword(auth, email, pass);
-      showToast('登录成功');
+      showToast(email === 'order@topstar.com' ? 'Connexion réussie' : '登录成功');
       return true;
     } catch (error: unknown) {
       const authErrorCode = typeof error === 'object' && error !== null && 'code' in error
@@ -969,11 +1059,12 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    const isOrderUser = user?.role === 'order';
     try {
       await signOut(auth);
-      showToast('已退出登录');
+      showToast(isOrderUser ? 'Déconnexion réussie' : '已退出登录');
     } catch (error) {
-      showToast('退出失败', 'error');
+      showToast(isOrderUser ? 'Échec de la déconnexion' : '退出失败', 'error');
     }
   };
 
@@ -1512,6 +1603,8 @@ export default function App() {
 
   if (!user) return <LoginView handleLogin={handleLogin} />;
 
+  const roleLabel = user.role === 'admin' ? '管理员' : user.role === 'order' ? 'Agent de saisie' : '查询员';
+
   return (
     <ErrorBoundary>
       <div className="ios-shell min-h-screen font-sans text-slate-900 pb-28 md:pb-8">
@@ -1526,15 +1619,15 @@ export default function App() {
                 <div className="min-w-0">
                   <h1 className="text-xl font-black tracking-tight text-slate-900 truncate">TOP STAR SHOES</h1>
                   <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                    <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-                    <span className="truncate">{user.role === 'admin' ? '管理员' : '查询员'} · {user.username}</span>
+                    <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : user.role === 'order' ? 'bg-indigo-500' : 'bg-amber-500'}`}></span>
+                    <span className="truncate">{roleLabel} · {user.username}</span>
                   </div>
                 </div>
               </div>
             <button
               onClick={handleLogout}
               className="ios-float-button p-2.5 rounded-xl text-slate-500 hover:text-rose-500 transition-all shrink-0"
-              title="退出登录"
+              title={user.role === 'order' ? 'Se déconnecter' : '退出登录'}
             >
               <XCircle size={20} />
             </button>
@@ -1544,6 +1637,7 @@ export default function App() {
 
       <div className="md:flex md:items-start md:gap-5 md:px-5 md:pt-6">
         {/* Desktop Sidebar */}
+        {user.role !== 'order' && (
         <aside className="hidden md:block md:w-[250px] md:shrink-0">
           <div className="glass fixed left-5 top-6 h-[calc(100vh-3rem)] w-[250px] rounded-3xl border border-white/60 shadow-xl p-5 flex flex-col">
             <div className="flex items-center gap-3 min-w-0">
@@ -1554,7 +1648,7 @@ export default function App() {
                 <h1 className="text-2xl font-black tracking-tight text-slate-900 truncate">TOP STAR</h1>
                 <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                   <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-                  <span className="truncate">{user.role === 'admin' ? '管理员' : '查询员'} · {user.username}</span>
+                  <span className="truncate">{roleLabel} · {user.username}</span>
                 </div>
               </div>
             </div>
@@ -1629,6 +1723,13 @@ export default function App() {
                 variant="sidebar"
               />
               <NavButton
+                active={currentView === 'order-entry'}
+                onClick={() => handleViewChange('order-entry')}
+                icon={<ClipboardList size={18} />}
+                label="录单"
+                variant="sidebar"
+              />
+              <NavButton
                 active={currentView === 'products'}
                 onClick={() => handleViewChange('products')}
                 icon={<Package size={18} />}
@@ -1654,6 +1755,7 @@ export default function App() {
             </button>
           </div>
         </aside>
+        )}
 
       {/* Main Content */}
       <main className="relative z-10 flex-1 min-w-0 px-4 sm:px-6 lg:px-8 pt-8 pb-28 md:px-0 md:pt-0 md:pb-8">
@@ -1665,7 +1767,7 @@ export default function App() {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
-            {currentView === 'home' && (
+            {user.role !== 'order' && currentView === 'home' && (
                 <HomeView 
                   stats={stats}
                   formatCurrency={formatCurrency}
@@ -1682,7 +1784,7 @@ export default function App() {
                   homeMetrics={homeMetrics}
                 />
               )}
-              {currentView === 'inventory-warnings' && (
+              {user.role !== 'order' && currentView === 'inventory-warnings' && (
                 <InventoryOverviewView
                   mode="warnings"
                   warnings={warnings}
@@ -1698,7 +1800,7 @@ export default function App() {
                   showToast={showToast}
                 />
               )}
-              {currentView === 'inventory-stale' && (
+              {user.role !== 'order' && currentView === 'inventory-stale' && (
                 <InventoryOverviewView
                   mode="stale"
                   warnings={warnings}
@@ -1714,7 +1816,7 @@ export default function App() {
                   showToast={showToast}
                 />
               )}
-              {currentView === 'inventory-stock' && (
+              {user.role !== 'order' && currentView === 'inventory-stock' && (
                 <InventoryOverviewView
                   mode="stock"
                   warnings={warnings}
@@ -1730,7 +1832,7 @@ export default function App() {
                   showToast={showToast}
                 />
               )}
-              {currentView === 'inventory-comparison' && (
+              {user.role !== 'order' && currentView === 'inventory-comparison' && (
                 <InventoryOverviewView
                   mode="comparison"
                   warnings={warnings}
@@ -1746,7 +1848,7 @@ export default function App() {
                   showToast={showToast}
                 />
               )}
-              {currentView === 'stock' && (
+              {user.role !== 'order' && currentView === 'stock' && (
                 <StockView 
                   products={activeProducts}
                 transactions={transactions}
@@ -1775,7 +1877,16 @@ export default function App() {
                   formatDateTime={formatDateTimeLabel}
                 />
               )}
-            {currentView === 'products' && (
+              {(user.role === 'order' || currentView === 'order-entry') && (
+                <OrderEntryView
+                  products={user.role === 'order' ? orderProducts : activeProducts}
+                  formatCurrency={formatCurrency}
+                  formatStock={formatStock}
+                  showToast={showToast}
+                  language={user.role === 'order' ? 'fr' : 'zh'}
+                />
+              )}
+            {user.role !== 'order' && currentView === 'products' && (
               <ProductsView 
                 user={user}
                 products={products}
@@ -1799,7 +1910,7 @@ export default function App() {
                 handleBatchImport={handleBatchImport}
               />
             )}
-            {currentView === 'dashboard' && (
+            {user.role !== 'order' && currentView === 'dashboard' && (
               <DashboardView
                 metrics={dashboardMetrics}
                 setHotMonth={setDashboardHotMonth}
@@ -1807,7 +1918,7 @@ export default function App() {
                 formatStock={formatStock}
               />
             )}
-            {currentView === 'expenses' && (
+            {user.role !== 'order' && currentView === 'expenses' && (
                 <ExpensesView 
                   expenses={expenses}
                   transactions={transactions}
@@ -1824,12 +1935,13 @@ export default function App() {
       </div>
 
       {/* Mobile Dock */}
+      {user.role !== 'order' && (
       <nav
         className="md:hidden fixed left-1/2 -translate-x-1/2 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] w-[calc(100%-1.25rem)] max-w-[28rem] z-40"
         aria-label="手机底部导航"
       >
         <div className="ios-dock p-2">
-          <div className="grid grid-cols-6 gap-1">
+          <div className="grid grid-cols-7 gap-1">
             <NavButton
               active={currentView === 'home'}
               onClick={() => handleViewChange('home')}
@@ -1859,6 +1971,13 @@ export default function App() {
               variant="mobile"
             />
             <NavButton
+              active={currentView === 'order-entry'}
+              onClick={() => handleViewChange('order-entry')}
+              icon={<ClipboardList size={18} />}
+              label="录单"
+              variant="mobile"
+            />
+            <NavButton
               active={currentView === 'products'}
               onClick={() => handleViewChange('products')}
               icon={<Package size={18} />}
@@ -1875,6 +1994,7 @@ export default function App() {
           </div>
         </div>
       </nav>
+      )}
 
       {/* Confirm Delete Modal */}
       <AnimatePresence>

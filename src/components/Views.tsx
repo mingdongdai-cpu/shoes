@@ -13,6 +13,7 @@ import {
   History,
   Calendar,
   BarChart3,
+  ClipboardList,
   Download,
   Pencil,
   EyeOff,
@@ -22,7 +23,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
-import { DashboardMetrics, Product, ProductRiskMetrics, Transaction, User, Expense, WeeklySalesComparison } from '../types';
+import { DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, WeeklySalesComparison } from '../types';
 import { formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek } from '../lib/timeWindow';
 
 // --- Components ---
@@ -1525,6 +1526,347 @@ interface StockViewProps {
   setRemark: (value: string) => void;
   formatDateTime: (value: Transaction['occurredAt']) => string;
 }
+
+interface OrderEntryItem {
+  id: number;
+  product: OrderProduct;
+  boxes: number;
+  items: number;
+}
+
+interface OrderEntryViewProps {
+  products: OrderProduct[];
+  formatCurrency: (value: number) => string;
+  formatStock: (total: number, spec: number) => string;
+  showToast: (message: string, type?: 'success' | 'error') => void;
+  language?: 'zh' | 'fr';
+}
+
+export const OrderEntryView = ({
+  products,
+  formatCurrency,
+  formatStock,
+  showToast,
+  language = 'zh'
+}: OrderEntryViewProps) => {
+  const [selectedId, setSelectedId] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [boxes, setBoxes] = useState('1');
+  const [items, setItems] = useState('0');
+  const [orderItems, setOrderItems] = useState<OrderEntryItem[]>([]);
+  const orderItemIdRef = useRef(0);
+  const isFrench = language === 'fr';
+  const copy = isFrench
+    ? {
+        selectProduct: 'Sélectionner un produit',
+        model: 'Modèle',
+        searchPlaceholder: 'Rechercher un modèle...',
+        packaging: 'Conditionnement',
+        boxPrice: 'Prix par carton',
+        noProductFound: 'Aucun produit trouvé',
+        boxes: 'Cartons',
+        items: 'Paires',
+        currentSubtotal: 'Sous-total actuel',
+        selectToViewAmount: 'Sélectionnez un produit pour voir le montant',
+        addToOrder: 'Ajouter à la commande',
+        orderDetails: 'Détails de la commande',
+        clearOrder: 'Vider la commande',
+        product: 'Produit',
+        quantity: 'Quantité',
+        subtotal: 'Sous-total',
+        action: 'Action',
+        remove: 'Retirer',
+        noItems: 'Aucun produit ajouté',
+        orderTotal: 'Total de la commande',
+        selectProductError: 'Sélectionnez un produit',
+        negativeQuantityError: 'La quantité ne peut pas être négative',
+        emptyQuantityError: 'Saisissez le nombre de cartons ou de paires'
+      }
+    : {
+        selectProduct: '选择商品',
+        model: '商品型号',
+        searchPlaceholder: '输入商品名称搜索...',
+        packaging: '规格',
+        boxPrice: '每箱价格',
+        noProductFound: '未找到匹配商品',
+        boxes: '箱数',
+        items: '散个',
+        currentSubtotal: '当前商品小计',
+        selectToViewAmount: '请选择商品后查看金额',
+        addToOrder: '加入订单',
+        orderDetails: '订单明细',
+        clearOrder: '清空订单',
+        product: '商品',
+        quantity: '数量',
+        subtotal: '小计',
+        action: '操作',
+        remove: '移除',
+        noItems: '还没有添加商品',
+        orderTotal: '订单总计',
+        selectProductError: '请选择商品',
+        negativeQuantityError: '数量不能为负数',
+        emptyQuantityError: '请输入箱数或散个'
+      };
+
+  const formatOrderStock = (total: number, spec: number) => {
+    if (!isFrench) return formatStock(total, spec);
+    const boxesCount = spec > 0 ? Math.floor(total / spec) : 0;
+    const remainingItems = spec > 0 ? total % spec : total;
+    const formatPairs = (value: number) => `${value} paire${value > 1 ? 's' : ''}`;
+    if (boxesCount === 0) return formatPairs(remainingItems);
+    const formattedBoxes = `${boxesCount} carton${boxesCount > 1 ? 's' : ''}`;
+    return remainingItems > 0 ? `${formattedBoxes} + ${formatPairs(remainingItems)}` : formattedBoxes;
+  };
+
+  const selectedProduct = products.find((product) => product.id === selectedId);
+  const filteredProducts = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+    if (!keyword) return products;
+    return products.filter((product) => product.name.toLowerCase().includes(keyword));
+  }, [products, searchTerm]);
+
+  const boxesValue = Number.parseInt(boxes, 10) || 0;
+  const itemsValue = Number.parseInt(items, 10) || 0;
+  const hasValidCurrentQuantity = boxesValue >= 0 && itemsValue >= 0;
+  const currentQuantity = selectedProduct && hasValidCurrentQuantity ? (boxesValue * selectedProduct.spec) + itemsValue : 0;
+  const currentSubtotal = selectedProduct && currentQuantity > 0
+    ? currentQuantity * selectedProduct.price
+    : 0;
+
+  const committedTotal = useMemo(() => {
+    return orderItems.reduce((sum, item) => {
+      const quantity = (item.boxes * item.product.spec) + item.items;
+      return sum + quantity * item.product.price;
+    }, 0);
+  }, [orderItems]);
+
+  const resetCurrentLine = () => {
+    setSelectedId('');
+    setSearchTerm('');
+    setBoxes('1');
+    setItems('0');
+    setShowDropdown(false);
+  };
+
+  const handleAddCurrentItem = () => {
+    if (!selectedProduct) {
+      showToast(copy.selectProductError, 'error');
+      return;
+    }
+    if (boxesValue < 0 || itemsValue < 0) {
+      showToast(copy.negativeQuantityError, 'error');
+      return;
+    }
+    if (currentQuantity <= 0) {
+      showToast(copy.emptyQuantityError, 'error');
+      return;
+    }
+
+    orderItemIdRef.current += 1;
+    setOrderItems((prev) => [
+      ...prev,
+      {
+        id: orderItemIdRef.current,
+        product: selectedProduct,
+        boxes: boxesValue,
+        items: itemsValue
+      }
+    ]);
+    resetCurrentLine();
+  };
+
+  const handleRemoveItem = (id: number) => {
+    setOrderItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleClearOrder = () => {
+    setOrderItems([]);
+    resetCurrentLine();
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)] gap-8">
+        <div className="glass rounded-3xl p-7 shadow-xl border border-white/35">
+          <div className="mb-6">
+            <h3 className="text-lg font-black text-slate-800">{copy.selectProduct}</h3>
+          </div>
+
+          <div className="space-y-5">
+            <div className="relative">
+              <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">{copy.model}</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder={copy.searchPlaceholder}
+                  value={selectedProduct ? selectedProduct.name : searchTerm}
+                  onChange={(event) => {
+                    setSearchTerm(event.target.value);
+                    if (selectedId) setSelectedId('');
+                    setShowDropdown(true);
+                  }}
+                  onFocus={() => setShowDropdown(true)}
+                  className="w-full rounded-2xl border-white/40 bg-white/35 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 pr-10 py-3 font-bold !text-left"
+                />
+                {selectedId && (
+                  <button
+                    type="button"
+                    onClick={resetCurrentLine}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <XCircle size={17} />
+                  </button>
+                )}
+              </div>
+
+              {showDropdown && !selectedId && (
+                <div className="absolute z-50 w-full mt-2 bg-white/90 backdrop-blur-xl border border-white/50 rounded-2xl shadow-2xl max-h-72 overflow-y-auto custom-scrollbar">
+                  {filteredProducts.length > 0 ? (
+                    filteredProducts.map((product) => (
+                      <button
+                        key={product.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(product.id);
+                          setSearchTerm('');
+                          setShowDropdown(false);
+                        }}
+                        className="w-full text-left px-4 py-3 hover:bg-indigo-50/70 transition-colors border-b border-slate-100/60 last:border-0"
+                      >
+                        <div className="font-black text-slate-900">{product.name}</div>
+                        <div className="text-xs font-bold text-slate-500">
+                          {copy.packaging}: {product.spec} {isFrench ? 'paires/carton' : '个/箱'} · {copy.boxPrice}: {formatCurrency(product.price * product.spec)}
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-4 py-4 text-sm text-slate-400 italic font-bold">{copy.noProductFound}</div>
+                  )}
+                </div>
+              )}
+              {showDropdown && !selectedId && (
+                <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">{copy.boxes}</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={boxes}
+                  onChange={(event) => setBoxes(event.target.value)}
+                  className="w-full rounded-2xl border-white/40 bg-white/35 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">{copy.items}</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={items}
+                  onChange={(event) => setItems(event.target.value)}
+                  className="w-full rounded-2xl border-white/40 bg-white/35 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-indigo-50/60 border border-indigo-100/70 p-4">
+              <div className="text-xs font-black text-indigo-500 uppercase tracking-widest mb-2">{copy.currentSubtotal}</div>
+              <div className="text-2xl font-black text-slate-900">{formatCurrency(currentSubtotal)}</div>
+              <div className="mt-1 text-sm font-bold text-slate-500">
+                {selectedProduct
+                  ? `${selectedProduct.name} · ${formatOrderStock(currentQuantity, selectedProduct.spec)}`
+                  : copy.selectToViewAmount}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddCurrentItem}
+              className="w-full rounded-2xl bg-indigo-600/90 py-4 font-black text-white shadow-lg shadow-indigo-200/60 transition-all hover:bg-indigo-700 active:scale-[0.99] flex items-center justify-center gap-2"
+            >
+              <Plus size={20} />
+              {copy.addToOrder}
+            </button>
+          </div>
+        </div>
+
+        <div className="glass rounded-3xl p-7 shadow-xl border border-white/35">
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-black text-slate-800">{copy.orderDetails}</h3>
+            </div>
+            {orderItems.length > 0 && (
+              <button
+                type="button"
+                onClick={handleClearOrder}
+                className="rounded-2xl border border-rose-100 bg-rose-50/60 px-4 py-2 text-sm font-black text-rose-600 hover:bg-rose-100/70 transition-all"
+              >
+                {copy.clearOrder}
+              </button>
+            )}
+          </div>
+
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-white/20">
+                  <th className="pb-4 text-xs font-black uppercase tracking-widest text-slate-400">{copy.product}</th>
+                  <th className="pb-4 text-xs font-black uppercase tracking-widest text-slate-400">{copy.quantity}</th>
+                  <th className="pb-4 text-xs font-black uppercase tracking-widest text-slate-400">{copy.boxPrice}</th>
+                  <th className="pb-4 text-xs font-black uppercase tracking-widest text-slate-400">{copy.subtotal}</th>
+                  <th className="pb-4 text-right text-xs font-black uppercase tracking-widest text-slate-400">{copy.action}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/20">
+                {orderItems.map((item) => {
+                  const quantity = (item.boxes * item.product.spec) + item.items;
+                  const subtotal = quantity * item.product.price;
+                  return (
+                    <tr key={item.id} className="hover:bg-white/20 transition-colors">
+                      <td className="py-4">
+                        <div className="font-black text-slate-900">{item.product.name}</div>
+                        <div className="text-xs font-bold text-slate-400">{copy.packaging}: {item.product.spec} {isFrench ? 'paires/carton' : '个/箱'}</div>
+                      </td>
+                      <td className="py-4 text-sm font-bold text-slate-600">{formatOrderStock(quantity, item.product.spec)}</td>
+                      <td className="py-4 text-sm font-bold text-slate-600">{formatCurrency(item.product.price * item.product.spec)}</td>
+                      <td className="py-4 text-sm font-black text-indigo-600">{formatCurrency(subtotal)}</td>
+                      <td className="py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(item.id)}
+                          className="p-2 text-rose-500 hover:bg-rose-50/70 rounded-xl transition-all"
+                          title={copy.remove}
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {orderItems.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-20 text-center text-slate-400">
+                      <ClipboardList size={48} className="mx-auto mb-3 opacity-20" />
+                      <div className="font-bold">{copy.noItems}</div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-6 flex items-end justify-end gap-3 border-t border-white/30 pt-5 text-right">
+            <span className="pb-1 text-sm font-black text-slate-500">{copy.orderTotal}</span>
+            <span className="text-3xl font-black tracking-tight text-rose-600">{formatCurrency(committedTotal)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const StockView = ({
   products, transactions, handleTransaction, deleteTransaction, 
@@ -3079,10 +3421,16 @@ export const ExpensesView = ({
   formatDateTime: (value: Expense['occurredAt']) => string
 }) => {
   const expenseCategoryOptions = [
-    '日常运营',
-    '运费',
-    '杂费',
-    '员工工资'
+    { name: '物流运费', hint: '送货、搬运、托运、本地配送等运输费用' },
+    { name: '清关税费', hint: '清关、关税、港口、报关及相关官方费用' },
+    { name: '仓储租金', hint: '仓库、店铺、宿舍、临时库位等租金' },
+    { name: '员工工资', hint: '固定工资、临时工工资、奖金和补贴' },
+    { name: '交通油费', hint: '油费、打车、停车、车辆通行等出行费用' },
+    { name: '水电通讯', hint: '水费、电费、电话费、网络费、流量费' },
+    { name: '维修耗材', hint: '设备维修、车辆维修、工具、胶带、包装耗材' },
+    { name: '办公杂费', hint: '打印、文具、办公用品、小额采购' },
+    { name: '手续费税费', hint: '银行手续费、转账手续费、平台手续费、经营税费' },
+    { name: '其他支出', hint: '不属于以上项目的临时性支出' }
   ] as const;
 
   const [amount, setAmount] = useState('');
@@ -3093,6 +3441,7 @@ export const ExpensesView = ({
   const [visibleExpenseCount, setVisibleExpenseCount] = useState(20);
   const dateLabel = date.replaceAll('-', '/');
   const filterMonthLabel = filterMonth.replace('-', '/');
+  const selectedCategoryHint = expenseCategoryOptions.find((option) => option.name === category)?.hint;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3206,11 +3555,16 @@ export const ExpensesView = ({
                     请选择支出类别
                   </option>
                   {expenseCategoryOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
+                    <option key={option.name} value={option.name}>
+                      {option.name}
                     </option>
                   ))}
                 </select>
+                {selectedCategoryHint && (
+                  <p className="mt-2 rounded-xl bg-rose-50/55 border border-rose-100/70 px-3 py-2 text-xs font-semibold text-rose-700">
+                    {selectedCategoryHint}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">日期</label>

@@ -1603,7 +1603,7 @@ export default function App() {
 
   if (!user) return <LoginView handleLogin={handleLogin} />;
 
-  const roleLabel = user.role === 'admin' ? '管理员' : user.role === 'order' ? 'Agent de saisie' : '查询员';
+  const roleLabel = user.role === 'admin' ? '管理员' : user.role === 'order' ? 'Saisie' : '查询员';
 
   return (
     <ErrorBoundary>

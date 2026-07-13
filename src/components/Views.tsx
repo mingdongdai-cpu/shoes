@@ -1559,26 +1559,25 @@ export const OrderEntryView = ({
   const isFrench = language === 'fr';
   const copy = isFrench
     ? {
-        selectProduct: 'Sélectionner un produit',
+        selectProduct: 'Ajouter un produit',
         model: 'Modèle',
-        searchPlaceholder: 'Rechercher un modèle...',
+        searchPlaceholder: 'Rechercher...',
         packaging: 'Conditionnement',
         boxPrice: 'Prix par carton',
         noProductFound: 'Aucun produit trouvé',
         boxes: 'Cartons',
         items: 'Paires',
-        currentSubtotal: 'Sous-total actuel',
-        selectToViewAmount: 'Sélectionnez un produit pour voir le montant',
-        addToOrder: 'Ajouter à la commande',
-        orderDetails: 'Détails de la commande',
-        clearOrder: 'Vider la commande',
+        currentSubtotal: 'Sous-total',
+        addToOrder: 'Ajouter',
+        orderDetails: 'Commande',
+        clearOrder: 'Vider',
         product: 'Produit',
         quantity: 'Quantité',
         subtotal: 'Sous-total',
         action: 'Action',
         remove: 'Retirer',
         noItems: 'Aucun produit ajouté',
-        orderTotal: 'Total de la commande',
+        orderTotal: 'Total',
         selectProductError: 'Sélectionnez un produit',
         negativeQuantityError: 'La quantité ne peut pas être négative',
         emptyQuantityError: 'Saisissez le nombre de cartons ou de paires'
@@ -1593,7 +1592,6 @@ export const OrderEntryView = ({
         boxes: '箱数',
         items: '散个',
         currentSubtotal: '当前商品小计',
-        selectToViewAmount: '请选择商品后查看金额',
         addToOrder: '加入订单',
         orderDetails: '订单明细',
         clearOrder: '清空订单',
@@ -1619,6 +1617,8 @@ export const OrderEntryView = ({
     return remainingItems > 0 ? `${formattedBoxes} + ${formatPairs(remainingItems)}` : formattedBoxes;
   };
 
+  const formatMobileAmount = (value: number) => formatCurrency(value).replace(/\s*XOF$/, '');
+
   const selectedProduct = products.find((product) => product.id === selectedId);
   const filteredProducts = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
@@ -1639,6 +1639,17 @@ export const OrderEntryView = ({
       const quantity = (item.boxes * item.product.spec) + item.items;
       return sum + quantity * item.product.price;
     }, 0);
+  }, [orderItems]);
+
+  const orderRows = useMemo(() => {
+    return orderItems.map((item) => {
+      const quantity = (item.boxes * item.product.spec) + item.items;
+      return {
+        item,
+        quantity,
+        subtotal: quantity * item.product.price
+      };
+    });
   }, [orderItems]);
 
   const resetCurrentLine = () => {
@@ -1686,10 +1697,10 @@ export const OrderEntryView = ({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5 sm:space-y-8">
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)] gap-8">
-        <div className="glass rounded-3xl p-7 shadow-xl border border-white/35">
-          <div className="mb-6">
+        <div className="glass rounded-3xl p-5 sm:p-7 shadow-xl border border-white/35">
+          <div className="mb-5 sm:mb-6">
             <h3 className="text-lg font-black text-slate-800">{copy.selectProduct}</h3>
           </div>
 
@@ -1773,14 +1784,14 @@ export const OrderEntryView = ({
               </div>
             </div>
 
-            <div className="rounded-2xl bg-indigo-50/60 border border-indigo-100/70 p-4">
+            <div className="rounded-2xl bg-indigo-50/60 border border-indigo-100/70 p-3.5 sm:p-4">
               <div className="text-xs font-black text-indigo-500 uppercase tracking-widest mb-2">{copy.currentSubtotal}</div>
               <div className="text-2xl font-black text-slate-900">{formatCurrency(currentSubtotal)}</div>
-              <div className="mt-1 text-sm font-bold text-slate-500">
-                {selectedProduct
-                  ? `${selectedProduct.name} · ${formatOrderStock(currentQuantity, selectedProduct.spec)}`
-                  : copy.selectToViewAmount}
-              </div>
+              {selectedProduct && (
+                <div className="mt-1 text-sm font-bold text-slate-500">
+                  {selectedProduct.name} · {formatOrderStock(currentQuantity, selectedProduct.spec)}
+                </div>
+              )}
             </div>
 
             <button
@@ -1794,8 +1805,8 @@ export const OrderEntryView = ({
           </div>
         </div>
 
-        <div className="glass rounded-3xl p-7 shadow-xl border border-white/35">
-          <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="glass rounded-3xl p-5 sm:p-7 shadow-xl border border-white/35">
+          <div className="mb-5 flex items-center justify-between gap-3 sm:mb-6">
             <div>
               <h3 className="text-lg font-black text-slate-800">{copy.orderDetails}</h3>
             </div>
@@ -1803,14 +1814,69 @@ export const OrderEntryView = ({
               <button
                 type="button"
                 onClick={handleClearOrder}
-                className="rounded-2xl border border-rose-100 bg-rose-50/60 px-4 py-2 text-sm font-black text-rose-600 hover:bg-rose-100/70 transition-all"
+                className="rounded-xl border border-rose-100 bg-rose-50/60 px-3.5 py-2 text-sm font-black text-rose-600 hover:bg-rose-100/70 transition-all"
               >
                 {copy.clearOrder}
               </button>
             )}
           </div>
 
-          <div className="overflow-x-auto custom-scrollbar">
+          <div className="overflow-hidden rounded-2xl border border-white/55 bg-white/45 shadow-sm md:hidden">
+            <table className="w-full table-fixed text-left">
+              <colgroup>
+                <col className="w-[23%]" />
+                <col className="w-[20%]" />
+                <col className="w-[23%]" />
+                <col className="w-[24%]" />
+                <col className="w-[10%]" />
+              </colgroup>
+              <thead className="bg-slate-50/70">
+                <tr>
+                  <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wide text-slate-400">{isFrench ? 'Modèle' : '型号'}</th>
+                  <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wide text-slate-400">{copy.quantity}</th>
+                  <th className="px-2 py-3 text-[9px] font-black uppercase leading-tight tracking-wide text-slate-400">{isFrench ? 'Prix/carton' : '箱单价'}</th>
+                  <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wide text-slate-400">{isFrench ? 'Total' : '总计'}</th>
+                  <th className="px-1 py-3"><span className="sr-only">{copy.action}</span></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100/80">
+                {orderRows.map(({ item, quantity, subtotal }) => (
+                  <tr key={item.id}>
+                    <td className="truncate px-2 py-4 text-xs font-black text-slate-900">{item.product.name}</td>
+                    <td className="px-2 py-4 text-xs font-bold leading-tight text-slate-600">{formatOrderStock(quantity, item.product.spec)}</td>
+                    <td className="px-2 py-4">
+                      <div className="text-xs font-black leading-tight text-slate-700">{formatMobileAmount(item.product.price * item.product.spec)}</div>
+                      <div className="mt-0.5 text-[9px] font-bold text-slate-400">XOF</div>
+                    </td>
+                    <td className="px-2 py-4">
+                      <div className="text-xs font-black leading-tight text-indigo-600">{formatMobileAmount(subtotal)}</div>
+                      <div className="mt-0.5 text-[9px] font-bold text-indigo-400">XOF</div>
+                    </td>
+                    <td className="px-1 py-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItem(item.id)}
+                        className="rounded-lg p-1.5 text-rose-500 transition-colors hover:bg-rose-50/80"
+                        title={copy.remove}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {orderRows.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-14 text-center text-slate-400">
+                      <ClipboardList size={42} className="mx-auto mb-3 opacity-20" />
+                      <div className="font-bold">{copy.noItems}</div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="hidden overflow-x-auto custom-scrollbar md:block">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-white/20">
@@ -1822,9 +1888,7 @@ export const OrderEntryView = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/20">
-                {orderItems.map((item) => {
-                  const quantity = (item.boxes * item.product.spec) + item.items;
-                  const subtotal = quantity * item.product.price;
+                {orderRows.map(({ item, quantity, subtotal }) => {
                   return (
                     <tr key={item.id} className="hover:bg-white/20 transition-colors">
                       <td className="py-4">
@@ -1847,7 +1911,7 @@ export const OrderEntryView = ({
                     </tr>
                   );
                 })}
-                {orderItems.length === 0 && (
+                {orderRows.length === 0 && (
                   <tr>
                     <td colSpan={5} className="py-20 text-center text-slate-400">
                       <ClipboardList size={48} className="mx-auto mb-3 opacity-20" />
@@ -1858,9 +1922,9 @@ export const OrderEntryView = ({
               </tbody>
             </table>
           </div>
-          <div className="mt-6 flex items-end justify-end gap-3 border-t border-white/30 pt-5 text-right">
-            <span className="pb-1 text-sm font-black text-slate-500">{copy.orderTotal}</span>
-            <span className="text-3xl font-black tracking-tight text-rose-600">{formatCurrency(committedTotal)}</span>
+          <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-rose-50/55 px-4 py-4 sm:mt-6 sm:justify-end sm:bg-transparent sm:px-0 sm:py-0 sm:pt-5">
+            <span className="text-sm font-black text-slate-500">{copy.orderTotal}</span>
+            <span className="text-2xl font-black tracking-tight text-rose-600 sm:text-3xl">{formatCurrency(committedTotal)}</span>
           </div>
         </div>
       </div>

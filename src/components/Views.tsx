@@ -19,11 +19,12 @@ import {
   EyeOff,
   Eye,
   Save,
+  Search,
   X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
-import { DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, WeeklySalesComparison } from '../types';
+import { DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, SalesPeriodData } from '../types';
 import { formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek } from '../lib/timeWindow';
 
 // --- Components ---
@@ -971,8 +972,8 @@ interface InventoryOverviewViewProps {
   products: Product[];
   transactions: Transaction[];
   formatStock: (total: number, spec: number) => string;
-  weeklySalesComparisons: WeeklySalesComparison[];
-  monthlySalesComparisons: WeeklySalesComparison[];
+  weeklySalesPeriods: SalesPeriodData;
+  monthlySalesPeriods: SalesPeriodData;
   comparisonMode: 'week' | 'month';
   setComparisonMode: (value: 'week' | 'month') => void;
   showToast: (message: string, type?: 'success' | 'error') => void;
@@ -986,12 +987,15 @@ export const InventoryOverviewView = ({
   products,
   transactions,
   formatStock,
-  weeklySalesComparisons,
-  monthlySalesComparisons,
+  weeklySalesPeriods,
+  monthlySalesPeriods,
   comparisonMode,
   setComparisonMode,
   showToast
 }: InventoryOverviewViewProps) => {
+  const [comparisonSearchTerm, setComparisonSearchTerm] = useState('');
+  const [stockSearchTerm, setStockSearchTerm] = useState('');
+
   const sortedWarnings = useMemo(() => {
     if (mode !== 'warnings') return [] as Product[];
     return [...warnings].sort((a, b) => {
@@ -1051,6 +1055,11 @@ export const InventoryOverviewView = ({
       return a.name.localeCompare(b.name);
     });
   }, [mode, products, totalSoldByProduct]);
+
+  const normalizedStockSearchTerm = normalizeModelKey(stockSearchTerm);
+  const visibleStockProducts = normalizedStockSearchTerm
+    ? sortedProducts.filter((product) => normalizeModelKey(product.name).includes(normalizedStockSearchTerm))
+    : sortedProducts;
 
   const toRemainingBoxesNumber = (stock: number, spec: number): number => {
     const boxes = stock / spec;
@@ -1124,27 +1133,7 @@ export const InventoryOverviewView = ({
   };
 
   const formatBoxesValue = (value: number) => {
-    return Number.isInteger(value) ? `${value}` : value.toFixed(1);
-  };
-
-  const formatComparisonPercent = (row: WeeklySalesComparison) => {
-    if (row.trend === 'new') return '新增销售';
-    if (row.changePercent === null) return '0.0%';
-    const sign = row.changePercent >= 0 ? '+' : '';
-    return `${sign}${row.changePercent.toFixed(1)}%`;
-  };
-
-  const trendToneByType: Record<WeeklySalesComparison['trend'], string> = {
-    up: 'text-emerald-600',
-    down: 'text-rose-600',
-    flat: 'text-slate-500',
-    new: 'text-indigo-600'
-  };
-
-  const renderTrendIcon = (trend: WeeklySalesComparison['trend']) => {
-    if (trend === 'up' || trend === 'new') return <TrendingUp size={16} className="text-emerald-600" />;
-    if (trend === 'down') return <TrendingDown size={16} className="text-rose-600" />;
-    return <div className="h-0.5 w-3 rounded-full bg-slate-400" />;
+    return value.toLocaleString('zh-CN', { maximumFractionDigits: 4 });
   };
 
   if (mode === 'warnings') {
@@ -1253,81 +1242,98 @@ export const InventoryOverviewView = ({
 
   if (mode === 'comparison') {
     const isWeekMode = comparisonMode === 'week';
-    const comparisonRows = isWeekMode ? weeklySalesComparisons : monthlySalesComparisons;
-    const title = isWeekMode ? '销售对比（本周 vs 上周）' : '销售对比（本月 vs 上月）';
-    const currentLabel = isWeekMode ? '本周销量' : '本月销量';
-    const previousLabel = isWeekMode ? '上周销量' : '上月销量';
+    const salesPeriodData = isWeekMode ? weeklySalesPeriods : monthlySalesPeriods;
+    const normalizedSearchTerm = normalizeModelKey(comparisonSearchTerm);
+    const comparisonRows = normalizedSearchTerm
+      ? salesPeriodData.rows.filter((row) => normalizeModelKey(row.name).includes(normalizedSearchTerm))
+      : salesPeriodData.rows;
 
     return (
       <div className="space-y-8">
         <div className="glass rounded-3xl p-6 shadow-sm border-white/20">
-          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-2">
               <TrendingUp className="text-indigo-500" size={20} />
-              <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
+              <h2 className="text-lg font-semibold text-slate-800">{salesPeriodData.title}</h2>
             </div>
-            <div className="inline-flex items-center rounded-xl border border-white/50 bg-white/35 p-1 backdrop-blur-xl">
-              <button
-                type="button"
-                onClick={() => setComparisonMode('week')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  comparisonMode === 'week'
-                    ? 'bg-white/90 text-indigo-600 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                每周对比
-              </button>
-              <button
-                type="button"
-                onClick={() => setComparisonMode('month')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  comparisonMode === 'month'
-                    ? 'bg-white/90 text-indigo-600 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                月度对比
-              </button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative w-full sm:w-56">
+                <Search
+                  size={16}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  type="search"
+                  value={comparisonSearchTerm}
+                  onChange={(event) => setComparisonSearchTerm(event.target.value)}
+                  placeholder="搜索产品型号"
+                  aria-label="搜索销量产品"
+                  className="h-10 w-full rounded-xl border border-white/60 bg-white/55 pl-9 pr-9 text-sm font-bold text-slate-700 outline-none backdrop-blur-xl transition-all placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white/80 focus:ring-2 focus:ring-indigo-100"
+                />
+                {comparisonSearchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setComparisonSearchTerm('')}
+                    aria-label="清空产品搜索"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 transition-colors hover:bg-white/80 hover:text-slate-700"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="inline-flex items-center rounded-xl border border-white/50 bg-white/35 p-1 backdrop-blur-xl">
+                <button
+                  type="button"
+                  onClick={() => setComparisonMode('week')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    comparisonMode === 'week'
+                      ? 'bg-white/90 text-indigo-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  每周销量
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setComparisonMode('month')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    comparisonMode === 'month'
+                      ? 'bg-white/90 text-indigo-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  每月销量
+                </button>
+              </div>
             </div>
           </div>
-          <div className="rounded-2xl overflow-hidden border border-white/40 bg-white/28 backdrop-blur-xl">
-            <table className="w-full text-left">
+          <div className="overflow-x-auto rounded-2xl border border-white/40 bg-white/28 backdrop-blur-xl">
+            <table className="w-full min-w-max text-left">
               <thead className="bg-white/40">
                 <tr>
                   <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">商品</th>
-                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">{currentLabel}</th>
-                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">{previousLabel}</th>
-                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">环比</th>
-                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">趋势</th>
+                  {salesPeriodData.columns.map((column) => (
+                    <th key={column.key} className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">
+                      {column.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/20">
                 {comparisonRows.map((row) => (
                   <tr key={row.productId} className="hover:bg-white/22 transition-all">
                     <td className="px-4 py-3 text-sm font-bold text-slate-900">{row.name}</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-slate-700">{formatBoxesValue(row.currentWeekBoxes)} 箱</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-slate-500">{formatBoxesValue(row.previousWeekBoxes)} 箱</td>
-                    <td className={`px-4 py-3 text-sm font-black ${trendToneByType[row.trend]}`}>
-                      {formatComparisonPercent(row)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="inline-flex items-center gap-1.5 rounded-full bg-white/55 px-2.5 py-1 text-xs font-bold text-slate-600">
-                        {renderTrendIcon(row.trend)}
-                        <span>
-                          {row.trend === 'up' && '上升'}
-                          {row.trend === 'down' && '下降'}
-                          {row.trend === 'flat' && '持平'}
-                          {row.trend === 'new' && '新增'}
-                        </span>
-                      </div>
-                    </td>
+                    {row.boxesByPeriod.map((boxes, periodIndex) => (
+                      <td key={salesPeriodData.columns[periodIndex].key} className="px-4 py-3 text-sm font-semibold text-slate-700">
+                        {formatBoxesValue(boxes)}
+                      </td>
+                    ))}
                   </tr>
                 ))}
                 {comparisonRows.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm font-bold">
-                      暂无可对比数据
+                    <td colSpan={salesPeriodData.columns.length + 1} className="px-4 py-8 text-center text-slate-400 text-sm font-bold">
+                      {normalizedSearchTerm ? '未找到匹配商品' : '暂无销量数据'}
                     </td>
                   </tr>
                 )}
@@ -1350,6 +1356,30 @@ export const InventoryOverviewView = ({
             <h2 className="text-xl font-black text-slate-800 tracking-tight">全店商品库存概览</h2>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <div className="relative w-full sm:w-56">
+              <Search
+                size={16}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="search"
+                value={stockSearchTerm}
+                onChange={(event) => setStockSearchTerm(event.target.value)}
+                placeholder="搜索产品型号"
+                aria-label="搜索库存产品"
+                className="h-10 w-full rounded-xl border border-white/60 bg-white/55 pl-9 pr-9 text-sm font-bold text-slate-700 outline-none backdrop-blur-xl transition-all placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white/80 focus:ring-2 focus:ring-indigo-100"
+              />
+              {stockSearchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setStockSearchTerm('')}
+                  aria-label="清空库存产品搜索"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 transition-colors hover:bg-white/80 hover:text-slate-700"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
             <button
               type="button"
               onClick={handleExportRemainingStock}
@@ -1359,13 +1389,15 @@ export const InventoryOverviewView = ({
               导出剩余库存
             </button>
             <div className="text-sm font-bold text-slate-400 bg-white/30 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20">
-              共 {products.length} 款商品
+              {normalizedStockSearchTerm
+                ? `显示 ${visibleStockProducts.length} / 共 ${products.length} 款`
+                : `共 ${products.length} 款商品`}
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
-          {sortedProducts.map((p: Product) => {
+          {visibleStockProducts.map((p: Product) => {
             const isLowStock = p.stock < p.spec * 30;
             const cardBackground = shoeBackgroundMap[normalizeComparableModelKey(p.name)];
             const soldQuantity = totalSoldByProduct[p.id] ?? 0;
@@ -1485,6 +1517,12 @@ export const InventoryOverviewView = ({
             <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white/20 backdrop-blur-md rounded-3xl border-2 border-dashed border-white/30">
               <Package className="text-slate-300 mb-4" size={48} />
               <div className="text-slate-400 font-bold">暂无商品数据，请前往“商品管理”添加</div>
+            </div>
+          )}
+          {products.length > 0 && visibleStockProducts.length === 0 && (
+            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white/20 backdrop-blur-md rounded-3xl border-2 border-dashed border-white/30">
+              <Search className="text-slate-300 mb-4" size={48} />
+              <div className="text-slate-400 font-bold">未找到匹配商品</div>
             </div>
           )}
         </div>

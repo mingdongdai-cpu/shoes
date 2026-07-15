@@ -43,7 +43,7 @@ import {
   Timestamp,
   type DocumentData
 } from 'firebase/firestore';
-import { Product, OrderProduct, ProductRiskMetrics, Transaction, User, View, Toast, Expense, WeeklySalesComparison, DashboardMetrics } from './types';
+import { Product, OrderProduct, ProductRiskMetrics, Transaction, User, View, Toast, Expense, SalesPeriodData, DashboardMetrics } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView } from './components/Views';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate } from './lib/timeWindow';
 
@@ -168,6 +168,67 @@ const getTogoWeek = () => {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
   return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`;
+};
+
+interface SalesPeriodWindow {
+  key: string;
+  label: string;
+  start: Date;
+  end: Date;
+}
+
+const buildSalesPeriodData = (
+  title: string,
+  products: Product[],
+  transactions: Transaction[],
+  periods: SalesPeriodWindow[]
+): SalesPeriodData => {
+  const productRows = new Map(
+    products.map((product) => [
+      product.id,
+      {
+        product,
+        boxesByPeriod: Array<number>(periods.length).fill(0)
+      }
+    ])
+  );
+
+  for (const transaction of transactions) {
+    if (transaction.type !== 'out') continue;
+    const row = productRows.get(transaction.productId);
+    if (!row) continue;
+
+    const occurredAt = timestampToDate(transaction.occurredAt);
+    const periodIndex = periods.findIndex(
+      (period) => occurredAt >= period.start && occurredAt < period.end
+    );
+    if (periodIndex === -1) continue;
+
+    if (row.product.spec <= 0) {
+      throw new Error(`商品 ${row.product.name} 的规格必须大于 0`);
+    }
+    row.boxesByPeriod[periodIndex] += transaction.quantity / row.product.spec;
+  }
+
+  const rowsWithTotals = Array.from(productRows.values())
+    .map(({ product, boxesByPeriod }) => ({
+      productId: product.id,
+      name: product.name,
+      boxesByPeriod,
+      totalBoxes: boxesByPeriod.reduce((total, boxes) => total + boxes, 0)
+    }))
+    .sort((a, b) => b.totalBoxes - a.totalBoxes || a.name.localeCompare(b.name));
+  const rows = rowsWithTotals.map(({ productId, name, boxesByPeriod }) => ({
+    productId,
+    name,
+    boxesByPeriod
+  }));
+
+  return {
+    title,
+    columns: periods.map(({ key, label }) => ({ key, label })),
+    rows
+  };
 };
 
 const IN_TOTAL_BASELINE_VALUE = 193154500;
@@ -667,141 +728,55 @@ export default function App() {
     setIsInventoryMenuOpen(nextIsInventoryView);
   };
 
-  const weeklySalesComparisons = useMemo<WeeklySalesComparison[]>(() => {
-    const getWeekStart = (input: Date) => {
-      const date = new Date(input.getFullYear(), input.getMonth(), input.getDate());
-      const day = date.getDay();
-      const diff = day === 0 ? -6 : 1 - day;
-      date.setDate(date.getDate() + diff);
-      date.setHours(0, 0, 0, 0);
-      return date;
-    };
+  const weeklySalesPeriods = useMemo<SalesPeriodData>(() => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const periods: SalesPeriodWindow[] = [];
+    let periodStart = monthStart;
 
-    const currentWeekStart = getWeekStart(new Date());
-    const nextWeekStart = new Date(currentWeekStart);
-    nextWeekStart.setDate(nextWeekStart.getDate() + 7);
-    const previousWeekStart = new Date(currentWeekStart);
-    previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+    while (periodStart < nextMonthStart) {
+      const day = periodStart.getDay();
+      const daysToNextMonday = day === 0 ? 1 : 8 - day;
+      const nextMonday = new Date(periodStart);
+      nextMonday.setDate(nextMonday.getDate() + daysToNextMonday);
+      const periodEnd = nextMonday < nextMonthStart ? nextMonday : nextMonthStart;
+      const finalDay = new Date(periodEnd);
+      finalDay.setDate(finalDay.getDate() - 1);
+      const weekNumber = periods.length + 1;
 
-    const currentWeekOutByProduct: Record<string, number> = {};
-    const previousWeekOutByProduct: Record<string, number> = {};
-
-    for (const product of activeProducts) {
-      currentWeekOutByProduct[product.id] = 0;
-      previousWeekOutByProduct[product.id] = 0;
-    }
-
-    for (const transaction of transactions) {
-      if (transaction.type !== 'out') continue;
-      if (!(transaction.productId in currentWeekOutByProduct)) continue;
-      const occurredAt = timestampToDate(transaction.occurredAt);
-      if (occurredAt >= currentWeekStart && occurredAt < nextWeekStart) {
-        currentWeekOutByProduct[transaction.productId] += transaction.quantity;
-      } else if (occurredAt >= previousWeekStart && occurredAt < currentWeekStart) {
-        previousWeekOutByProduct[transaction.productId] += transaction.quantity;
-      }
-    }
-
-    return activeProducts
-      .map((product) => {
-        const spec = product.spec > 0 ? product.spec : 1;
-        const currentWeekBoxes = currentWeekOutByProduct[product.id] / spec;
-        const previousWeekBoxes = previousWeekOutByProduct[product.id] / spec;
-        const isNewGrowth = previousWeekBoxes === 0 && currentWeekBoxes > 0;
-        const changePercent = previousWeekBoxes > 0
-          ? ((currentWeekBoxes - previousWeekBoxes) / previousWeekBoxes) * 100
-          : null;
-        const trend: WeeklySalesComparison['trend'] =
-          isNewGrowth
-            ? 'new'
-            : changePercent === null || changePercent === 0
-              ? 'flat'
-              : changePercent > 0
-                ? 'up'
-                : 'down';
-
-        return {
-          productId: product.id,
-          name: product.name,
-          spec: product.spec,
-          currentWeekBoxes,
-          previousWeekBoxes,
-          changePercent,
-          trend
-        };
-      })
-      .sort((a, b) => {
-        const aScore = a.changePercent ?? (a.trend === 'new' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
-        const bScore = b.changePercent ?? (b.trend === 'new' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
-        if (aScore !== bScore) return bScore - aScore;
-        if (b.currentWeekBoxes !== a.currentWeekBoxes) return b.currentWeekBoxes - a.currentWeekBoxes;
-        return a.name.localeCompare(b.name);
+      periods.push({
+        key: `${now.getFullYear()}-${now.getMonth() + 1}-W${weekNumber}`,
+        label: `第${weekNumber}周 ${periodStart.getMonth() + 1}/${periodStart.getDate()}-${finalDay.getMonth() + 1}/${finalDay.getDate()}`,
+        start: periodStart,
+        end: periodEnd
       });
+      periodStart = periodEnd;
+    }
+
+    return buildSalesPeriodData(
+      `${now.getFullYear()}年${now.getMonth() + 1}月每周销量`,
+      activeProducts,
+      transactions,
+      periods
+    );
   }, [activeProducts, transactions]);
 
-  const monthlySalesComparisons = useMemo<WeeklySalesComparison[]>(() => {
+  const monthlySalesPeriods = useMemo<SalesPeriodData>(() => {
     const now = new Date();
-    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    currentMonthStart.setHours(0, 0, 0, 0);
-    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    nextMonthStart.setHours(0, 0, 0, 0);
-    const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    previousMonthStart.setHours(0, 0, 0, 0);
+    const periods: SalesPeriodWindow[] = Array.from({ length: now.getMonth() + 1 }, (_, monthIndex) => ({
+      key: `${now.getFullYear()}-${String(monthIndex + 1).padStart(2, '0')}`,
+      label: `${monthIndex + 1}月`,
+      start: new Date(now.getFullYear(), monthIndex, 1),
+      end: new Date(now.getFullYear(), monthIndex + 1, 1)
+    }));
 
-    const currentMonthOutByProduct: Record<string, number> = {};
-    const previousMonthOutByProduct: Record<string, number> = {};
-
-    for (const product of activeProducts) {
-      currentMonthOutByProduct[product.id] = 0;
-      previousMonthOutByProduct[product.id] = 0;
-    }
-
-    for (const transaction of transactions) {
-      if (transaction.type !== 'out') continue;
-      if (!(transaction.productId in currentMonthOutByProduct)) continue;
-      const occurredAt = timestampToDate(transaction.occurredAt);
-      if (occurredAt >= currentMonthStart && occurredAt < nextMonthStart) {
-        currentMonthOutByProduct[transaction.productId] += transaction.quantity;
-      } else if (occurredAt >= previousMonthStart && occurredAt < currentMonthStart) {
-        previousMonthOutByProduct[transaction.productId] += transaction.quantity;
-      }
-    }
-
-    return activeProducts
-      .map((product) => {
-        const spec = product.spec > 0 ? product.spec : 1;
-        const currentWeekBoxes = currentMonthOutByProduct[product.id] / spec;
-        const previousWeekBoxes = previousMonthOutByProduct[product.id] / spec;
-        const isNewGrowth = previousWeekBoxes === 0 && currentWeekBoxes > 0;
-        const changePercent = previousWeekBoxes > 0
-          ? ((currentWeekBoxes - previousWeekBoxes) / previousWeekBoxes) * 100
-          : null;
-        const trend: WeeklySalesComparison['trend'] =
-          isNewGrowth
-            ? 'new'
-            : changePercent === null || changePercent === 0
-              ? 'flat'
-              : changePercent > 0
-                ? 'up'
-                : 'down';
-
-        return {
-          productId: product.id,
-          name: product.name,
-          spec: product.spec,
-          currentWeekBoxes,
-          previousWeekBoxes,
-          changePercent,
-          trend
-        };
-      })
-      .sort((a, b) => {
-        const aScore = a.changePercent ?? (a.trend === 'new' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
-        const bScore = b.changePercent ?? (b.trend === 'new' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
-        if (aScore !== bScore) return bScore - aScore;
-        if (b.currentWeekBoxes !== a.currentWeekBoxes) return b.currentWeekBoxes - a.currentWeekBoxes;
-        return a.name.localeCompare(b.name);
-      });
+    return buildSalesPeriodData(
+      `${now.getFullYear()}年月度销量`,
+      activeProducts,
+      transactions,
+      periods
+    );
   }, [activeProducts, transactions]);
 
   const currentReportRange = useMemo(() => {
@@ -1710,7 +1685,7 @@ export default function App() {
                     active={currentView === 'inventory-comparison'}
                     onClick={() => handleViewChange('inventory-comparison')}
                     icon={<LayoutDashboard size={16} />}
-                    label="销售对比"
+                    label="销量明细"
                     variant="sidebar-sub"
                   />
                 </div>
@@ -1793,8 +1768,8 @@ export default function App() {
                   products={activeProducts}
                   transactions={transactions}
                   formatStock={formatStock}
-                  weeklySalesComparisons={weeklySalesComparisons}
-                  monthlySalesComparisons={monthlySalesComparisons}
+                  weeklySalesPeriods={weeklySalesPeriods}
+                  monthlySalesPeriods={monthlySalesPeriods}
                   comparisonMode={inventoryComparisonMode}
                   setComparisonMode={setInventoryComparisonMode}
                   showToast={showToast}
@@ -1809,8 +1784,8 @@ export default function App() {
                   products={activeProducts}
                   transactions={transactions}
                   formatStock={formatStock}
-                  weeklySalesComparisons={weeklySalesComparisons}
-                  monthlySalesComparisons={monthlySalesComparisons}
+                  weeklySalesPeriods={weeklySalesPeriods}
+                  monthlySalesPeriods={monthlySalesPeriods}
                   comparisonMode={inventoryComparisonMode}
                   setComparisonMode={setInventoryComparisonMode}
                   showToast={showToast}
@@ -1825,8 +1800,8 @@ export default function App() {
                   products={activeProducts}
                   transactions={transactions}
                   formatStock={formatStock}
-                  weeklySalesComparisons={weeklySalesComparisons}
-                  monthlySalesComparisons={monthlySalesComparisons}
+                  weeklySalesPeriods={weeklySalesPeriods}
+                  monthlySalesPeriods={monthlySalesPeriods}
                   comparisonMode={inventoryComparisonMode}
                   setComparisonMode={setInventoryComparisonMode}
                   showToast={showToast}
@@ -1841,8 +1816,8 @@ export default function App() {
                   products={activeProducts}
                   transactions={transactions}
                   formatStock={formatStock}
-                  weeklySalesComparisons={weeklySalesComparisons}
-                  monthlySalesComparisons={monthlySalesComparisons}
+                  weeklySalesPeriods={weeklySalesPeriods}
+                  monthlySalesPeriods={monthlySalesPeriods}
                   comparisonMode={inventoryComparisonMode}
                   setComparisonMode={setInventoryComparisonMode}
                   showToast={showToast}

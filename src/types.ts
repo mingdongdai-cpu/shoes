@@ -73,14 +73,21 @@ export interface ProductRiskMetrics {
   warningReasons: string[];
 }
 
-export interface WeeklySalesComparison {
+export interface SalesPeriodColumn {
+  key: string;
+  label: string;
+}
+
+export interface ProductSalesByPeriod {
   productId: string;
   name: string;
-  spec: number;
-  currentWeekBoxes: number;
-  previousWeekBoxes: number;
-  changePercent: number | null;
-  trend: 'up' | 'down' | 'flat' | 'new';
+  boxesByPeriod: number[];
+}
+
+export interface SalesPeriodData {
+  title: string;
+  columns: SalesPeriodColumn[];
+  rows: ProductSalesByPeriod[];
 }
 
 export interface MonthlySalesSeriesItem {

@@ -4007,10 +4007,10 @@ export const DebtsView = ({
         <div className="text-3xl font-black text-rose-600">{formatCurrency(totalOutstanding)}</div>
       </section>
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        <section className="lg:col-span-1">
-          <div className="glass sticky top-24 rounded-3xl border border-white/30 p-8 shadow-xl">
-          <div className="mb-8 flex items-center gap-3">
+      <div className="grid grid-cols-1 gap-8 xl:grid-cols-4">
+        <section className="min-w-0 xl:col-span-1">
+          <div className="glass sticky top-24 rounded-2xl border border-white/30 p-6 shadow-xl">
+          <div className="mb-6 flex items-center gap-3">
             <div className="rounded-xl border border-amber-100/60 bg-amber-50/70 p-2">
               <HandCoins size={20} className="text-amber-600" />
             </div>
@@ -4070,8 +4070,8 @@ export const DebtsView = ({
           </div>
         </section>
 
-        <section className="glass rounded-3xl border border-white/30 p-8 shadow-xl lg:col-span-2">
-        <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <section className="glass min-w-0 rounded-2xl border border-white/30 p-6 shadow-xl xl:col-span-3">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-xl font-black tracking-tight text-slate-800">
             <History size={24} className="text-slate-600" />
             欠款明细
@@ -4082,7 +4082,15 @@ export const DebtsView = ({
         </div>
 
         <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full min-w-[58rem] text-left">
+          <table className="w-full min-w-[42rem] table-fixed text-left xl:min-w-0">
+            <colgroup>
+              <col className="w-[18%]" />
+              <col className="w-[15%]" />
+              <col className="w-[15%]" />
+              <col className="w-[18%]" />
+              <col className="w-[18%]" />
+              <col className="w-[16%]" />
+            </colgroup>
             <thead>
               <tr className="border-b border-white/10">
                 <th className="pb-4 text-xs font-bold text-slate-500">客户名</th>

@@ -30,6 +30,15 @@
 //   - category: string (required) - Expense item/category
 //   - remark: string (optional) - Optional remark
 //
+// Collection: debts
+// Document ID: auto-generated
+// Fields:
+//   - customerName: string (required) - Customer owing the balance
+//   - amount: number (required, positive) - Outstanding amount
+//   - paidAmount: number (required, starts at zero) - Repaid amount
+//   - occurredAt: timestamp (required) - Debt date
+//   - operatorUid: string (required) - Operator uid
+//
 // ===============================================================
 
 rules_version = '2';
@@ -121,6 +130,26 @@ service cloud.firestore {
              (!('remark' in data) || (data.remark is string && data.remark.size() < 500));
     }
 
+    function isValidDebt(data) {
+      return hasOnlyAllowedFields(['customerName', 'amount', 'paidAmount', 'occurredAt', 'operatorUid']) &&
+             data.customerName is string && data.customerName.size() > 0 && data.customerName.size() < 100 &&
+             data.amount is number && data.amount > 0 &&
+             data.paidAmount is number && data.paidAmount == 0 &&
+             data.occurredAt is timestamp &&
+             data.operatorUid is string &&
+             data.operatorUid == request.auth.uid;
+    }
+
+    function isValidDebtUpdate(data) {
+      return hasOnlyAllowedFields(['customerName', 'amount', 'paidAmount', 'occurredAt', 'operatorUid']) &&
+             data.customerName is string && data.customerName.size() > 0 && data.customerName.size() < 100 &&
+             data.amount is number && data.amount > 0 &&
+             data.paidAmount is number && data.paidAmount >= 0 && data.paidAmount <= data.amount &&
+             data.occurredAt is timestamp &&
+             data.operatorUid == resource.data.operatorUid &&
+             data.operatorUid is string;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -168,6 +197,14 @@ service cloud.firestore {
       allow create: if isAdmin() && isValidExpense(request.resource.data);
       allow update: if isAdmin() && isValidExpense(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    // Debts collection
+    match /debts/{debtId} {
+      allow read: if isStaff();
+      allow create: if isAdmin() && isValidDebt(request.resource.data);
+      allow update: if isAdmin() && isValidDebtUpdate(request.resource.data);
+      allow delete: if false;
     }
 
     // Users collection (for role-based access)

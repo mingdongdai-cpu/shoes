@@ -43,6 +43,15 @@ export interface Expense {
   remark: string;
 }
 
+export interface Debt {
+  id: string;
+  customerName: string;
+  amount: number;
+  paidAmount: number;
+  occurredAt: Timestamp;
+  operatorUid: string;
+}
+
 export type View =
   | 'home'
   | 'dashboard'
@@ -53,7 +62,8 @@ export type View =
   | 'stock'
   | 'order-entry'
   | 'products'
-  | 'expenses';
+  | 'expenses'
+  | 'debts';
 
 export interface Toast {
   id: number;

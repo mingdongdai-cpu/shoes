@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Wallet,
+  HandCoins,
   ClipboardList
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -43,8 +44,8 @@ import {
   Timestamp,
   type DocumentData
 } from 'firebase/firestore';
-import { Product, OrderProduct, ProductRiskMetrics, Transaction, User, View, Toast, Expense, SalesPeriodData, DashboardMetrics } from './types';
-import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView } from './components/Views';
+import { Product, OrderProduct, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, SalesPeriodData, DashboardMetrics } from './types';
+import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate } from './lib/timeWindow';
 
 
@@ -272,6 +273,17 @@ function mapExpenseDoc(id: string, data: DocumentData): Expense {
   };
 }
 
+function mapDebtDoc(id: string, data: DocumentData): Debt {
+  return {
+    id,
+    customerName: data.customerName as string,
+    amount: data.amount as number,
+    paidAmount: data.paidAmount as number,
+    occurredAt: data.occurredAt as Timestamp,
+    operatorUid: data.operatorUid as string
+  };
+}
+
 function coerceProductCreatedAt(value: unknown): Timestamp {
   if (value instanceof Timestamp) return value;
   if (typeof value === 'string') {
@@ -323,6 +335,7 @@ export default function App() {
   const [productsLoaded, setProductsLoaded] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [debts, setDebts] = useState<Debt[]>([]);
   const [currentView, setCurrentView] = useState<View>('home');
   const [isInventoryMenuOpen, setIsInventoryMenuOpen] = useState(false);
   const [inventoryComparisonMode, setInventoryComparisonMode] = useState<'week' | 'month'>('week');
@@ -373,6 +386,7 @@ export default function App() {
       setProductsLoaded(false);
       setTransactions([]);
       setExpenses([]);
+      setDebts([]);
     };
 
     // Set persistence to session-based (requires re-login after closing browser)
@@ -530,12 +544,24 @@ export default function App() {
       }
     );
 
+    const qDebts = query(collection(db, 'debts'), orderBy('occurredAt', 'desc'));
+    const unsubscribeDebts = onSnapshot(
+      qDebts,
+      (snapshot) => {
+        setDebts(snapshot.docs.map((itemDoc) => mapDebtDoc(itemDoc.id, itemDoc.data())));
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, 'debts');
+      }
+    );
+
     return () => {
       unsubscribeProducts();
       unsubscribeTransactionsModern();
       unsubscribeTransactionsLegacy();
       unsubscribeExpensesModern();
       unsubscribeExpensesLegacy();
+      unsubscribeDebts();
     };
   }, [user]);
 
@@ -1566,6 +1592,121 @@ export default function App() {
     }
   };
 
+  const addDebt = async (customerName: string, amount: number, date: string) => {
+    if (user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    if (!auth.currentUser?.uid) {
+      showToast('登录状态异常，请重新登录', 'error');
+      return false;
+    }
+
+    try {
+      await addDoc(collection(db, 'debts'), {
+        customerName,
+        amount,
+        paidAmount: 0,
+        occurredAt: timestampFromDateInput(date),
+        operatorUid: auth.currentUser.uid
+      });
+      showToast('欠账登记成功');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'debts');
+      return false;
+    }
+  };
+
+  const updateDebt = async (
+    debtId: string,
+    customerName: string,
+    amount: number,
+    paidAmount: number,
+    date: string
+  ) => {
+    if (user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    if (!auth.currentUser?.uid) {
+      showToast('登录状态异常，请重新登录', 'error');
+      return false;
+    }
+    if (
+      !customerName ||
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !Number.isFinite(paidAmount) ||
+      paidAmount < 0 ||
+      paidAmount > amount ||
+      !date
+    ) {
+      showToast('请输入正确的欠账信息', 'error');
+      return false;
+    }
+
+    try {
+      const debtRef = doc(db, 'debts', debtId);
+      await updateDoc(debtRef, {
+        customerName,
+        amount,
+        paidAmount,
+        occurredAt: timestampFromDateInput(date)
+      });
+      showToast('欠账修改成功');
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '欠账修改失败';
+      showToast(message, 'error');
+      handleFirestoreError(error, OperationType.UPDATE, `debts/${debtId}`);
+      return false;
+    }
+  };
+
+  const settleDebt = async (debtId: string) => {
+    if (user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    if (!auth.currentUser?.uid) {
+      showToast('登录状态异常，请重新登录', 'error');
+      return false;
+    }
+
+    try {
+      const debtRef = doc(db, 'debts', debtId);
+      await runTransaction(db, async (trx) => {
+        const debtSnapshot = await trx.get(debtRef);
+        if (!debtSnapshot.exists()) throw new Error('欠款记录不存在');
+
+        const debtData = debtSnapshot.data();
+        const originalAmount = debtData.amount;
+        const currentPaidAmount = debtData.paidAmount;
+        if (
+          typeof originalAmount !== 'number' ||
+          !Number.isFinite(originalAmount) ||
+          typeof currentPaidAmount !== 'number' ||
+          !Number.isFinite(currentPaidAmount)
+        ) {
+          throw new Error('欠款数据异常');
+        }
+        if (currentPaidAmount >= originalAmount) throw new Error('该笔欠款已经结清');
+
+        trx.update(debtRef, {
+          paidAmount: originalAmount
+        });
+      });
+      showToast('欠款已结清');
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '结清失败';
+      showToast(message, 'error');
+      handleFirestoreError(error, OperationType.UPDATE, `debts/${debtId}`);
+      return false;
+    }
+  };
+
   // --- Render Logic ---
 
   if (loading) {
@@ -1716,6 +1857,13 @@ export default function App() {
                 onClick={() => handleViewChange('expenses')}
                 icon={<Wallet size={18} />}
                 label="记账管理"
+                variant="sidebar"
+              />
+              <NavButton
+                active={currentView === 'debts'}
+                onClick={() => handleViewChange('debts')}
+                icon={<HandCoins size={18} />}
+                label="欠账管理"
                 variant="sidebar"
               />
             </nav>
@@ -1904,6 +2052,16 @@ export default function App() {
                   formatDateTime={formatDateTimeLabel}
                 />
               )}
+            {user.role !== 'order' && currentView === 'debts' && (
+              <DebtsView
+                debts={debts}
+                addDebt={addDebt}
+                updateDebt={updateDebt}
+                settleDebt={settleDebt}
+                formatCurrency={formatCurrency}
+                user={user}
+              />
+            )}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -1916,7 +2074,7 @@ export default function App() {
         aria-label="手机底部导航"
       >
         <div className="ios-dock p-2">
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-8 gap-1">
             <NavButton
               active={currentView === 'home'}
               onClick={() => handleViewChange('home')}
@@ -1964,6 +2122,13 @@ export default function App() {
               onClick={() => handleViewChange('expenses')}
               icon={<Wallet size={18} />}
               label="记账"
+              variant="mobile"
+            />
+            <NavButton
+              active={currentView === 'debts'}
+              onClick={() => handleViewChange('debts')}
+              icon={<HandCoins size={18} />}
+              label="欠账"
               variant="mobile"
             />
           </div>

@@ -8,6 +8,7 @@ import {
   TrendingUp, 
   TrendingDown, 
   Wallet,
+  HandCoins,
   CheckCircle2,
   XCircle,
   History,
@@ -24,8 +25,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
-import { DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, SalesPeriodData } from '../types';
-import { formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek } from '../lib/timeWindow';
+import { DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, Debt, SalesPeriodData } from '../types';
+import { formatDateInputValue, formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek } from '../lib/timeWindow';
 
 // --- Components ---
 
@@ -3419,6 +3420,7 @@ export const ProductsView = ({
                 <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">产品名称</th>
                 <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">规格</th>
                 <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">单价</th>
+                <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">箱价</th>
                 <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">当前库存</th>
                 <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">状态</th>
                 <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
@@ -3430,6 +3432,7 @@ export const ProductsView = ({
                   <td className="py-4 text-sm font-bold text-slate-900">{p.name}</td>
                   <td className="py-4 text-sm text-slate-600 font-bold">{p.spec} 个/箱</td>
                   <td className="py-4 text-sm text-slate-600 font-bold">{formatCurrency(p.price)}</td>
+                  <td className="py-4 text-sm text-indigo-600 font-black">{formatCurrency(p.price * p.spec)}</td>
                   <td className="py-4 text-sm text-slate-600 font-bold">{formatStock(p.stock, p.spec)}</td>
                   <td className="py-4 text-sm">
                     <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${
@@ -3873,5 +3876,388 @@ export const ExpensesView = ({
         </div>
       </div>
     </div>
+  );
+};
+
+export const DebtsView = ({
+  debts,
+  addDebt,
+  updateDebt,
+  settleDebt,
+  formatCurrency,
+  user
+}: {
+  debts: Debt[];
+  addDebt: (customerName: string, amount: number, date: string) => Promise<boolean>;
+  updateDebt: (
+    debtId: string,
+    customerName: string,
+    amount: number,
+    paidAmount: number,
+    date: string
+  ) => Promise<boolean>;
+  settleDebt: (debtId: string) => Promise<boolean>;
+  formatCurrency: (value: number) => string;
+  user: User | null;
+}) => {
+  const [customerName, setCustomerName] = useState('');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingDebt, setEditingDebt] = useState<Debt | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editPaidAmount, setEditPaidAmount] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [settlingDebtId, setSettlingDebtId] = useState<string | null>(null);
+  const dateLabel = date.replaceAll('-', '/');
+  const totalOutstanding = useMemo(
+    () => debts.reduce((total, debt) => total + debt.amount - debt.paidAmount, 0),
+    [debts]
+  );
+  const sortedDebts = useMemo(
+    () =>
+      debts.slice().sort((left, right) => {
+        const leftSettled = left.paidAmount === left.amount;
+        const rightSettled = right.paidAmount === right.amount;
+        if (leftSettled !== rightSettled) return leftSettled ? 1 : -1;
+        return right.occurredAt.toMillis() - left.occurredAt.toMillis();
+      }),
+    [debts]
+  );
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const normalizedCustomerName = customerName.trim();
+    const normalizedAmount = Number(amount);
+    if (!normalizedCustomerName || !Number.isFinite(normalizedAmount) || normalizedAmount <= 0 || !date) return;
+
+    setIsSubmitting(true);
+    const success = await addDebt(normalizedCustomerName, normalizedAmount, date);
+    setIsSubmitting(false);
+    if (success) {
+      setCustomerName('');
+      setAmount('');
+    }
+  };
+
+  const openEditModal = (debt: Debt) => {
+    setEditingDebt(debt);
+    setEditCustomerName(debt.customerName);
+    setEditAmount(String(debt.amount));
+    setEditPaidAmount(debt.paidAmount === 0 ? '' : String(debt.paidAmount));
+    setEditDate(formatDateInputValue(debt.occurredAt));
+  };
+
+  const closeEditModal = () => {
+    if (isEditing) return;
+    setEditingDebt(null);
+  };
+
+  const handleUpdate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingDebt) return;
+
+    const normalizedCustomerName = editCustomerName.trim();
+    const normalizedAmount = Number(editAmount);
+    const normalizedPaidAmount = editPaidAmount === '' ? 0 : Number(editPaidAmount);
+    if (
+      !normalizedCustomerName ||
+      !Number.isFinite(normalizedAmount) ||
+      normalizedAmount <= 0 ||
+      !Number.isFinite(normalizedPaidAmount) ||
+      normalizedPaidAmount < 0 ||
+      normalizedPaidAmount > normalizedAmount ||
+      !editDate
+    ) {
+      return;
+    }
+
+    setIsEditing(true);
+    const success = await updateDebt(
+      editingDebt.id,
+      normalizedCustomerName,
+      normalizedAmount,
+      normalizedPaidAmount,
+      editDate
+    );
+    setIsEditing(false);
+    if (success) setEditingDebt(null);
+  };
+
+  const handleSettleDebt = async (debtId: string) => {
+    setSettlingDebtId(debtId);
+    await settleDebt(debtId);
+    setSettlingDebtId(null);
+  };
+
+  return (
+    <>
+      <section className="glass mb-8 flex flex-wrap items-center justify-between gap-5 rounded-3xl border border-white/30 px-8 py-6 shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl border border-rose-100/60 bg-rose-50/70 p-2">
+            <Wallet size={22} className="text-rose-600" />
+          </div>
+          <div>
+            <div className="text-sm font-bold text-slate-500">当前欠款总额</div>
+            <div className="mt-1 text-xs font-medium text-slate-400">已结清欠款不计入总额</div>
+          </div>
+        </div>
+        <div className="text-3xl font-black text-rose-600">{formatCurrency(totalOutstanding)}</div>
+      </section>
+
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <section className="lg:col-span-1">
+          <div className="glass sticky top-24 rounded-3xl border border-white/30 p-8 shadow-xl">
+          <div className="mb-8 flex items-center gap-3">
+            <div className="rounded-xl border border-amber-100/60 bg-amber-50/70 p-2">
+              <HandCoins size={20} className="text-amber-600" />
+            </div>
+            <h2 className="text-xl font-black tracking-tight text-slate-800">登记欠账</h2>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label className="mb-2 block text-sm font-bold text-slate-600">客户名</label>
+              <input
+                type="text"
+                required
+                maxLength={99}
+                value={customerName}
+                onChange={(event) => setCustomerName(event.target.value)}
+                placeholder="输入客户姓名"
+                className="w-full rounded-2xl border-white/40 bg-white/30 py-3 font-bold backdrop-blur-sm focus:border-amber-500 focus:ring-amber-500"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-bold text-slate-600">欠款金额 (XOF)</label>
+              <input
+                type="number"
+                required
+                min="1"
+                step="1"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="0"
+                className="w-full rounded-2xl border-white/40 bg-white/30 py-3 font-bold backdrop-blur-sm focus:border-amber-500 focus:ring-amber-500"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-bold text-slate-600">欠款日期</label>
+              <PickerChip
+                type="date"
+                value={date}
+                onChange={setDate}
+                displayValue={dateLabel}
+                ariaLabel="选择欠款日期"
+                className="w-full justify-between rounded-2xl py-3"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={user?.role !== 'admin' || isSubmitting}
+              className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 font-bold shadow-lg transition-all active:scale-95 ${
+                user?.role !== 'admin' || isSubmitting
+                  ? 'cursor-not-allowed bg-slate-200/50 text-slate-400 shadow-none'
+                  : 'bg-amber-500 text-white shadow-amber-200/60 hover:bg-amber-600'
+              }`}
+            >
+              <Save size={20} />
+              {user?.role !== 'admin' ? '无权限' : isSubmitting ? '正在登记...' : '确认登记'}
+            </button>
+          </form>
+          </div>
+        </section>
+
+        <section className="glass rounded-3xl border border-white/30 p-8 shadow-xl lg:col-span-2">
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-xl font-black tracking-tight text-slate-800">
+            <History size={24} className="text-slate-600" />
+            欠款明细
+          </h2>
+          <div className="rounded-full border border-white/20 bg-white/30 px-4 py-1.5 text-sm font-bold text-slate-400 backdrop-blur-md">
+            共 {debts.length} 笔记录
+          </div>
+        </div>
+
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full min-w-[58rem] text-left">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="pb-4 text-xs font-bold text-slate-500">客户名</th>
+                <th className="pb-4 text-xs font-bold text-slate-500">原欠款</th>
+                <th className="pb-4 text-xs font-bold text-slate-500">已还金额</th>
+                <th className="pb-4 text-xs font-bold text-slate-500">剩余金额</th>
+                <th className="pb-4 text-xs font-bold text-slate-500">欠款日期</th>
+                <th className="pb-4 text-right text-xs font-bold text-slate-500">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/10">
+              {sortedDebts.map((debt) => {
+                const remainingAmount = debt.amount - debt.paidAmount;
+                const isSettled = remainingAmount === 0;
+                return (
+                  <tr key={debt.id} className="transition-colors hover:bg-white/20">
+                    <td className="py-4 text-sm font-bold text-slate-800">{debt.customerName}</td>
+                    <td className="py-4 text-sm font-black text-amber-600">{formatCurrency(debt.amount)}</td>
+                    <td className="py-4 text-sm font-bold text-sky-600">{formatCurrency(debt.paidAmount)}</td>
+                    <td className="py-4 text-sm font-black">
+                      {isSettled ? (
+                        <span className="inline-flex items-center gap-1.5 text-emerald-600">
+                          <CheckCircle2 size={16} />
+                          已结清
+                        </span>
+                      ) : (
+                        <span className="text-rose-600">{formatCurrency(remainingAmount)}</span>
+                      )}
+                    </td>
+                    <td className="py-4 text-sm font-medium text-slate-500">
+                      {formatDateInputValue(debt.occurredAt)}
+                    </td>
+                    <td className="py-4 text-right">
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={user?.role !== 'admin' || settlingDebtId !== null}
+                          onClick={() => openEditModal(debt)}
+                          aria-label={`编辑 ${debt.customerName} 的欠账`}
+                          title="编辑欠账"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500 text-white shadow-md shadow-sky-200/50 transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        {!isSettled && (
+                          <button
+                            type="button"
+                            disabled={user?.role !== 'admin' || settlingDebtId !== null}
+                            onClick={() => handleSettleDebt(debt.id)}
+                            aria-label={`将 ${debt.customerName} 的欠款标记为已结清`}
+                            title="标记已结清"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-md shadow-emerald-200/50 transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                          >
+                            <CheckCircle2 size={17} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {debts.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-20 text-center">
+                    <div className="flex flex-col items-center gap-2 text-slate-400">
+                      <HandCoins size={48} className="mb-2 opacity-20" />
+                      <div className="font-bold">暂无欠账记录</div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          </div>
+        </section>
+      </div>
+
+      <AnimatePresence>
+        {editingDebt && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              className="w-full max-w-md rounded-3xl border border-white/60 bg-white p-8 shadow-2xl"
+            >
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <h3 className="text-xl font-black text-slate-800">编辑欠账</h3>
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  disabled={isEditing}
+                  aria-label="关闭编辑欠账窗口"
+                  className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdate} className="space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-600">客户名</label>
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    maxLength={99}
+                    value={editCustomerName}
+                    onChange={(event) => setEditCustomerName(event.target.value)}
+                    className="w-full rounded-2xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-slate-600">原欠款 (XOF)</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      step="1"
+                      value={editAmount}
+                      onChange={(event) => setEditAmount(event.target.value)}
+                      className="w-full rounded-2xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-slate-600">累计已还 (XOF)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      max={editAmount || undefined}
+                      value={editPaidAmount}
+                      onChange={(event) => setEditPaidAmount(event.target.value)}
+                      className="w-full rounded-2xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-600">欠款日期</label>
+                  <PickerChip
+                    type="date"
+                    value={editDate}
+                    onChange={setEditDate}
+                    displayValue={editDate.replaceAll('-', '/')}
+                    ariaLabel="修改欠款日期"
+                    className="w-full justify-between rounded-2xl py-3"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={closeEditModal}
+                    disabled={isEditing}
+                    className="flex-1 rounded-2xl bg-slate-100 py-3 font-bold text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-50"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isEditing}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-sky-500 py-3 font-bold text-white shadow-lg shadow-sky-200/60 transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                  >
+                    <Save size={18} />
+                    {isEditing ? '正在保存...' : '保存修改'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </>
   );
 };

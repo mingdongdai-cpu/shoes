@@ -26,7 +26,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
 import { DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, Debt, SalesPeriodData } from '../types';
-import { formatDateInputValue, formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek } from '../lib/timeWindow';
+import { formatDateInputValue, formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek, type ReportPeriod } from '../lib/timeWindow';
 
 // --- Components ---
 
@@ -63,6 +63,8 @@ function PickerChip({
   onChange,
   displayValue,
   ariaLabel,
+  min,
+  max,
   className = ''
 }: {
   type: 'date' | 'week' | 'month';
@@ -70,6 +72,8 @@ function PickerChip({
   onChange: (value: string) => void;
   displayValue: string;
   ariaLabel: string;
+  min?: string;
+  max?: string;
   className?: string;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -92,6 +96,8 @@ function PickerChip({
         ref={inputRef}
         type={type}
         value={value}
+        min={min}
+        max={max}
         onChange={(e) => onChange(e.target.value)}
         className="pointer-events-none absolute h-0 w-0 opacity-0"
         tabIndex={-1}
@@ -200,14 +206,18 @@ interface SalesReportItem {
 interface HomeViewProps {
   stats: { inTotal: number; outTotal: number; balance: number };
   formatCurrency: (value: number) => string;
-  reportPeriod: 'day' | 'week' | 'month';
-  setReportPeriod: (period: 'day' | 'week' | 'month') => void;
+  reportPeriod: ReportPeriod;
+  setReportPeriod: (period: ReportPeriod) => void;
   selectedDate: string;
   setSelectedDate: (value: string) => void;
   selectedWeek: string;
   setSelectedWeek: (value: string) => void;
   selectedMonth: string;
   setSelectedMonth: (value: string) => void;
+  reportStartDate: string;
+  setReportStartDate: (value: string) => void;
+  reportEndDate: string;
+  setReportEndDate: (value: string) => void;
   salesReport: {
     items: SalesReportItem[];
     totalAmount: number;
@@ -228,11 +238,15 @@ interface HomeViewProps {
 
 export const HomeView = ({ 
   stats, formatCurrency, reportPeriod, setReportPeriod, selectedDate, setSelectedDate, 
-  selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, salesReport, formatStock, homeMetrics
+  selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth,
+  reportStartDate, setReportStartDate, reportEndDate, setReportEndDate,
+  salesReport, formatStock, homeMetrics
 }: HomeViewProps) => {
   const dateLabel = selectedDate.replaceAll('-', '/');
   const weekLabel = selectedWeek.replace('-W', ' / Week ');
   const monthLabel = selectedMonth.replace('-', '/');
+  const reportStartDateLabel = reportStartDate.replaceAll('-', '/');
+  const reportEndDateLabel = reportEndDate.replaceAll('-', '/');
   const previousMonthLabel = homeMetrics.previousMonth.replace('-', '/');
 
   const formatMomValue = (value: number | null) => {
@@ -391,6 +405,14 @@ export const HomeView = ({
             >
               按月
             </button>
+            <button
+              onClick={() => setReportPeriod('range')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
+                reportPeriod === 'range' ? 'bg-white/80 text-indigo-600 shadow-sm backdrop-blur-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              日期区间
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
@@ -420,6 +442,27 @@ export const HomeView = ({
                 displayValue={monthLabel}
                 ariaLabel="选择月份"
               />
+            )}
+            {reportPeriod === 'range' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <PickerChip
+                  type="date"
+                  value={reportStartDate}
+                  max={reportEndDate}
+                  onChange={setReportStartDate}
+                  displayValue={reportStartDateLabel}
+                  ariaLabel="选择开始日期"
+                />
+                <span className="text-sm font-bold text-slate-400">至</span>
+                <PickerChip
+                  type="date"
+                  value={reportEndDate}
+                  min={reportStartDate}
+                  onChange={setReportEndDate}
+                  displayValue={reportEndDateLabel}
+                  ariaLabel="选择结束日期"
+                />
+              </div>
             )}
           </div>
         </div>

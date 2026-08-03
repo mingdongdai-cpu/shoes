@@ -46,7 +46,7 @@ import {
 } from 'firebase/firestore';
 import { Product, OrderProduct, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, SalesPeriodData, DashboardMetrics } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
-import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate } from './lib/timeWindow';
+import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate, type ReportPeriod } from './lib/timeWindow';
 
 
 // --- Error Handling ---
@@ -339,11 +339,13 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>('home');
   const [isInventoryMenuOpen, setIsInventoryMenuOpen] = useState(false);
   const [inventoryComparisonMode, setInventoryComparisonMode] = useState<'week' | 'month'>('week');
-  const [reportPeriod, setReportPeriod] = useState<'day' | 'week' | 'month'>('day');
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('day');
   
   const [selectedDate, setSelectedDate] = useState(getTogoDate());
   const [selectedWeek, setSelectedWeek] = useState(getTogoWeek()); 
   const [selectedMonth, setSelectedMonth] = useState(getTogoMonth());
+  const [reportStartDate, setReportStartDate] = useState(getTogoDate());
+  const [reportEndDate, setReportEndDate] = useState(getTogoDate());
   const [dashboardHotMonth, setDashboardHotMonth] = useState(getTogoMonth());
   
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -806,8 +808,15 @@ export default function App() {
   }, [activeProducts, transactions]);
 
   const currentReportRange = useMemo(() => {
-    return getRangeByPeriod(reportPeriod, selectedDate, selectedWeek, selectedMonth);
-  }, [reportPeriod, selectedDate, selectedWeek, selectedMonth]);
+    return getRangeByPeriod(
+      reportPeriod,
+      selectedDate,
+      selectedWeek,
+      selectedMonth,
+      reportStartDate,
+      reportEndDate
+    );
+  }, [reportPeriod, selectedDate, selectedWeek, selectedMonth, reportStartDate, reportEndDate]);
 
   const salesReport = useMemo(() => {
     const filtered = transactions.filter(t => {
@@ -1896,12 +1905,16 @@ export default function App() {
                   formatCurrency={formatCurrency}
                   reportPeriod={reportPeriod}
                   setReportPeriod={setReportPeriod}
-                selectedDate={selectedDate}
-                setSelectedDate={setSelectedDate}
-                selectedWeek={selectedWeek}
-                setSelectedWeek={setSelectedWeek}
-                selectedMonth={selectedMonth}
-                setSelectedMonth={setSelectedMonth}
+                  selectedDate={selectedDate}
+                  setSelectedDate={setSelectedDate}
+                  selectedWeek={selectedWeek}
+                  setSelectedWeek={setSelectedWeek}
+                  selectedMonth={selectedMonth}
+                  setSelectedMonth={setSelectedMonth}
+                  reportStartDate={reportStartDate}
+                  setReportStartDate={setReportStartDate}
+                  reportEndDate={reportEndDate}
+                  setReportEndDate={setReportEndDate}
                   salesReport={salesReport}
                   formatStock={formatStock}
                   homeMetrics={homeMetrics}

@@ -1,6 +1,6 @@
 import type { Timestamp } from 'firebase/firestore';
 
-export type ReportPeriod = 'day' | 'week' | 'month';
+export type ReportPeriod = 'day' | 'week' | 'month' | 'range';
 
 export interface TimeRange {
   start: Date;
@@ -43,7 +43,9 @@ export function getRangeByPeriod(
   period: ReportPeriod,
   selectedDate: string,
   selectedWeek: string,
-  selectedMonth: string
+  selectedMonth: string,
+  rangeStartDate: string,
+  rangeEndDate: string
 ): TimeRange {
   if (period === 'day') {
     const [year, month, day] = selectedDate.split('-').map((value) => Number.parseInt(value, 10));
@@ -55,6 +57,19 @@ export function getRangeByPeriod(
   }
   if (period === 'week') {
     return parseIsoWeek(selectedWeek);
+  }
+  if (period === 'range') {
+    const [startYear, startMonth, startDay] = rangeStartDate
+      .split('-')
+      .map((value) => Number.parseInt(value, 10));
+    const [endYear, endMonth, endDay] = rangeEndDate
+      .split('-')
+      .map((value) => Number.parseInt(value, 10));
+    const start = new Date(startYear, startMonth - 1, startDay);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endYear, endMonth - 1, endDay);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
   }
   return getRangeByMonth(selectedMonth);
 }
@@ -93,4 +108,3 @@ export function monthKeyFromTimestamp(value: Timestamp): string {
   const m = `${date.getMonth() + 1}`.padStart(2, '0');
   return `${y}-${m}`;
 }
-

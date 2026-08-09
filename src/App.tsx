@@ -15,8 +15,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Wallet,
-  HandCoins,
-  ClipboardList
+  HandCoins
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth } from './firebase';
@@ -746,6 +745,7 @@ export default function App() {
       setCurrentView('order-entry');
       return;
     }
+    if (nextView === 'order-entry') return;
     setCurrentView(nextView);
     const nextIsInventoryView = (
       nextView === 'inventory-warnings' ||
@@ -755,6 +755,12 @@ export default function App() {
     );
     setIsInventoryMenuOpen(nextIsInventoryView);
   };
+
+  useEffect(() => {
+    if (user?.role !== 'order' && currentView === 'order-entry') {
+      setCurrentView('home');
+    }
+  }, [currentView, user?.role]);
 
   const weeklySalesPeriods = useMemo<SalesPeriodData>(() => {
     const now = new Date();
@@ -1848,13 +1854,6 @@ export default function App() {
                 variant="sidebar"
               />
               <NavButton
-                active={currentView === 'order-entry'}
-                onClick={() => handleViewChange('order-entry')}
-                icon={<ClipboardList size={18} />}
-                label="录单"
-                variant="sidebar"
-              />
-              <NavButton
                 active={currentView === 'products'}
                 onClick={() => handleViewChange('products')}
                 icon={<Package size={18} />}
@@ -2013,13 +2012,13 @@ export default function App() {
                   formatDateTime={formatDateTimeLabel}
                 />
               )}
-              {(user.role === 'order' || currentView === 'order-entry') && (
+              {user.role === 'order' && (
                 <OrderEntryView
-                  products={user.role === 'order' ? orderProducts : activeProducts}
+                  products={orderProducts}
                   formatCurrency={formatCurrency}
                   formatStock={formatStock}
                   showToast={showToast}
-                  language={user.role === 'order' ? 'fr' : 'zh'}
+                  language="fr"
                 />
               )}
             {user.role !== 'order' && currentView === 'products' && (
@@ -2087,7 +2086,7 @@ export default function App() {
         aria-label="手机底部导航"
       >
         <div className="ios-dock p-2">
-          <div className="grid grid-cols-8 gap-1">
+          <div className="grid grid-cols-7 gap-1">
             <NavButton
               active={currentView === 'home'}
               onClick={() => handleViewChange('home')}
@@ -2114,13 +2113,6 @@ export default function App() {
               onClick={() => handleViewChange('stock')}
               icon={<ArrowLeftRight size={18} />}
               label="进出库"
-              variant="mobile"
-            />
-            <NavButton
-              active={currentView === 'order-entry'}
-              onClick={() => handleViewChange('order-entry')}
-              icon={<ClipboardList size={18} />}
-              label="录单"
               variant="mobile"
             />
             <NavButton

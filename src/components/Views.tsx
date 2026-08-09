@@ -14,7 +14,6 @@ import {
   History,
   Calendar,
   BarChart3,
-  ClipboardList,
   Download,
   Pencil,
   EyeOff,
@@ -1637,6 +1636,12 @@ export const OrderEntryView = ({
   const [boxes, setBoxes] = useState('1');
   const [items, setItems] = useState('0');
   const [orderItems, setOrderItems] = useState<OrderEntryItem[]>([]);
+  const [editingOrderItemId, setEditingOrderItemId] = useState<number | null>(null);
+  const [editProductId, setEditProductId] = useState('');
+  const [editSearchTerm, setEditSearchTerm] = useState('');
+  const [showEditDropdown, setShowEditDropdown] = useState(false);
+  const [editBoxes, setEditBoxes] = useState('0');
+  const [editItems, setEditItems] = useState('0');
   const orderItemIdRef = useRef(0);
   const isFrench = language === 'fr';
   const copy = isFrench
@@ -1645,7 +1650,13 @@ export const OrderEntryView = ({
         model: 'Modèle',
         searchPlaceholder: 'Rechercher...',
         packaging: 'Conditionnement',
+        unitPrice: 'Prix unitaire',
         boxPrice: 'Prix par carton',
+        priceList: 'Liste des prix',
+        priceModel: 'Modèle',
+        priceSpec: 'Qté',
+        priceUnit: 'Prix unité',
+        priceBox: 'Prix carton',
         noProductFound: 'Aucun produit trouvé',
         boxes: 'Cartons',
         items: 'Paires',
@@ -1658,7 +1669,11 @@ export const OrderEntryView = ({
         subtotal: 'Sous-total',
         action: 'Action',
         remove: 'Retirer',
-        noItems: 'Aucun produit ajouté',
+        edit: 'Modifier',
+        editItem: 'Modifier le produit',
+        saveChanges: 'Enregistrer',
+        cancel: 'Annuler',
+        changesSaved: 'Modification enregistrée',
         orderTotal: 'Total',
         selectProductError: 'Sélectionnez un produit',
         negativeQuantityError: 'La quantité ne peut pas être négative',
@@ -1669,7 +1684,13 @@ export const OrderEntryView = ({
         model: '商品型号',
         searchPlaceholder: '输入商品名称搜索...',
         packaging: '规格',
+        unitPrice: '单价',
         boxPrice: '每箱价格',
+        priceList: '产品价格表',
+        priceModel: '型号',
+        priceSpec: '规格',
+        priceUnit: '单价',
+        priceBox: '箱价',
         noProductFound: '未找到匹配商品',
         boxes: '箱数',
         items: '散个',
@@ -1682,7 +1703,11 @@ export const OrderEntryView = ({
         subtotal: '小计',
         action: '操作',
         remove: '移除',
-        noItems: '还没有添加商品',
+        edit: '编辑',
+        editItem: '编辑商品',
+        saveChanges: '保存修改',
+        cancel: '取消',
+        changesSaved: '修改已保存',
         orderTotal: '订单总计',
         selectProductError: '请选择商品',
         negativeQuantityError: '数量不能为负数',
@@ -1698,22 +1723,40 @@ export const OrderEntryView = ({
     const formattedBoxes = `${boxesCount} carton${boxesCount > 1 ? 's' : ''}`;
     return remainingItems > 0 ? `${formattedBoxes} + ${formatPairs(remainingItems)}` : formattedBoxes;
   };
+  const formatPackaging = (spec: number) => isFrench ? `${spec}` : `${spec} 个/箱`;
 
   const formatMobileAmount = (value: number) => formatCurrency(value).replace(/\s*XOF$/, '');
 
   const selectedProduct = products.find((product) => product.id === selectedId);
+  const editProduct = products.find((product) => product.id === editProductId);
+  const enteredProduct = selectedProduct ?? products.find(
+    (product) => product.name.toLowerCase() === searchTerm.trim().toLowerCase()
+  );
+  const enteredEditProduct = editProduct ?? products.find(
+    (product) => product.name.toLowerCase() === editSearchTerm.trim().toLowerCase()
+  );
   const filteredProducts = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
     if (!keyword) return products;
     return products.filter((product) => product.name.toLowerCase().includes(keyword));
   }, [products, searchTerm]);
+  const filteredEditProducts = useMemo(() => {
+    const keyword = editSearchTerm.trim().toLowerCase();
+    if (!keyword) return products;
+    return products.filter((product) => product.name.toLowerCase().includes(keyword));
+  }, [editSearchTerm, products]);
+  const sortedPriceProducts = useMemo(() => {
+    return [...products].sort((first, second) => (
+      first.name.localeCompare(second.name, 'en', { sensitivity: 'base' })
+    ));
+  }, [products]);
 
   const boxesValue = Number.parseInt(boxes, 10) || 0;
   const itemsValue = Number.parseInt(items, 10) || 0;
   const hasValidCurrentQuantity = boxesValue >= 0 && itemsValue >= 0;
-  const currentQuantity = selectedProduct && hasValidCurrentQuantity ? (boxesValue * selectedProduct.spec) + itemsValue : 0;
-  const currentSubtotal = selectedProduct && currentQuantity > 0
-    ? currentQuantity * selectedProduct.price
+  const currentQuantity = enteredProduct && hasValidCurrentQuantity ? (boxesValue * enteredProduct.spec) + itemsValue : 0;
+  const currentSubtotal = enteredProduct && currentQuantity > 0
+    ? currentQuantity * enteredProduct.price
     : 0;
 
   const committedTotal = useMemo(() => {
@@ -1743,7 +1786,7 @@ export const OrderEntryView = ({
   };
 
   const handleAddCurrentItem = () => {
-    if (!selectedProduct) {
+    if (!enteredProduct) {
       showToast(copy.selectProductError, 'error');
       return;
     }
@@ -1761,12 +1804,58 @@ export const OrderEntryView = ({
       ...prev,
       {
         id: orderItemIdRef.current,
-        product: selectedProduct,
+        product: enteredProduct,
         boxes: boxesValue,
         items: itemsValue
       }
     ]);
     resetCurrentLine();
+  };
+
+  const handleAddSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    handleAddCurrentItem();
+  };
+
+  const startEditingOrderItem = (item: OrderEntryItem) => {
+    setEditingOrderItemId(item.id);
+    setEditProductId(item.product.id);
+    setEditSearchTerm('');
+    setShowEditDropdown(false);
+    setEditBoxes(item.boxes.toString());
+    setEditItems(item.items.toString());
+  };
+
+  const closeOrderItemEditor = () => {
+    setEditingOrderItemId(null);
+    setShowEditDropdown(false);
+  };
+
+  const handleEditSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (editingOrderItemId === null || !enteredEditProduct) {
+      showToast(copy.selectProductError, 'error');
+      return;
+    }
+
+    const nextBoxes = Number.parseInt(editBoxes, 10) || 0;
+    const nextItems = Number.parseInt(editItems, 10) || 0;
+    if (nextBoxes < 0 || nextItems < 0) {
+      showToast(copy.negativeQuantityError, 'error');
+      return;
+    }
+    if ((nextBoxes * enteredEditProduct.spec) + nextItems <= 0) {
+      showToast(copy.emptyQuantityError, 'error');
+      return;
+    }
+
+    setOrderItems((currentItems) => currentItems.map((item) => (
+      item.id === editingOrderItemId
+        ? { ...item, product: enteredEditProduct, boxes: nextBoxes, items: nextItems }
+        : item
+    )));
+    closeOrderItemEditor();
+    showToast(copy.changesSaved);
   };
 
   const handleRemoveItem = (id: number) => {
@@ -1780,13 +1869,145 @@ export const OrderEntryView = ({
 
   return (
     <div className="space-y-5 sm:space-y-8">
+      <AnimatePresence>
+        {editingOrderItemId !== null && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+            <motion.form
+              onSubmit={handleEditSubmit}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="order-item-editor-title"
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8"
+            >
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <h3 id="order-item-editor-title" className="text-xl font-black text-slate-800">{copy.editItem}</h3>
+                <button
+                  type="button"
+                  onClick={closeOrderItemEditor}
+                  className="rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-100"
+                  aria-label={copy.cancel}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div className="relative">
+                  <label className="mb-2 block text-sm font-bold text-slate-600">{copy.model}</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={editProduct ? editProduct.name : editSearchTerm}
+                      onChange={(event) => {
+                        setEditSearchTerm(event.target.value);
+                        setEditProductId('');
+                        setShowEditDropdown(true);
+                      }}
+                      onFocus={() => setShowEditDropdown(true)}
+                      placeholder={copy.searchPlaceholder}
+                      className="w-full rounded-xl border-slate-200 pr-10 font-bold focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                    {editProductId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditProductId('');
+                          setEditSearchTerm('');
+                          setShowEditDropdown(true);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        aria-label={copy.remove}
+                      >
+                        <XCircle size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <AnimatePresence>
+                    {showEditDropdown && !editProductId && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        className="absolute z-20 mt-2 max-h-48 w-full overflow-y-auto rounded-2xl border border-slate-100 bg-white shadow-2xl custom-scrollbar"
+                      >
+                        {filteredEditProducts.map((product) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            onClick={() => {
+                              setEditProductId(product.id);
+                              setEditSearchTerm('');
+                              setShowEditDropdown(false);
+                            }}
+                            className="w-full border-b border-slate-100 px-4 py-3 text-left transition-colors last:border-0 hover:bg-indigo-50"
+                          >
+                            <div className="font-black text-slate-800">{product.name}</div>
+                            <div className="mt-0.5 text-xs font-bold text-slate-400">
+                              {copy.packaging}: {formatPackaging(product.spec)}
+                            </div>
+                          </button>
+                        ))}
+                        {filteredEditProducts.length === 0 && (
+                          <div className="px-4 py-8 text-center text-sm font-bold text-slate-400">{copy.noProductFound}</div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-slate-600">{copy.boxes}</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editBoxes}
+                      onChange={(event) => setEditBoxes(event.target.value)}
+                      className="w-full rounded-xl border-slate-200 font-bold focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-slate-600">{copy.items}</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editItems}
+                      onChange={(event) => setEditItems(event.target.value)}
+                      className="w-full rounded-xl border-slate-200 font-bold focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeOrderItemEditor}
+                    className="flex-1 rounded-xl bg-slate-100 py-3 font-bold text-slate-600 transition-colors hover:bg-slate-200"
+                  >
+                    {copy.cancel}
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 font-bold text-white shadow-lg shadow-indigo-200 transition-colors hover:bg-indigo-700"
+                  >
+                    <Save size={18} /> {copy.saveChanges}
+                  </button>
+                </div>
+              </div>
+            </motion.form>
+          </div>
+        )}
+      </AnimatePresence>
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)] gap-8">
         <div className="glass rounded-3xl p-5 sm:p-7 shadow-xl border border-white/35">
           <div className="mb-5 sm:mb-6">
             <h3 className="text-lg font-black text-slate-800">{copy.selectProduct}</h3>
           </div>
 
-          <div className="space-y-5">
+          <form onSubmit={handleAddSubmit} className="space-y-5">
             <div className="relative">
               <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">{copy.model}</label>
               <div className="relative">
@@ -1829,7 +2050,7 @@ export const OrderEntryView = ({
                       >
                         <div className="font-black text-slate-900">{product.name}</div>
                         <div className="text-xs font-bold text-slate-500">
-                          {copy.packaging}: {product.spec} {isFrench ? 'paires/carton' : '个/箱'} · {copy.boxPrice}: {formatCurrency(product.price * product.spec)}
+                          {copy.packaging}: {formatPackaging(product.spec)} · {copy.boxPrice}: {formatCurrency(product.price * product.spec)}
                         </div>
                       </button>
                     ))
@@ -1869,28 +2090,29 @@ export const OrderEntryView = ({
             <div className="rounded-2xl bg-indigo-50/60 border border-indigo-100/70 p-3.5 sm:p-4">
               <div className="text-xs font-black text-indigo-500 uppercase tracking-widest mb-2">{copy.currentSubtotal}</div>
               <div className="text-2xl font-black text-slate-900">{formatCurrency(currentSubtotal)}</div>
-              {selectedProduct && (
+              {enteredProduct && (
                 <div className="mt-1 text-sm font-bold text-slate-500">
-                  {selectedProduct.name} · {formatOrderStock(currentQuantity, selectedProduct.spec)}
+                  {enteredProduct.name} · {formatOrderStock(currentQuantity, enteredProduct.spec)}
                 </div>
               )}
             </div>
 
             <button
-              type="button"
-              onClick={handleAddCurrentItem}
+              type="submit"
               className="w-full rounded-2xl bg-indigo-600/90 py-4 font-black text-white shadow-lg shadow-indigo-200/60 transition-all hover:bg-indigo-700 active:scale-[0.99] flex items-center justify-center gap-2"
             >
               <Plus size={20} />
               {copy.addToOrder}
             </button>
-          </div>
+          </form>
         </div>
 
         <div className="glass rounded-3xl p-5 sm:p-7 shadow-xl border border-white/35">
           <div className="mb-5 flex items-center justify-between gap-3 sm:mb-6">
             <div>
-              <h3 className="text-lg font-black text-slate-800">{copy.orderDetails}</h3>
+              <h3 className="text-lg font-black text-slate-800">
+                {orderItems.length > 0 ? copy.orderDetails : copy.priceList}
+              </h3>
             </div>
             {orderItems.length > 0 && (
               <button
@@ -1903,14 +2125,57 @@ export const OrderEntryView = ({
             )}
           </div>
 
+          {orderItems.length === 0 ? (
+            <div className="max-h-[70vh] overflow-auto rounded-2xl border border-slate-200/70 bg-white/75 shadow-[0_12px_28px_rgba(15,23,42,0.06)] custom-scrollbar">
+              <table className="w-full table-fixed text-left">
+                <colgroup>
+                  <col className="w-[25%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[27%]" />
+                  <col className="w-[35%]" />
+                </colgroup>
+                <thead className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur-xl">
+                  <tr className="border-b border-slate-200/80">
+                    <th className="px-2.5 py-3 text-[10px] font-black leading-tight text-slate-500 sm:px-4 sm:text-xs">{copy.priceModel}</th>
+                    <th className="px-1 py-3 text-center text-[10px] font-black leading-tight text-slate-500 sm:px-4 sm:text-xs">{copy.priceSpec}</th>
+                    <th className="px-2 py-3 text-right text-[10px] font-black leading-tight text-slate-500 sm:px-4 sm:text-xs">
+                      <span className="block">{copy.priceUnit}</span>
+                      <span className="mt-0.5 block text-[8px] font-bold text-slate-400 sm:text-[9px]">XOF</span>
+                    </th>
+                    <th className="px-2.5 py-3 text-right text-[10px] font-black leading-tight text-indigo-500 sm:px-4 sm:text-xs">
+                      <span className="block">{copy.priceBox}</span>
+                      <span className="mt-0.5 block text-[8px] font-bold text-indigo-400 sm:text-[9px]">XOF</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {sortedPriceProducts.map((product) => (
+                    <tr key={product.id} className="odd:bg-white/55 even:bg-slate-50/55 transition-colors hover:bg-indigo-50/45">
+                      <td className="truncate px-2.5 py-3.5 text-[11px] font-black text-slate-900 sm:px-4 sm:text-sm">{product.name}</td>
+                      <td className="px-1 py-3.5 text-center text-[11px] font-bold text-slate-500 sm:px-4 sm:text-sm">
+                        {formatPackaging(product.spec)}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-3.5 text-right text-[11px] font-bold tabular-nums text-slate-600 sm:px-4 sm:text-sm">
+                        {formatMobileAmount(product.price)}
+                      </td>
+                      <td className="whitespace-nowrap px-2.5 py-3.5 text-right text-[11px] font-black tabular-nums text-indigo-600 sm:px-4 sm:text-sm">
+                        {formatMobileAmount(product.price * product.spec)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <>
           <div className="overflow-hidden rounded-2xl border border-white/55 bg-white/45 shadow-sm md:hidden">
             <table className="w-full table-fixed text-left">
               <colgroup>
+                <col className="w-[21%]" />
+                <col className="w-[19%]" />
+                <col className="w-[21%]" />
                 <col className="w-[23%]" />
-                <col className="w-[20%]" />
-                <col className="w-[23%]" />
-                <col className="w-[24%]" />
-                <col className="w-[10%]" />
+                <col className="w-[16%]" />
               </colgroup>
               <thead className="bg-slate-50/70">
                 <tr>
@@ -1935,25 +2200,27 @@ export const OrderEntryView = ({
                       <div className="mt-0.5 text-[9px] font-bold text-indigo-400">XOF</div>
                     </td>
                     <td className="px-1 py-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveItem(item.id)}
-                        className="rounded-lg p-1.5 text-rose-500 transition-colors hover:bg-rose-50/80"
-                        title={copy.remove}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <div className="flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={() => startEditingOrderItem(item)}
+                          className="rounded-lg p-1.5 text-indigo-500 transition-colors hover:bg-indigo-50/80"
+                          title={copy.edit}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(item.id)}
+                          className="rounded-lg p-1.5 text-rose-500 transition-colors hover:bg-rose-50/80"
+                          title={copy.remove}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
-                {orderRows.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-14 text-center text-slate-400">
-                      <ClipboardList size={42} className="mx-auto mb-3 opacity-20" />
-                      <div className="font-bold">{copy.noItems}</div>
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -1975,32 +2242,34 @@ export const OrderEntryView = ({
                     <tr key={item.id} className="hover:bg-white/20 transition-colors">
                       <td className="py-4">
                         <div className="font-black text-slate-900">{item.product.name}</div>
-                        <div className="text-xs font-bold text-slate-400">{copy.packaging}: {item.product.spec} {isFrench ? 'paires/carton' : '个/箱'}</div>
+                        <div className="text-xs font-bold text-slate-400">{copy.packaging}: {formatPackaging(item.product.spec)}</div>
                       </td>
                       <td className="py-4 text-sm font-bold text-slate-600">{formatOrderStock(quantity, item.product.spec)}</td>
                       <td className="py-4 text-sm font-bold text-slate-600">{formatCurrency(item.product.price * item.product.spec)}</td>
                       <td className="py-4 text-sm font-black text-indigo-600">{formatCurrency(subtotal)}</td>
                       <td className="py-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveItem(item.id)}
-                          className="p-2 text-rose-500 hover:bg-rose-50/70 rounded-xl transition-all"
-                          title={copy.remove}
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => startEditingOrderItem(item)}
+                            className="rounded-xl p-2 text-indigo-500 transition-all hover:bg-indigo-50/70"
+                            title={copy.edit}
+                          >
+                            <Pencil size={18} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItem(item.id)}
+                            className="rounded-xl p-2 text-rose-500 transition-all hover:bg-rose-50/70"
+                            title={copy.remove}
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
-                {orderRows.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-20 text-center text-slate-400">
-                      <ClipboardList size={48} className="mx-auto mb-3 opacity-20" />
-                      <div className="font-bold">{copy.noItems}</div>
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -2008,6 +2277,8 @@ export const OrderEntryView = ({
             <span className="text-sm font-black text-slate-500">{copy.orderTotal}</span>
             <span className="text-2xl font-black tracking-tight text-rose-600 sm:text-3xl">{formatCurrency(committedTotal)}</span>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -2030,7 +2301,6 @@ export const StockView = ({
   const [editSearchTerm, setEditSearchTerm] = useState('');
   const [showEditDropdown, setShowEditDropdown] = useState(false);
   const [visibleTransactionCount, setVisibleTransactionCount] = useState(20);
-  const [historySummaryQuery, setHistorySummaryQuery] = useState('');
   const [historyFilterMode, setHistoryFilterMode] = useState<'day' | 'week' | 'month'>('day');
   const [isBatchOutMode, setIsBatchOutMode] = useState(false);
   const [batchOutText, setBatchOutText] = useState('');
@@ -2056,6 +2326,24 @@ export const StockView = ({
     const now = new Date();
     return `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, '0')}`;
   });
+  const [isHistoryQueryOpen, setIsHistoryQueryOpen] = useState(false);
+  const [historyQueryType, setHistoryQueryType] = useState<'in' | 'out'>('in');
+  const [historyQueryProductId, setHistoryQueryProductId] = useState('');
+  const [historyQueryProductTerm, setHistoryQueryProductTerm] = useState('');
+  const [showHistoryQueryProducts, setShowHistoryQueryProducts] = useState(false);
+  const [historyQueryStartDate, setHistoryQueryStartDate] = useState(() => {
+    const now = new Date();
+    return toLocalDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1));
+  });
+  const [historyQueryEndDate, setHistoryQueryEndDate] = useState(() => toLocalDateInputValue(new Date()));
+  const [historyQueryAllTime, setHistoryQueryAllTime] = useState(false);
+  const [activeHistoryQuery, setActiveHistoryQuery] = useState<{
+    type: 'in' | 'out';
+    productId: string;
+    startDate: string;
+    endDate: string;
+    allTime: boolean;
+  } | null>(null);
 
   const filteredProducts = useMemo(() => {
     if (!searchTerm) return products;
@@ -2071,8 +2359,16 @@ export const StockView = ({
     );
   }, [editSearchTerm, products]);
 
+  const filteredHistoryQueryProducts = useMemo(() => {
+    const keyword = historyQueryProductTerm.trim().toLowerCase();
+    if (!keyword) return products;
+    return products.filter((product) => product.name.toLowerCase().includes(keyword));
+  }, [historyQueryProductTerm, products]);
+
   const selectedProduct = products.find((p: Product) => p.id === selectedId);
   const editingProduct = products.find((p: Product) => p.id === editProductId);
+  const historyQueryProduct = products.find((product) => product.id === historyQueryProductId);
+  const activeHistoryQueryProduct = products.find((product) => product.id === activeHistoryQuery?.productId);
 
   interface ParsedBatchOutRow {
     lineNumber: number;
@@ -2153,69 +2449,98 @@ export const StockView = ({
     return [];
   }, [historyFilterMode, historyFilterDate, historyFilterWeek, historyFilterMonth, sortedTransactions]);
 
+  const historyQueryScopeTransactions = useMemo(() => {
+    if (!activeHistoryQuery) return [];
+    const start = new Date(`${activeHistoryQuery.startDate}T00:00:00`);
+    const end = new Date(`${activeHistoryQuery.endDate}T23:59:59.999`);
+    return sortedTransactions.filter((transaction) => {
+      const occurredAt = transaction.occurredAt.toDate();
+      return (!activeHistoryQuery.productId || transaction.productId === activeHistoryQuery.productId)
+        && (activeHistoryQuery.allTime || (occurredAt >= start && occurredAt <= end));
+    });
+  }, [activeHistoryQuery, sortedTransactions]);
+
   const filteredTransactions = useMemo(() => {
-    const keyword = historySummaryQuery.trim().toLowerCase();
-    if (!keyword) return periodFilteredTransactions;
+    if (!activeHistoryQuery) return periodFilteredTransactions;
+    return historyQueryScopeTransactions.filter((transaction) => transaction.type === activeHistoryQuery.type);
+  }, [activeHistoryQuery, historyQueryScopeTransactions, periodFilteredTransactions]);
 
-    const matchedProductIds = new Set(
-      products
-        .filter((product) => product.name.toLowerCase().includes(keyword))
-        .map((product) => product.id)
-    );
+  const historyQueryTotals = useMemo(() => {
+    if (!activeHistoryQuery) return null;
 
-    if (matchedProductIds.size === 0) return [];
+    let inboundBoxes = 0;
+    let outboundBoxes = 0;
+    for (const transaction of historyQueryScopeTransactions) {
+      const product = products.find((item) => item.id === transaction.productId);
+      if (!product || product.spec <= 0) continue;
+      const boxes = transaction.quantity / product.spec;
+      if (transaction.type === 'in') {
+        inboundBoxes += boxes;
+      } else {
+        outboundBoxes += boxes;
+      }
+    }
 
-    return sortedTransactions.filter((transaction) =>
-      transaction.type === 'in' && matchedProductIds.has(transaction.productId)
-    );
-  }, [historySummaryQuery, periodFilteredTransactions, products, sortedTransactions]);
+    return { inboundBoxes, outboundBoxes };
+  }, [activeHistoryQuery, historyQueryScopeTransactions, products]);
+
+  const formatHistoryBoxTotal = (value: number) => {
+    return value.toLocaleString('zh-CN', { maximumFractionDigits: 4 });
+  };
 
   const visibleTransactions = useMemo(() => {
     return filteredTransactions.slice(0, visibleTransactionCount);
   }, [filteredTransactions, visibleTransactionCount]);
 
-  const historySummaryRows = useMemo(() => {
-    const keyword = historySummaryQuery.trim().toLowerCase();
-    if (!keyword) return [];
-
-    const matchedProducts = products.filter((product) =>
-      product.name.toLowerCase().includes(keyword)
-    );
-    if (matchedProducts.length === 0) return [];
-
-    const matchedIdSet = new Set(matchedProducts.map((product) => product.id));
-    const summaryMap: Record<string, { inQty: number; outQty: number }> = {};
-    for (const product of matchedProducts) {
-      summaryMap[product.id] = { inQty: 0, outQty: 0 };
-    }
-
-    for (const transaction of transactions) {
-      if (!matchedIdSet.has(transaction.productId)) continue;
-      const qty = Number(transaction.quantity) || 0;
-      if (transaction.type === 'in') {
-        summaryMap[transaction.productId].inQty += qty;
-      } else {
-        summaryMap[transaction.productId].outQty += qty;
-      }
-    }
-
-    return matchedProducts
-      .map((product) => {
-        const summary = summaryMap[product.id] ?? { inQty: 0, outQty: 0 };
-        return {
-          product,
-          inQty: summary.inQty,
-          outQty: summary.outQty,
-          netQty: summary.inQty - summary.outQty
-        };
-      })
-      .sort((a, b) => {
-        if (b.outQty !== a.outQty) return b.outQty - a.outQty;
-        return a.product.name.localeCompare(b.product.name);
-      });
-  }, [historySummaryQuery, products, transactions]);
-
   const canShowMoreLocal = visibleTransactionCount < filteredTransactions.length;
+
+  const clearHistoryQuery = () => {
+    setActiveHistoryQuery(null);
+    setVisibleTransactionCount(20);
+  };
+
+  const openHistoryQuery = () => {
+    if (activeHistoryQuery) {
+      setHistoryQueryType(activeHistoryQuery.type);
+      setHistoryQueryProductId(activeHistoryQuery.productId);
+      setHistoryQueryProductTerm('');
+      setHistoryQueryStartDate(activeHistoryQuery.startDate);
+      setHistoryQueryEndDate(activeHistoryQuery.endDate);
+      setHistoryQueryAllTime(activeHistoryQuery.allTime);
+    } else {
+      const now = new Date();
+      setHistoryQueryType('in');
+      setHistoryQueryProductId('');
+      setHistoryQueryProductTerm('');
+      setHistoryQueryStartDate(toLocalDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1)));
+      setHistoryQueryEndDate(toLocalDateInputValue(now));
+      setHistoryQueryAllTime(false);
+    }
+    setShowHistoryQueryProducts(false);
+    setIsHistoryQueryOpen(true);
+  };
+
+  const applyHistoryQuery = () => {
+    if (!historyQueryAllTime && (!historyQueryStartDate || !historyQueryEndDate)) {
+      showToast('请选择完整的日期区间', 'error');
+      return;
+    }
+    if (!historyQueryAllTime && historyQueryStartDate > historyQueryEndDate) {
+      showToast('开始日期不能晚于结束日期', 'error');
+      return;
+    }
+
+    setActiveHistoryQuery({
+      type: historyQueryType,
+      productId: historyQueryProductId,
+      startDate: historyQueryStartDate,
+      endDate: historyQueryEndDate,
+      allTime: historyQueryAllTime
+    });
+    setVisibleTransactionCount(20);
+    setShowHistoryQueryProducts(false);
+    setIsHistoryQueryOpen(false);
+  };
 
   const handleShowMore = () => {
     if (!canShowMoreLocal) return;
@@ -2370,6 +2695,191 @@ export const StockView = ({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <AnimatePresence>
+        {isHistoryQueryOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="history-query-title"
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-8"
+            >
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <h3 id="history-query-title" className="text-xl font-black text-slate-800">查询进出库流水</h3>
+                  <p className="mt-1 text-sm font-bold text-slate-500">选择类型，商品和时间范围可按需设置</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsHistoryQueryOpen(false)}
+                  className="p-2 text-slate-500 transition-colors hover:bg-slate-100 rounded-full"
+                  aria-label="关闭查询窗口"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-600">出入库类型</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryQueryType('in')}
+                      className={`flex items-center justify-center gap-2 rounded-xl border-2 py-2.5 font-bold transition-all ${
+                        historyQueryType === 'in'
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                          : 'border-slate-100 text-slate-500 hover:border-slate-200'
+                      }`}
+                    >
+                      <TrendingUp size={18} /> 入库
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryQueryType('out')}
+                      className={`flex items-center justify-center gap-2 rounded-xl border-2 py-2.5 font-bold transition-all ${
+                        historyQueryType === 'out'
+                          ? 'border-rose-500 bg-rose-50 text-rose-700'
+                          : 'border-slate-100 text-slate-500 hover:border-slate-200'
+                      }`}
+                    >
+                      <TrendingDown size={18} /> 出库
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <label className="mb-2 block text-sm font-bold text-slate-600">商品 <span className="text-slate-400">(选填)</span></label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={historyQueryProduct ? historyQueryProduct.name : historyQueryProductTerm}
+                      onChange={(event) => {
+                        setHistoryQueryProductTerm(event.target.value);
+                        setHistoryQueryProductId('');
+                        setShowHistoryQueryProducts(true);
+                      }}
+                      onFocus={() => setShowHistoryQueryProducts(true)}
+                      placeholder="不填则查询全部商品"
+                      className="w-full rounded-xl border-slate-200 pr-10 font-bold focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                    {historyQueryProductId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHistoryQueryProductId('');
+                          setHistoryQueryProductTerm('');
+                          setShowHistoryQueryProducts(true);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        aria-label="清除已选商品"
+                      >
+                        <XCircle size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <AnimatePresence>
+                    {showHistoryQueryProducts && !historyQueryProductId && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        className="absolute z-20 mt-2 max-h-48 w-full overflow-y-auto rounded-2xl border border-slate-100 bg-white shadow-2xl custom-scrollbar"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHistoryQueryProductId('');
+                            setHistoryQueryProductTerm('');
+                            setShowHistoryQueryProducts(false);
+                          }}
+                          className="flex w-full items-center justify-between border-b border-slate-100 px-4 py-3 text-left font-bold text-indigo-600 transition-colors hover:bg-indigo-50"
+                        >
+                          <span>全部商品</span>
+                          <span className="text-xs text-slate-400">不限型号</span>
+                        </button>
+                        {filteredHistoryQueryProducts.map((product) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            onClick={() => {
+                              setHistoryQueryProductId(product.id);
+                              setHistoryQueryProductTerm('');
+                              setShowHistoryQueryProducts(false);
+                            }}
+                            className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-indigo-50"
+                          >
+                            <span className="font-bold text-slate-700">{product.name}</span>
+                            <span className="text-xs font-bold text-slate-400">规格: {product.spec}</span>
+                          </button>
+                        ))}
+                        {filteredHistoryQueryProducts.length === 0 && (
+                          <div className="px-4 py-8 text-center text-sm font-bold text-slate-400">未找到匹配商品</div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={historyQueryAllTime}
+                    onChange={(event) => setHistoryQueryAllTime(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-sm font-bold text-slate-700">所有时间</span>
+                </label>
+
+                <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${historyQueryAllTime ? 'opacity-45' : ''}`}>
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-slate-600">开始日期</label>
+                    <input
+                      type="date"
+                      value={historyQueryStartDate}
+                      max={historyQueryEndDate}
+                      disabled={historyQueryAllTime}
+                      onChange={(event) => setHistoryQueryStartDate(event.target.value)}
+                      className="w-full rounded-xl border-slate-200 font-bold focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-slate-600">结束日期</label>
+                    <input
+                      type="date"
+                      value={historyQueryEndDate}
+                      min={historyQueryStartDate}
+                      disabled={historyQueryAllTime}
+                      onChange={(event) => setHistoryQueryEndDate(event.target.value)}
+                      className="w-full rounded-xl border-slate-200 font-bold focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsHistoryQueryOpen(false)}
+                    className="flex-1 rounded-xl bg-slate-100 py-3 font-bold text-slate-600 transition-colors hover:bg-slate-200"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applyHistoryQuery}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 font-bold text-white shadow-lg shadow-indigo-200 transition-colors hover:bg-indigo-700"
+                  >
+                    <Search size={18} /> 开始查询
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {editingTransaction && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -2811,25 +3321,26 @@ export const StockView = ({
               </h2>
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-              <input
-                type="text"
-                value={historySummaryQuery}
-                onChange={(e) => {
-                  setHistorySummaryQuery(e.target.value);
-                  setVisibleTransactionCount(20);
-                }}
-                placeholder="输入型号查看进出库汇总和入库明细"
-                className="w-full sm:w-64 rounded-xl border-white/40 bg-white/40 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2 text-sm font-bold !text-left"
-              />
+              <button
+                type="button"
+                onClick={openHistoryQuery}
+                className={`flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-black transition-all sm:w-auto ${
+                  activeHistoryQuery
+                    ? 'border-indigo-500 bg-indigo-600 text-white shadow-lg shadow-indigo-200/60'
+                    : 'border-white/40 bg-white/40 text-slate-700 hover:bg-white/65'
+                }`}
+              >
+                <Search size={16} /> 查询流水
+              </button>
               <div className="flex bg-white/35 backdrop-blur-md p-1 rounded-xl border border-white/40">
                 <button
                   type="button"
                   onClick={() => {
+                    clearHistoryQuery();
                     setHistoryFilterMode('day');
-                    setVisibleTransactionCount(20);
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
-                    historyFilterMode === 'day' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    !activeHistoryQuery && historyFilterMode === 'day' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
                   按日
@@ -2837,11 +3348,11 @@ export const StockView = ({
                 <button
                   type="button"
                   onClick={() => {
+                    clearHistoryQuery();
                     setHistoryFilterMode('week');
-                    setVisibleTransactionCount(20);
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
-                    historyFilterMode === 'week' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    !activeHistoryQuery && historyFilterMode === 'week' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
                   按周
@@ -2849,11 +3360,11 @@ export const StockView = ({
                 <button
                   type="button"
                   onClick={() => {
+                    clearHistoryQuery();
                     setHistoryFilterMode('month');
-                    setVisibleTransactionCount(20);
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
-                    historyFilterMode === 'month' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    !activeHistoryQuery && historyFilterMode === 'month' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
                   按月
@@ -2865,8 +3376,8 @@ export const StockView = ({
                     type="date"
                     value={historyFilterDate}
                     onChange={(value) => {
+                      clearHistoryQuery();
                       setHistoryFilterDate(value);
-                      setVisibleTransactionCount(20);
                     }}
                     displayValue={historyFilterDate.replaceAll('-', '/')}
                     ariaLabel="选择日期筛选近期流水明细"
@@ -2878,8 +3389,8 @@ export const StockView = ({
                     type="week"
                     value={historyFilterWeek}
                     onChange={(value) => {
+                      clearHistoryQuery();
                       setHistoryFilterWeek(value);
-                      setVisibleTransactionCount(20);
                     }}
                     displayValue={historyFilterWeek.replace('-W', ' / Week ')}
                     ariaLabel="选择周筛选近期流水明细"
@@ -2891,8 +3402,8 @@ export const StockView = ({
                     type="month"
                     value={historyFilterMonth}
                     onChange={(value) => {
+                      clearHistoryQuery();
                       setHistoryFilterMonth(value);
-                      setVisibleTransactionCount(20);
                     }}
                     displayValue={historyFilterMonth.replace('-', '/')}
                     ariaLabel="选择月份筛选近期流水明细"
@@ -2901,33 +3412,46 @@ export const StockView = ({
                 )}
               </div>
               <div className="text-xs font-bold text-slate-400 bg-white/40 rounded-full px-3 py-1 border border-white/50 text-center">
-                已显示 {visibleTransactions.length} / {filteredTransactions.length} 条{historySummaryQuery.trim() ? '入库明细' : ''}
+                已显示 {visibleTransactions.length} / {filteredTransactions.length} 条
               </div>
             </div>
           </div>
 
-          {historySummaryQuery.trim() !== '' && (
-            <div className="mb-6 rounded-2xl border border-indigo-100/60 bg-indigo-50/40 backdrop-blur-xl p-4">
-              {historySummaryRows.length > 0 ? (
-                <div className="space-y-3">
-                  {historySummaryRows.map(({ product, inQty, outQty, netQty }) => (
-                    <div key={product.id} className="rounded-xl border border-white/60 bg-white/55 px-4 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-black text-slate-800">{product.name}</div>
-                        <div className="text-[11px] font-bold text-slate-500">规格: {product.spec} 个/箱</div>
-                      </div>
-                      <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
-                        <div className="font-bold text-emerald-700">累计入库: {formatStock(inQty, product.spec)}</div>
-                        <div className="font-bold text-rose-700">累计出库: {formatStock(outQty, product.spec)}</div>
-                        <div className={`font-bold ${netQty >= 0 ? 'text-slate-700' : 'text-rose-700'}`}>
-                          净变动: {netQty >= 0 ? '+' : '-'}{formatStock(Math.abs(netQty), product.spec)}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+          {activeHistoryQuery && (
+            <div className="mb-5 space-y-3">
+              <div className="flex flex-col gap-3 rounded-xl border border-indigo-100/70 bg-indigo-50/50 px-4 py-3 text-sm font-bold text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <span className="font-black text-indigo-700">{activeHistoryQueryProduct?.name ?? '全部商品'}</span>
+                  <span>{activeHistoryQuery.type === 'in' ? '入库明细' : '出库明细'}</span>
+                  <span>
+                    {activeHistoryQuery.allTime
+                      ? '所有时间'
+                      : `${activeHistoryQuery.startDate.replaceAll('-', '/')} - ${activeHistoryQuery.endDate.replaceAll('-', '/')}`}
+                  </span>
                 </div>
-              ) : (
-                <div className="text-sm font-bold text-slate-500">未找到匹配款式，请检查型号关键词。</div>
+                <button
+                  type="button"
+                  onClick={clearHistoryQuery}
+                  className="flex items-center gap-1 self-start text-slate-500 transition-colors hover:text-indigo-700 sm:self-auto"
+                >
+                  <X size={15} /> 清除查询
+                </button>
+              </div>
+              {historyQueryTotals && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-emerald-100/80 bg-emerald-50/60 px-4 py-4">
+                    <div className="text-xs font-black text-emerald-700">查询范围总入库</div>
+                    <div className="mt-1 text-2xl font-black text-emerald-700">
+                      {formatHistoryBoxTotal(historyQueryTotals.inboundBoxes)} <span className="text-sm">箱</span>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-rose-100/80 bg-rose-50/60 px-4 py-4">
+                    <div className="text-xs font-black text-rose-700">查询范围总出库</div>
+                    <div className="mt-1 text-2xl font-black text-rose-700">
+                      {formatHistoryBoxTotal(historyQueryTotals.outboundBoxes)} <span className="text-sm">箱</span>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}

@@ -107,7 +107,7 @@ function PickerChip({
         type="button"
         onClick={openPicker}
         aria-label={ariaLabel}
-        className={`flex items-center gap-3 rounded-full border border-white/60 bg-white/46 px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_24px_rgba(15,23,42,0.08)] backdrop-blur-xl transition-all hover:bg-white/58 ${className}`}
+        className={`button-secondary flex min-h-11 items-center gap-3 rounded-lg px-4 py-2 text-sm font-semibold ${className}`}
       >
         <span>{displayValue}</span>
         <Calendar size={16} className="text-slate-500" />
@@ -137,60 +137,71 @@ export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string)
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="login-page">
       <motion.div 
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md glass rounded-3xl p-8 shadow-2xl border-white/30"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.32 }}
+        className="login-frame"
       >
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-indigo-600/90 rounded-2xl flex items-center justify-center shadow-xl shadow-indigo-200/50 mb-4 backdrop-blur-md">
-            <Package className="text-white" size={32} />
-          </div>
-          <h1 className="text-2xl font-black text-slate-900">TOP STAR SHOES</h1>
-          <p className="text-slate-400 text-sm mt-1">进销存管理系统</p>
-        </div>
-
-        <form onSubmit={onSubmit} className="space-y-6">
+        <section className="login-brand-panel">
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">用户名</label>
-            <input
-              type="text"
-              required
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="admin"
-              className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">密码</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••"
-              className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full py-4 bg-indigo-600/90 hover:bg-indigo-700 disabled:opacity-70 text-white font-bold rounded-2xl shadow-lg shadow-indigo-200/50 transition-all active:scale-95 backdrop-blur-md"
-          >
-            {submitting ? '登录中...' : '登 录'}
-          </button>
-          {errorMessage && (
-            <div className="rounded-xl border border-rose-200/60 bg-rose-50/70 px-3 py-2 text-sm font-bold text-rose-600">
-              {errorMessage}
+            <div className="login-brand-mark">
+              <img src="/top-star-mark.png" alt="" aria-hidden="true" />
             </div>
-          )}
-        </form>
-        
-        <div className="mt-8 pt-6 border-t border-white/20 text-center">
-          <p className="text-xs text-slate-400">© 2026 TOP STAR INVENTORY SYSTEM</p>
-        </div>
+            <p className="login-brand-kicker">LOMÉ · TOGO</p>
+            <h1 className="login-brand-title">TOP STAR<br />SHOES</h1>
+            <p className="login-brand-description">进销存管理系统</p>
+          </div>
+          <p className="login-brand-footer">© 2026 TOP STAR</p>
+        </section>
+
+        <section className="login-form-panel">
+          <div className="mb-9">
+            <span className="eyebrow">SECURE ACCESS</span>
+            <h2 className="display-title mt-3 text-3xl sm:text-4xl">欢迎回来</h2>
+            <p className="mt-2 text-sm text-stone-500">请使用你的系统账号登录</p>
+          </div>
+
+          <form onSubmit={onSubmit} className="space-y-5">
+            <div>
+              <label className="mb-2 block text-xs font-semibold tracking-wide text-stone-600">用户名</label>
+              <input
+                type="text"
+                required
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="请输入用户名"
+                className="w-full rounded-lg px-4 py-3"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-xs font-semibold tracking-wide text-stone-600">密码</label>
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="请输入密码"
+                className="w-full rounded-lg px-4 py-3"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="button-primary w-full rounded-lg py-3.5 text-sm font-semibold tracking-[0.12em] disabled:opacity-60"
+            >
+              {submitting ? '登录中...' : '登录系统'}
+            </button>
+            {errorMessage && (
+              <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-700">
+                {errorMessage}
+              </div>
+            )}
+          </form>
+        </section>
       </motion.div>
     </div>
   );
@@ -255,193 +266,118 @@ export const HomeView = ({
     return `${sign}${value.toFixed(1)}%`;
   };
 
+  const totalBoxes = salesReport.items.reduce(
+    (sum: number, item: SalesReportItem) => sum + Math.floor(item.quantity / item.spec),
+    0
+  );
+  const totalItems = salesReport.items.reduce(
+    (sum: number, item: SalesReportItem) => sum + (item.quantity % item.spec),
+    0
+  );
+
   return (
     <div className="space-y-8">
-    {/* Finance Dashboard */}
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
-        <div className="absolute -right-6 -top-6 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl group-hover:bg-rose-500/10 transition-colors" />
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100/50">
-            <TrendingDown className="text-rose-500" size={24} />
-          </div>
-          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">库存总成本</div>
+      <header className="page-heading-row">
+        <div>
+          <span className="eyebrow">BUSINESS OVERVIEW</span>
+          <h1 className="display-title mt-2 text-3xl sm:text-4xl">经营概览</h1>
+          <p className="mt-2 text-sm text-stone-500">库存、销售与经营风险总览</p>
         </div>
-        <div className="text-xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
-          {formatCurrency(stats.inTotal).split(' ')[0]}
-          <span className="text-xs font-bold text-slate-400 uppercase">XOF</span>
-        </div>
-      </div>
+        <PickerChip
+          type="month"
+          value={selectedMonth}
+          onChange={setSelectedMonth}
+          displayValue={monthLabel}
+          ariaLabel="选择概览月份"
+        />
+      </header>
 
-      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
-        <div className="absolute -right-6 -top-6 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-colors" />
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100/50">
-            <TrendingUp className="text-emerald-500" size={24} />
-          </div>
-          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">出库销售总额</div>
+      <section aria-label="核心经营指标" className="metric-band metric-band-primary">
+        <div className="metric-band-item">
+          <p className="metric-label">库存总成本</p>
+          <p className="metric-value">{formatCurrency(stats.inTotal)}</p>
+          <p className="metric-note">累计入库成本</p>
         </div>
-        <div className="text-xl font-black text-slate-900 tracking-tight flex items-baseline gap-1">
-          {formatCurrency(stats.outTotal).split(' ')[0]}
-          <span className="text-xs font-bold text-slate-400 uppercase">XOF</span>
+        <div className="metric-band-item">
+          <p className="metric-label">出库销售总额</p>
+          <p className="metric-value metric-positive">{formatCurrency(stats.outTotal)}</p>
+          <p className="metric-note">累计销售金额</p>
         </div>
-      </div>
+        <div className="metric-band-item">
+          <p className="metric-label">结余金额</p>
+          <p className="metric-value">{formatCurrency(stats.balance)}</p>
+          <p className="metric-note">入库成本 - 出库销售</p>
+        </div>
+        <div className="metric-band-item">
+          <p className="metric-label">预计提成</p>
+          <p className="metric-value metric-positive">{formatCurrency(homeMetrics.estimatedCommission)}</p>
+          <p className="metric-note">{monthLabel}：销售额 × 3.5% - 开支</p>
+        </div>
+      </section>
 
-      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
-        <div className="absolute -right-6 -top-6 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-colors" />
-        <div className="flex items-center gap-4 mb-4 relative z-10">
-          <div className="p-3 bg-indigo-50 rounded-2xl border border-indigo-100/50">
-            <Wallet className="text-indigo-500" size={24} />
-          </div>
-          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">结余金额</div>
+      <section aria-label="经营风险与趋势" className="metric-band metric-band-secondary">
+        <div className="metric-band-item">
+          <p className="metric-label">库存预警款式</p>
+          <p className="metric-value metric-warning">{homeMetrics.warningCount} 款</p>
+          <p className="metric-note">当前库存小于 30 箱</p>
         </div>
-        <div className="text-xl font-black text-slate-900 tracking-tight relative z-10 flex items-baseline gap-1">
-          {formatCurrency(stats.balance).split(' ')[0]}
-          <span className="text-xs font-bold text-slate-400 uppercase">XOF</span>
+        <div className="metric-band-item">
+          <p className="metric-label">滞销品</p>
+          <p className="metric-value metric-danger">{homeMetrics.staleCount} 款</p>
+          <p className="metric-note">30 天无销售且库存 &gt; 0</p>
         </div>
-        <div className="text-[10px] font-bold text-slate-400 mt-2 relative z-10">(入库成本 - 出库销售)</div>
-      </div>
-    </div>
+        <div className="metric-band-item">
+          <p className="metric-label">销售额环比</p>
+          <p className={`metric-value ${homeMetrics.salesMoM !== null && homeMetrics.salesMoM < 0 ? 'metric-danger' : 'metric-positive'}`}>
+            {formatMomValue(homeMetrics.salesMoM)}
+          </p>
+          <p className="metric-note">{monthLabel} 对比 {previousMonthLabel}</p>
+        </div>
+        <div className="metric-band-item">
+          <p className="metric-label">开支环比</p>
+          <p className={`metric-value ${homeMetrics.expenseMoM !== null && homeMetrics.expenseMoM > 0 ? 'metric-danger' : 'metric-positive'}`}>
+            {formatMomValue(homeMetrics.expenseMoM)}
+          </p>
+          <p className="metric-note">{monthLabel} 对比 {previousMonthLabel}</p>
+        </div>
+      </section>
 
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
-        <div className="absolute -right-6 -top-6 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-colors" />
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100/50">
-            <Wallet className="text-emerald-500" size={24} />
-          </div>
-          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">预计提成</div>
-        </div>
-        <div className="text-xl font-black text-emerald-700 tracking-tight">{formatCurrency(homeMetrics.estimatedCommission)}</div>
-        <div className="text-[10px] font-bold text-slate-400 mt-2">
-          {monthLabel}：销售额 × 3.5% - 开支
-        </div>
-      </div>
-
-      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
-        <div className="absolute -right-6 -top-6 w-24 h-24 bg-amber-500/5 rounded-full blur-2xl group-hover:bg-amber-500/10 transition-colors" />
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-amber-50 rounded-2xl border border-amber-100/50">
-            <AlertTriangle className="text-amber-500" size={24} />
-          </div>
-          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">库存预警款式</div>
-        </div>
-        <div className="text-xl font-black text-amber-600 tracking-tight">{homeMetrics.warningCount} 款</div>
-        <div className="text-[10px] font-bold text-slate-400 mt-2">当前库存小于 30 箱</div>
-      </div>
-
-      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
-        <div className="absolute -right-6 -top-6 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl group-hover:bg-rose-500/10 transition-colors" />
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100/50">
-            <AlertTriangle className="text-rose-500" size={24} />
-          </div>
-          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">滞销品</div>
-        </div>
-        <div className="text-xl font-black text-rose-600 tracking-tight">{homeMetrics.staleCount} 款</div>
-        <div className="text-[10px] font-bold text-slate-400 mt-2">30天无销售且库存&gt;0</div>
-      </div>
-
-      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
-        <div className="absolute -right-6 -top-6 w-24 h-24 bg-sky-500/5 rounded-full blur-2xl group-hover:bg-sky-500/10 transition-colors" />
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-sky-50 rounded-2xl border border-sky-100/50">
-            <TrendingUp className="text-sky-500" size={24} />
-          </div>
-          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">销售额环比</div>
-        </div>
-        <div className={`text-xl font-black tracking-tight ${homeMetrics.salesMoM !== null && homeMetrics.salesMoM < 0 ? 'text-rose-600' : 'text-sky-700'}`}>
-          {formatMomValue(homeMetrics.salesMoM)}
-        </div>
-        <div className="text-[10px] font-bold text-slate-400 mt-2">{monthLabel} 对比 {previousMonthLabel}</div>
-      </div>
-
-      <div className="group relative overflow-hidden glass rounded-3xl p-6 shadow-xl border-white/40 transition-all hover:shadow-2xl hover:-translate-y-1">
-        <div className="absolute -right-6 -top-6 w-24 h-24 bg-violet-500/5 rounded-full blur-2xl group-hover:bg-violet-500/10 transition-colors" />
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-violet-50 rounded-2xl border border-violet-100/50">
-            <Wallet className="text-violet-500" size={24} />
-          </div>
-          <div className="text-sm font-black text-slate-400 uppercase tracking-widest">开支环比</div>
-        </div>
-        <div className={`text-xl font-black tracking-tight ${homeMetrics.expenseMoM !== null && homeMetrics.expenseMoM > 0 ? 'text-rose-600' : 'text-violet-700'}`}>
-          {formatMomValue(homeMetrics.expenseMoM)}
-        </div>
-        <div className="text-[10px] font-bold text-slate-400 mt-2">{monthLabel} 对比 {previousMonthLabel}</div>
-      </div>
-    </div>
-
-    {/* Sales Report Section */}
-    <div className="glass rounded-2xl p-6 shadow-sm border-white/20">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="text-indigo-500" size={20} />
-          <h2 className="text-lg font-semibold text-slate-800">销售报表查询</h2>
-        </div>
-        
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex bg-white/30 backdrop-blur-md p-1 rounded-xl border border-white/20">
-            <button
-              onClick={() => setReportPeriod('day')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                reportPeriod === 'day' ? 'bg-white/80 text-indigo-600 shadow-sm backdrop-blur-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              按日
-            </button>
-            <button
-              onClick={() => setReportPeriod('week')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                reportPeriod === 'week' ? 'bg-white/80 text-indigo-600 shadow-sm backdrop-blur-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              按周
-            </button>
-            <button
-              onClick={() => setReportPeriod('month')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                reportPeriod === 'month' ? 'bg-white/80 text-indigo-600 shadow-sm backdrop-blur-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              按月
-            </button>
-            <button
-              onClick={() => setReportPeriod('range')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                reportPeriod === 'range' ? 'bg-white/80 text-indigo-600 shadow-sm backdrop-blur-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              日期区间
-            </button>
+      <section className="section-panel">
+        <div className="section-panel-header">
+          <div>
+            <span className="eyebrow">SALES REPORT</span>
+            <h2 className="display-title mt-1 text-2xl">销售报表查询</h2>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="segmented-control flex flex-wrap">
+              {([
+                ['day', '按日'],
+                ['week', '按周'],
+                ['month', '按月'],
+                ['range', '日期区间'],
+              ] as const).map(([period, label]) => (
+                <button
+                  type="button"
+                  key={period}
+                  onClick={() => setReportPeriod(period)}
+                  className={`segmented-control-item px-3 py-2 text-xs font-semibold ${
+                    reportPeriod === period ? 'segmented-control-item-active' : ''
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             {reportPeriod === 'day' && (
-              <PickerChip
-                type="date"
-                value={selectedDate}
-                onChange={setSelectedDate}
-                displayValue={dateLabel}
-                ariaLabel="选择日期"
-              />
+              <PickerChip type="date" value={selectedDate} onChange={setSelectedDate} displayValue={dateLabel} ariaLabel="选择日期" />
             )}
             {reportPeriod === 'week' && (
-              <PickerChip
-                type="week"
-                value={selectedWeek}
-                onChange={setSelectedWeek}
-                displayValue={weekLabel}
-                ariaLabel="选择周"
-              />
+              <PickerChip type="week" value={selectedWeek} onChange={setSelectedWeek} displayValue={weekLabel} ariaLabel="选择周" />
             )}
             {reportPeriod === 'month' && (
-              <PickerChip
-                type="month"
-                value={selectedMonth}
-                onChange={setSelectedMonth}
-                displayValue={monthLabel}
-                ariaLabel="选择月份"
-              />
+              <PickerChip type="month" value={selectedMonth} onChange={setSelectedMonth} displayValue={monthLabel} ariaLabel="选择月份" />
             )}
             {reportPeriod === 'range' && (
               <div className="flex flex-wrap items-center gap-2">
@@ -453,7 +389,7 @@ export const HomeView = ({
                   displayValue={reportStartDateLabel}
                   ariaLabel="选择开始日期"
                 />
-                <span className="text-sm font-bold text-slate-400">至</span>
+                <span className="text-xs font-semibold text-stone-400">至</span>
                 <PickerChip
                   type="date"
                   value={reportEndDate}
@@ -466,58 +402,46 @@ export const HomeView = ({
             )}
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Summary Stats */}
-        <div className="lg:col-span-1 space-y-4">
-          <div className="p-5 rounded-2xl bg-indigo-50/52 backdrop-blur-xl border border-indigo-100/50 shadow-[0_16px_32px_rgba(99,102,241,0.12)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_20px_38px_rgba(99,102,241,0.16)]">
-            <div className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1">所选期间总额</div>
-            <div className="text-xl font-black text-indigo-700">{formatCurrency(salesReport.totalAmount)}</div>
+        <div className="grid border-b border-stone-200 sm:grid-cols-2">
+          <div className="px-5 py-4 sm:border-r sm:border-stone-200">
+            <p className="metric-label">所选期间总额</p>
+            <p className="mt-2 font-serif text-2xl font-semibold text-stone-800">{formatCurrency(salesReport.totalAmount)}</p>
           </div>
-          <div className="p-5 rounded-2xl bg-white/46 backdrop-blur-xl border border-white/45 shadow-[0_16px_32px_rgba(15,23,42,0.08)] ring-1 ring-white/4 transition-all hover:-translate-y-0.5 hover:shadow-[0_20px_38px_rgba(15,23,42,0.12)]">
-            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">销售总箱数</div>
-              <div className="text-xl font-black text-slate-700">
-                {(() => {
-                  const totalBoxes = salesReport.items.reduce((sum: number, item: SalesReportItem) => sum + Math.floor(item.quantity / item.spec), 0);
-                  const totalItems = salesReport.items.reduce((sum: number, item: SalesReportItem) => sum + (item.quantity % item.spec), 0);
-                  return `${totalBoxes} 箱${totalItems > 0 ? ` + ${totalItems} 个` : ''}`;
-                })()}
-              </div>
-            </div>
+          <div className="border-t border-stone-200 px-5 py-4 sm:border-t-0">
+            <p className="metric-label">销售总箱数</p>
+            <p className="mt-2 font-serif text-2xl font-semibold text-stone-800">
+              {totalBoxes} 箱{totalItems > 0 ? ` + ${totalItems} 个` : ''}
+            </p>
+          </div>
         </div>
 
-        {/* Product Breakdown */}
-        <div className="lg:col-span-3">
-          <div className="rounded-2xl overflow-hidden border border-white/40 bg-white/32 backdrop-blur-xl shadow-[0_18px_36px_rgba(15,23,42,0.09)] ring-1 ring-white/40">
-            <table className="w-full text-left">
-              <thead className="bg-white/42">
-                <tr>
-                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">商品名称</th>
-                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">销售数量</th>
-                  <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase text-right">销售金额</th>
+        <div className="data-table-shell">
+          <table className="w-full text-left">
+            <thead>
+              <tr>
+                <th className="px-5 py-3.5">商品名称</th>
+                <th className="px-5 py-3.5">销售数量</th>
+                <th className="px-5 py-3.5 text-right">销售金额</th>
+              </tr>
+            </thead>
+            <tbody>
+              {salesReport.items.map((item: SalesReportItem, idx: number) => (
+                <tr key={`${item.name}-${idx}`}>
+                  <td className="px-5 py-4 text-sm font-semibold text-stone-800">{item.name}</td>
+                  <td className="px-5 py-4 text-sm text-stone-600">{formatStock(item.quantity, item.spec)}</td>
+                  <td className="px-5 py-4 text-right text-sm font-semibold tabular-nums text-stone-800">{formatCurrency(item.amount)}</td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {salesReport.items.map((item: SalesReportItem, idx: number) => (
-                  <tr key={idx} className="hover:bg-white/20 transition-colors">
-                    <td className="px-4 py-3 text-sm font-medium text-slate-900">{item.name}</td>
-                    <td className="px-4 py-3 text-sm text-slate-600">{formatStock(item.quantity, item.spec)}</td>
-                    <td className="px-4 py-3 text-sm text-slate-900 font-bold text-right">{formatCurrency(item.amount)}</td>
-                  </tr>
-                ))}
-                {salesReport.items.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">该期间暂无销售记录</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {salesReport.items.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-5 py-12 text-center text-sm text-stone-400">该期间暂无销售记录</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      </div>
-    </div>
-
+      </section>
     </div>
   );
 };
@@ -649,10 +573,10 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
       month: selectedMonthLabel,
       helper: `年度累计 ${formatDashboardCompactCurrency(yearSalesTotal)}`,
       icon: <BarChart3 size={22} className="text-white" />,
-      valueClassName: 'text-slate-950',
-      iconClassName: 'bg-[#5b5df7] shadow-[0_16px_34px_rgba(91,93,247,0.32)]',
-      accentClassName: 'from-[#eef2ff] via-white to-white',
-      sparkClassName: 'bg-[#5b5df7]/14'
+      valueClassName: 'text-stone-900',
+      iconClassName: 'bg-[#7c3037]',
+      accentClassName: '',
+      sparkClassName: 'bg-[#9b7845]/20'
     },
     {
       title: '销售环比',
@@ -664,11 +588,9 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
         : <TrendingDown size={22} className="text-white" />,
       valueClassName: metrics.currentMonthSalesMoM !== null && metrics.currentMonthSalesMoM < 0 ? 'text-rose-500' : 'text-emerald-500',
       iconClassName: metrics.currentMonthSalesMoM !== null && metrics.currentMonthSalesMoM < 0
-        ? 'bg-[#e94b62] shadow-[0_16px_34px_rgba(233,75,98,0.28)]'
-        : 'bg-[#47b881] shadow-[0_16px_34px_rgba(71,184,129,0.28)]',
-      accentClassName: metrics.currentMonthSalesMoM !== null && metrics.currentMonthSalesMoM < 0
-        ? 'from-[#fff1f3] via-white to-white'
-        : 'from-[#ecfdf5] via-white to-white',
+        ? 'bg-[#a04448]'
+        : 'bg-[#2e6249]',
+      accentClassName: '',
       sparkClassName: metrics.currentMonthSalesMoM !== null && metrics.currentMonthSalesMoM < 0 ? 'bg-rose-400/14' : 'bg-emerald-400/16'
     }
   ] as const;
@@ -682,15 +604,15 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
 
   const renderHotList = (items: DashboardMetrics['hotByAmount'], mode: 'amount' | 'volume') => {
     const barClassName = mode === 'amount'
-      ? 'bg-gradient-to-r from-[#5b5df7] to-[#9aa3ff]'
-      : 'bg-gradient-to-r from-[#20b486] to-[#8ddcb1]';
-    const shareClassName = mode === 'amount' ? 'text-[#5b5df7]' : 'text-[#17966f]';
+      ? 'bg-[#9b7845]'
+      : 'bg-[#2e6249]';
+    const shareClassName = mode === 'amount' ? 'text-[#7c3037]' : 'text-[#2e6249]';
 
     if (items.length === 0) {
       return (
-        <div className="flex min-h-[186px] items-center justify-center rounded-[24px] border border-dashed border-slate-200/80 bg-gradient-to-br from-white to-slate-50/80 px-4 py-10 text-center">
+        <div className="flex min-h-[186px] items-center justify-center rounded-xl border border-dashed border-stone-300 bg-stone-50 px-4 py-10 text-center">
           <div>
-            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
               <BarChart3 size={20} />
             </div>
             <div className="text-sm font-black text-slate-400">暂无数据</div>
@@ -703,7 +625,7 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
     return (
       <div className="space-y-4">
         {items.map((item, index) => (
-          <div key={`${mode}-${item.productId}-${index}`} className="rounded-[20px] border border-slate-100 bg-white/80 px-4 py-3.5 shadow-[0_10px_22px_rgba(15,23,42,0.045)]">
+          <div key={`${mode}-${item.productId}-${index}`} className="rounded-xl border border-slate-100 bg-white px-4 py-3.5">
             <div className="flex items-start gap-3">
               <div className={`mt-0.5 h-8 w-8 shrink-0 rounded-xl text-center text-xs font-black leading-8 shadow-sm ${getRankBadgeClassName(index)}`}>
                 {index + 1}
@@ -742,11 +664,10 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
 
   return (
     <div className="space-y-5 sm:space-y-7">
-      <section className="relative overflow-hidden rounded-[26px] border border-white/70 bg-[radial-gradient(circle_at_15%_15%,rgba(91,93,247,0.14),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.94),rgba(248,250,252,0.82))] p-4 shadow-[0_18px_42px_rgba(15,23,42,0.09)] backdrop-blur-xl sm:rounded-[32px] sm:p-6">
-        <div className="absolute right-6 top-6 hidden h-24 w-24 rounded-full border border-[#5b5df7]/12 bg-white/45 lg:block" />
+      <section className="section-panel p-5 sm:p-6">
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#5b5df7]/12 bg-white/74 px-3 py-1.5 text-xs font-black text-[#5b5df7] shadow-sm">
+            <div className="eyebrow mb-3 inline-flex items-center gap-2">
               <BarChart3 size={15} />
               销售数据看板
             </div>
@@ -756,11 +677,11 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:flex">
-            <div className="rounded-2xl border border-white/80 bg-white/78 px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+            <div className="rounded-xl border border-stone-200 bg-white px-4 py-3">
               <div className="text-xs font-black text-slate-400">当前月份</div>
               <div className="mt-1 text-lg font-black text-slate-900">{selectedMonthLabel}</div>
             </div>
-            <div className="rounded-2xl border border-white/80 bg-white/78 px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+            <div className="rounded-xl border border-stone-200 bg-white px-4 py-3">
               <div className="text-xs font-black text-slate-400">最高月份</div>
               <div className="mt-1 text-lg font-black text-slate-900">{bestMonthLabel}</div>
             </div>
@@ -770,18 +691,17 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
         {summaryCards.map((card) => (
-          <div key={card.title} className={`relative overflow-hidden rounded-[24px] border border-white/75 bg-gradient-to-br ${card.accentClassName} px-4 py-4 shadow-[0_16px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:rounded-[28px] sm:px-6 sm:py-5`}>
-            <div className="absolute -right-10 -top-12 h-36 w-36 rounded-full bg-white/55" />
+          <div key={card.title} className={`section-panel px-4 py-4 sm:px-6 sm:py-5 ${card.accentClassName}`}>
             <div className="flex items-start justify-between gap-3 sm:gap-4">
-              <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] sm:h-16 sm:w-16 sm:rounded-[22px] ${card.iconClassName}`}>
+              <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-xl sm:h-16 sm:w-16 sm:rounded-xl ${card.iconClassName}`}>
                 {card.icon}
               </div>
               <div className="relative flex-1">
                 <div className="text-sm font-black text-slate-500 mb-1">{card.title}</div>
                 <div className={`text-3xl leading-tight font-black sm:text-4xl ${card.valueClassName ?? 'text-slate-900'}`}>{card.value}</div>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
-                  <span className="rounded-full bg-white/80 px-2.5 py-1 text-slate-400">{card.month}</span>
-                  <span className="rounded-full bg-white/80 px-2.5 py-1 text-slate-400">{card.helper}</span>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-slate-400">{card.month}</span>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-slate-400">{card.helper}</span>
                 </div>
               </div>
               <div className="hidden sm:flex items-end gap-1.5 opacity-30 pt-2">
@@ -795,7 +715,7 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
       </div>
 
       <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2 2xl:gap-6">
-        <section className="rounded-[26px] border border-white/70 bg-white/86 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:rounded-[30px] sm:p-6">
+        <section className="section-panel p-4 sm:p-6">
           <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-black text-slate-900 sm:text-xl">月销售柱形图</h2>
@@ -804,20 +724,20 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
             <span className="rounded-full bg-slate-100/80 px-3 py-1.5 text-xs font-black text-slate-500">{metrics.selectedYear}年 1月 - 当前月</span>
           </div>
           {!hasSalesSeriesData && (
-            <div className="rounded-[24px] border border-dashed border-slate-200/70 bg-gradient-to-br from-white to-slate-50/80 px-4 py-16 text-center text-sm font-semibold text-slate-400">
+            <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50 px-4 py-16 text-center text-sm font-semibold text-stone-400">
               暂无数据
             </div>
           )}
           {hasSalesSeriesData && (
-            <div className="rounded-[22px] border border-slate-100 bg-gradient-to-br from-white to-slate-50/70 px-1 py-2 shadow-inner sm:rounded-[24px] sm:px-2 sm:py-3">
+            <div className="rounded-xl border border-stone-200 bg-stone-50 px-1 py-2 sm:px-2 sm:py-3">
               <svg viewBox={`0 0 ${barChart.width} ${barChart.height}`} className="h-[240px] w-full overflow-visible sm:h-[320px]">
                 <defs>
                   <linearGradient id="dashboardSalesBarGradient" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#aab1ff" />
-                    <stop offset="100%" stopColor="#6257f7" />
+                    <stop offset="0%" stopColor="#c9ad85" />
+                    <stop offset="100%" stopColor="#9b7845" />
                   </linearGradient>
                   <filter id="dashboardSalesBarShadow" x="-30%" y="-20%" width="160%" height="150%">
-                    <feDropShadow dx="0" dy="12" stdDeviation="10" floodColor="#6366f1" floodOpacity="0.22" />
+                    <feDropShadow dx="0" dy="12" stdDeviation="10" floodColor="#9b7845" floodOpacity="0.22" />
                   </filter>
                 </defs>
                 {barChart.ticks.map((tick) => {
@@ -868,26 +788,26 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
           )}
         </section>
 
-        <section className="rounded-[26px] border border-white/70 bg-white/86 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:rounded-[30px] sm:p-6">
+        <section className="section-panel p-4 sm:p-6">
           <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-black text-slate-900 sm:text-xl">销售环比趋势图</h2>
               <p className="mt-1 text-xs font-bold text-slate-400">只展示销售额相对上月的变化</p>
             </div>
-            <span className="rounded-full bg-[#5b5df7]/10 px-3 py-1.5 text-xs font-black text-[#5b5df7]">销售额</span>
+            <span className="rounded-full bg-[#7c3037]/10 px-3 py-1.5 text-xs font-black text-[#7c3037]">销售额</span>
           </div>
           {!momChart.hasData && (
-            <div className="rounded-[24px] border border-dashed border-slate-200/70 bg-gradient-to-br from-white to-slate-50/80 px-4 py-16 text-center text-sm font-semibold text-slate-400">
+            <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50 px-4 py-16 text-center text-sm font-semibold text-stone-400">
               暂无数据
             </div>
           )}
           {momChart.hasData && (
             <div className="space-y-4">
-              <div className="rounded-[22px] border border-slate-100 bg-gradient-to-br from-white to-slate-50/70 px-1 py-2 shadow-inner sm:rounded-[24px] sm:px-2 sm:py-3">
+              <div className="rounded-xl border border-stone-200 bg-stone-50 px-1 py-2 sm:px-2 sm:py-3">
                 <svg viewBox={`0 0 ${momChart.width} ${momChart.height}`} className="h-[240px] w-full overflow-visible sm:h-[320px]">
                   <defs>
                     <filter id="dashboardMomLineGlow" x="-20%" y="-20%" width="140%" height="140%">
-                      <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#5b5df7" floodOpacity="0.18" />
+                      <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#7c3037" floodOpacity="0.18" />
                     </filter>
                   </defs>
                   {momChart.ticks.map((tick) => {
@@ -907,7 +827,7 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
                     );
                   })}
                   {momChart.salesPolyline && (
-                    <polyline fill="none" stroke="#5b5df7" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={momChart.salesPolyline} filter="url(#dashboardMomLineGlow)" />
+                    <polyline fill="none" stroke="#7c3037" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={momChart.salesPolyline} filter="url(#dashboardMomLineGlow)" />
                   )}
                   {momChart.salesPoints.map((point, index) => {
                     const labelY = Math.max(
@@ -921,8 +841,8 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
 
                     return (
                       <g key={`sales-dot-${index}`}>
-                        <circle cx={point.x} cy={point.y} r="8" fill="#5b5df7" opacity="0.12" />
-                        <circle cx={point.x} cy={point.y} r="4.8" fill="#5b5df7">
+                        <circle cx={point.x} cy={point.y} r="8" fill="#7c3037" opacity="0.12" />
+                        <circle cx={point.x} cy={point.y} r="4.8" fill="#7c3037">
                           <title>{`销售额环比 ${formatMomText(point.value)}`}</title>
                         </circle>
                         <text
@@ -956,7 +876,7 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
               </div>
               <div className="flex flex-wrap items-center gap-5 text-xs font-black text-slate-500">
                 <span className="inline-flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#5b5df7]" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#7c3037]" />
                   销售额环比
                 </span>
                 <span className="text-slate-300">0% 线表示与上月持平</span>
@@ -967,7 +887,7 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
       </div>
 
       <div className="space-y-4">
-        <div className="flex flex-col gap-3 rounded-[26px] border border-white/70 bg-white/82 px-4 py-4 shadow-[0_14px_32px_rgba(15,23,42,0.07)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between sm:rounded-[30px] sm:px-6">
+        <div className="section-panel flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
             <h2 className="text-lg font-black text-slate-900 sm:text-xl">热门产品月销售对比</h2>
             <p className="mt-1 text-xs font-bold text-slate-400">选择月份后，同步查看销售额 Top5 与销量 Top5</p>
@@ -982,17 +902,17 @@ export const DashboardView = ({ metrics, setHotMonth, formatCurrency, formatStoc
           />
         </div>
         <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2 2xl:gap-6">
-        <section className="rounded-[26px] border border-white/70 bg-white/86 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:rounded-[30px] sm:p-6">
+        <section className="section-panel p-4 sm:p-6">
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black text-slate-900">热门产品销售额占比 Top5</h2>
               <p className="mt-1 text-xs font-bold text-slate-400">按销售额排序</p>
             </div>
-            <span className="shrink-0 rounded-full bg-[#5b5df7]/10 px-3 py-1.5 text-xs font-black text-[#5b5df7]">{hotMonthLabel}</span>
+            <span className="shrink-0 rounded-full bg-[#7c3037]/10 px-3 py-1.5 text-xs font-black text-[#7c3037]">{hotMonthLabel}</span>
           </div>
           {renderHotList(metrics.hotByAmount, 'amount')}
         </section>
-        <section className="rounded-[26px] border border-white/70 bg-white/86 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:rounded-[30px] sm:p-6">
+        <section className="section-panel p-4 sm:p-6">
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black text-slate-900">热门产品销量占比 Top5</h2>
@@ -1183,7 +1103,7 @@ export const InventoryOverviewView = ({
   if (mode === 'warnings') {
     return (
       <div className="space-y-8">
-        <div className="glass rounded-2xl p-6 shadow-sm border-white/20">
+        <div className="surface rounded-xl p-6 shadow-sm border-stone-200">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangle className="text-amber-500" size={20} />
@@ -1193,7 +1113,7 @@ export const InventoryOverviewView = ({
               type="button"
               onClick={handleExportWarningList}
               disabled={sortedWarnings.length === 0}
-              className="inline-flex items-center justify-center rounded-xl border border-indigo-200/60 bg-indigo-500/90 px-4 py-2 text-sm font-bold text-white shadow-[0_12px_26px_rgba(99,102,241,0.28)] transition-all hover:bg-indigo-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
+              className="inline-flex items-center justify-center rounded-xl border border-indigo-200/60 bg-indigo-500/90 px-4 py-2 text-sm font-bold text-white transition-all hover:bg-[#7c3037] disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
             >
               导出要货列表
             </button>
@@ -1201,17 +1121,17 @@ export const InventoryOverviewView = ({
           {sortedWarnings.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {sortedWarnings.map((p: Product) => (
-                <div key={p.id} className="relative overflow-hidden p-5 rounded-2xl border border-rose-200/45 bg-white/60 backdrop-blur-xl shadow-[0_18px_36px_rgba(244,63,94,0.12)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(244,63,94,0.16)]">
+                <div key={p.id} className="relative overflow-hidden p-5 rounded-xl border border-rose-200/45 bg-white transition-all">
                   {shoeBackgroundMap[normalizeComparableModelKey(p.name)] && (
                     <>
                       <div
                         className="absolute inset-0 bg-center bg-cover opacity-[0.08] scale-110"
                         style={{ backgroundImage: `url(${shoeBackgroundMap[normalizeComparableModelKey(p.name)]})` }}
                       />
-                      <div className="absolute inset-0 bg-gradient-to-br from-white/96 via-white/88 to-rose-50/78" />
+                      <div className="absolute inset-0 bg-white" />
                     </>
                   )}
-                  <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
+                  <div className="relative z-10 font-semibold text-slate-950">{p.name}</div>
                   <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
                   <div className="relative z-10 mt-1 text-sm font-semibold text-slate-600">
                     近30天周均销量: {((productRiskMetricsByProduct[p.id]?.avgDailyBoxes30d ?? 0) * 7).toFixed(1)} 箱
@@ -1231,7 +1151,7 @@ export const InventoryOverviewView = ({
               ))}
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50/30 backdrop-blur-sm p-4 rounded-xl border border-emerald-100/30">
+            <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50/30 p-4 rounded-xl border border-emerald-100/30">
               <CheckCircle2 size={18} />
               <span>库存充足，暂无预警商品</span>
             </div>
@@ -1244,7 +1164,7 @@ export const InventoryOverviewView = ({
   if (mode === 'stale') {
     return (
       <div className="space-y-8">
-        <div className="rounded-2xl p-6 shadow-sm border border-amber-100/60 bg-amber-50/40 backdrop-blur-xl">
+        <div className="rounded-xl p-6 shadow-sm border border-amber-100/60 bg-amber-50/40">
           <div className="flex items-center gap-2 mb-4">
             <AlertTriangle className="text-amber-500" size={20} />
             <h2 className="text-lg font-semibold text-slate-800">滞销品明细 (30天无销售且库存&gt;0)</h2>
@@ -1252,17 +1172,17 @@ export const InventoryOverviewView = ({
           {sortedStaleProducts.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {sortedStaleProducts.map((p: Product) => (
-                <div key={p.id} className="relative overflow-hidden p-5 rounded-2xl border border-amber-200/50 bg-amber-50/60 backdrop-blur-xl shadow-[0_18px_36px_rgba(251,191,36,0.14)] ring-1 ring-white/45 transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_42px_rgba(251,191,36,0.18)]">
+                <div key={p.id} className="relative overflow-hidden p-5 rounded-xl border border-amber-200/50 bg-amber-50/60 transition-all">
                   {shoeBackgroundMap[normalizeComparableModelKey(p.name)] && (
                     <>
                       <div
                         className="absolute inset-0 bg-center bg-cover opacity-[0.07] scale-110"
                         style={{ backgroundImage: `url(${shoeBackgroundMap[normalizeComparableModelKey(p.name)]})` }}
                       />
-                      <div className="absolute inset-0 bg-gradient-to-br from-amber-50/95 via-white/90 to-amber-100/70" />
+                      <div className="absolute inset-0 bg-amber-50/90" />
                     </>
                   )}
-                  <div className="relative z-10 font-semibold text-slate-950 drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">{p.name}</div>
+                  <div className="relative z-10 font-semibold text-slate-950">{p.name}</div>
                   <div className="relative z-10 text-sm font-semibold text-slate-600">规格: {p.spec} 个/箱</div>
                   <div className="relative z-10 mt-1 text-sm font-semibold text-slate-600">
                     {formatLastSaleDate(productRiskMetricsByProduct[p.id])}
@@ -1274,7 +1194,7 @@ export const InventoryOverviewView = ({
               ))}
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50/40 backdrop-blur-sm p-4 rounded-xl border border-emerald-100/40">
+            <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50/40 p-4 rounded-xl border border-emerald-100/40">
               <CheckCircle2 size={18} />
               <span>暂无滞销品</span>
             </div>
@@ -1294,10 +1214,10 @@ export const InventoryOverviewView = ({
 
     return (
       <div className="space-y-8">
-        <div className="glass rounded-3xl p-6 shadow-sm border-white/20">
+        <div className="surface rounded-xl p-6 shadow-sm border-stone-200">
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-2">
-              <TrendingUp className="text-indigo-500" size={20} />
+              <TrendingUp className="text-[#7c3037]" size={20} />
               <h2 className="text-lg font-semibold text-slate-800">{salesPeriodData.title}</h2>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -1312,26 +1232,26 @@ export const InventoryOverviewView = ({
                   onChange={(event) => setComparisonSearchTerm(event.target.value)}
                   placeholder="搜索产品型号"
                   aria-label="搜索销量产品"
-                  className="h-10 w-full rounded-xl border border-white/60 bg-white/55 pl-9 pr-9 text-sm font-bold text-slate-700 outline-none backdrop-blur-xl transition-all placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white/80 focus:ring-2 focus:ring-indigo-100"
+                  className="h-10 w-full rounded-xl border border-stone-200 bg-white pl-9 pr-9 text-sm font-bold text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                 />
                 {comparisonSearchTerm && (
                   <button
                     type="button"
                     onClick={() => setComparisonSearchTerm('')}
                     aria-label="清空产品搜索"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 transition-colors hover:bg-white/80 hover:text-slate-700"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 transition-colors hover:bg-white hover:text-slate-700"
                   >
                     <X size={14} />
                   </button>
                 )}
               </div>
-              <div className="inline-flex items-center rounded-xl border border-white/50 bg-white/35 p-1 backdrop-blur-xl">
+              <div className="inline-flex items-center rounded-xl border border-stone-200 bg-white p-1">
                 <button
                   type="button"
                   onClick={() => setComparisonMode('week')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                     comparisonMode === 'week'
-                      ? 'bg-white/90 text-indigo-600 shadow-sm'
+                      ? 'bg-white text-[#7c3037] shadow-sm'
                       : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
@@ -1342,7 +1262,7 @@ export const InventoryOverviewView = ({
                   onClick={() => setComparisonMode('month')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                     comparisonMode === 'month'
-                      ? 'bg-white/90 text-indigo-600 shadow-sm'
+                      ? 'bg-white text-[#7c3037] shadow-sm'
                       : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
@@ -1351,9 +1271,9 @@ export const InventoryOverviewView = ({
               </div>
             </div>
           </div>
-          <div className="overflow-x-auto rounded-2xl border border-white/40 bg-white/28 backdrop-blur-xl">
+          <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
             <table className="w-full min-w-max text-left">
-              <thead className="bg-white/40">
+              <thead className="bg-white">
                 <tr>
                   <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">商品</th>
                   {salesPeriodData.columns.map((column) => (
@@ -1391,11 +1311,11 @@ export const InventoryOverviewView = ({
 
   return (
     <div className="space-y-6 sm:space-y-8">
-      <div className="glass rounded-[26px] border-white/30 p-4 shadow-xl sm:rounded-3xl sm:p-8">
+      <div className="surface rounded-xl border-stone-200 p-4 shadow-sm sm:rounded-xl sm:p-8">
         <div className="mb-5 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-50/50 backdrop-blur-md rounded-xl border border-indigo-100/30">
-              <Package className="text-indigo-600" size={24} />
+            <div className="p-2 bg-indigo-50/50 rounded-xl border border-indigo-100/30">
+              <Package className="text-[#7c3037]" size={24} />
             </div>
             <h2 className="text-xl font-black text-slate-800 tracking-tight">全店商品库存概览</h2>
           </div>
@@ -1411,14 +1331,14 @@ export const InventoryOverviewView = ({
                 onChange={(event) => setStockSearchTerm(event.target.value)}
                 placeholder="搜索产品型号"
                 aria-label="搜索库存产品"
-                className="h-10 w-full rounded-xl border border-white/60 bg-white/55 pl-9 pr-9 text-sm font-bold text-slate-700 outline-none backdrop-blur-xl transition-all placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white/80 focus:ring-2 focus:ring-indigo-100"
+                className="h-10 w-full rounded-xl border border-stone-200 bg-white pl-9 pr-9 text-sm font-bold text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
               />
               {stockSearchTerm && (
                 <button
                   type="button"
                   onClick={() => setStockSearchTerm('')}
                   aria-label="清空库存产品搜索"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 transition-colors hover:bg-white/80 hover:text-slate-700"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 transition-colors hover:bg-white hover:text-slate-700"
                 >
                   <X size={14} />
                 </button>
@@ -1428,11 +1348,11 @@ export const InventoryOverviewView = ({
               type="button"
               onClick={handleExportRemainingStock}
               disabled={sortedProducts.length === 0}
-              className="inline-flex items-center justify-center rounded-xl border border-indigo-200/60 bg-indigo-500/90 px-4 py-2 text-sm font-bold text-white shadow-[0_12px_26px_rgba(99,102,241,0.28)] transition-all hover:bg-indigo-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
+              className="inline-flex items-center justify-center rounded-xl border border-indigo-200/60 bg-indigo-500/90 px-4 py-2 text-sm font-bold text-white transition-all hover:bg-[#7c3037] disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
             >
               导出剩余库存
             </button>
-            <div className="text-sm font-bold text-slate-400 bg-white/30 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20">
+            <div className="text-sm font-bold text-slate-400 bg-white px-4 py-1.5 rounded-full border border-stone-200">
               {normalizedStockSearchTerm
                 ? `显示 ${visibleStockProducts.length} / 共 ${products.length} 款`
                 : `共 ${products.length} 款商品`}
@@ -1449,10 +1369,10 @@ export const InventoryOverviewView = ({
               <motion.div
                 key={p.id}
                 whileHover={{ y: -4 }}
-                className={`relative group overflow-hidden rounded-[24px] border p-5 transition-all duration-300 backdrop-blur-md sm:rounded-3xl sm:p-6 ${
+                className={`relative group overflow-hidden rounded-xl border p-5 transition-all duration-300 sm:rounded-xl sm:p-6 ${
                   isLowStock
-                    ? 'bg-rose-50/40 border-rose-100/50 hover:shadow-rose-100/50 shadow-lg'
-                    : 'bg-white/40 border-white/30 hover:shadow-indigo-100/30 shadow-md'
+                    ? 'bg-rose-50/40 border-rose-100/50 hover:shadow-rose-100/50 shadow-sm'
+                    : 'bg-white border-stone-200 hover:shadow-indigo-100/30 shadow-md'
                 }`}
               >
                 {cardBackground && (
@@ -1463,14 +1383,14 @@ export const InventoryOverviewView = ({
                     />
                     <div className={`absolute inset-0 ${
                       isLowStock
-                        ? 'bg-gradient-to-br from-white/90 via-white/76 to-rose-50/60'
-                        : 'bg-gradient-to-br from-white/88 via-white/72 to-sky-50/44'
+                        ? 'bg-rose-50/70'
+                        : 'bg-white'
                     }`} />
                   </>
                 )}
                 {isLowStock && (
                   <motion.div
-                    className="absolute top-3 right-3 z-20 flex items-center gap-1 rounded-full bg-rose-500 text-white text-[10px] font-black px-3 py-1.5 shadow-lg shadow-rose-300/60 ring-2 ring-white/80 backdrop-blur-md"
+                    className="absolute top-3 right-3 z-20 flex items-center gap-1 rounded-full bg-rose-500 text-white text-[10px] font-black px-3 py-1.5 shadow-sm shadow-rose-300/60 ring-2 ring-white/80"
                     animate={{
                       opacity: [0.96, 1, 0.96],
                       backgroundColor: [
@@ -1501,7 +1421,7 @@ export const InventoryOverviewView = ({
                     />
                     <span className="relative flex h-3 w-3 items-center justify-center">
                       <motion.span
-                        className="absolute inset-0 rounded-full bg-white/45"
+                        className="absolute inset-0 rounded-full bg-white"
                         animate={{ opacity: [0.12, 0.58, 0.12], scale: [0.92, 1.55, 0.92] }}
                         transition={{
                           duration: 1.15,
@@ -1517,9 +1437,9 @@ export const InventoryOverviewView = ({
 
                 <div className="relative z-10 flex flex-col h-full">
                   <div className="mb-4">
-                    <div className="text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-1">{p.name}</div>
+                    <div className="text-lg font-black text-slate-900 group-hover:text-[#7c3037] transition-colors line-clamp-1">{p.name}</div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-white/40 px-2 py-0.5 rounded border border-white/20">规格: {p.spec}</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-white px-2 py-0.5 rounded border border-stone-200">规格: {p.spec}</span>
                       <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest bg-indigo-50/50 px-2 py-0.5 rounded border border-indigo-100/30">{p.price} XOF</span>
                     </div>
                     <div className="mt-1 text-[11px] font-bold text-slate-500">
@@ -1527,7 +1447,7 @@ export const InventoryOverviewView = ({
                     </div>
                   </div>
 
-                  <div className="mt-auto pt-4 border-t border-white/20">
+                  <div className="mt-auto pt-4 border-t border-stone-200">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">当前可用库存</div>
                     <div className="flex items-baseline gap-1">
                       <span className={`text-2xl font-black tracking-tight ${isLowStock ? 'text-rose-600' : 'text-slate-900'}`}>
@@ -1545,7 +1465,7 @@ export const InventoryOverviewView = ({
                       )}
                     </div>
 
-                    <div className="mt-4 h-2 bg-white/30 rounded-full overflow-hidden border border-white/10">
+                    <div className="mt-4 h-2 bg-white rounded-full overflow-hidden border border-stone-200">
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${Math.min((p.stock / (p.spec * 100)) * 100, 100)}%` }}
@@ -1558,13 +1478,13 @@ export const InventoryOverviewView = ({
             );
           })}
           {products.length === 0 && (
-            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white/20 backdrop-blur-md rounded-3xl border-2 border-dashed border-white/30">
+            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white rounded-xl border-2 border-dashed border-stone-200">
               <Package className="text-slate-300 mb-4" size={48} />
               <div className="text-slate-400 font-bold">暂无商品数据，请前往“商品管理”添加</div>
             </div>
           )}
           {products.length > 0 && visibleStockProducts.length === 0 && (
-            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white/20 backdrop-blur-md rounded-3xl border-2 border-dashed border-white/30">
+            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white rounded-xl border-2 border-dashed border-stone-200">
               <Search className="text-slate-300 mb-4" size={48} />
               <div className="text-slate-400 font-bold">未找到匹配商品</div>
             </div>
@@ -1868,7 +1788,7 @@ export const OrderEntryView = ({
     <div className="space-y-5 sm:space-y-8">
       <AnimatePresence>
         {editingOrderItemId !== null && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
             <motion.form
               onSubmit={handleEditSubmit}
               role="dialog"
@@ -1877,7 +1797,7 @@ export const OrderEntryView = ({
               initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
-              className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8"
+              className="w-full max-w-md rounded-xl bg-white p-6 shadow-sm sm:p-8"
             >
               <div className="mb-6 flex items-center justify-between gap-4">
                 <h3 id="order-item-editor-title" className="text-xl font-black text-slate-800">{copy.editItem}</h3>
@@ -1928,7 +1848,7 @@ export const OrderEntryView = ({
                         initial={{ opacity: 0, y: -8 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -8 }}
-                        className="absolute z-20 mt-2 max-h-48 w-full overflow-y-auto rounded-2xl border border-slate-100 bg-white shadow-2xl custom-scrollbar"
+                        className="absolute z-20 mt-2 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-100 bg-white shadow-sm custom-scrollbar"
                       >
                         {filteredEditProducts.map((product) => (
                           <button
@@ -1988,7 +1908,7 @@ export const OrderEntryView = ({
                   </button>
                   <button
                     type="submit"
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 font-bold text-white shadow-lg shadow-indigo-200 transition-colors hover:bg-indigo-700"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#7c3037] py-3 font-bold text-white shadow-sm shadow-indigo-200 transition-colors hover:bg-indigo-700"
                   >
                     <Save size={18} /> {copy.saveChanges}
                   </button>
@@ -1999,7 +1919,7 @@ export const OrderEntryView = ({
         )}
       </AnimatePresence>
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)] gap-8">
-        <div className="glass rounded-3xl p-5 sm:p-7 shadow-xl border border-white/35">
+        <div className="surface rounded-xl p-5 sm:p-7 shadow-sm border border-stone-200">
           <div className="mb-5 sm:mb-6">
             <h3 className="text-lg font-black text-slate-800">{copy.selectProduct}</h3>
           </div>
@@ -2018,7 +1938,7 @@ export const OrderEntryView = ({
                     setShowDropdown(true);
                   }}
                   onFocus={() => setShowDropdown(true)}
-                  className="w-full rounded-2xl border-white/40 bg-white/35 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 pr-10 py-3 font-bold !text-left"
+                  className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 pr-10 py-3 font-bold !text-left"
                 />
                 {selectedId && (
                   <button
@@ -2032,7 +1952,7 @@ export const OrderEntryView = ({
               </div>
 
               {showDropdown && !selectedId && (
-                <div className="absolute z-50 w-full mt-2 bg-white/90 backdrop-blur-xl border border-white/50 rounded-2xl shadow-2xl max-h-72 overflow-y-auto custom-scrollbar">
+                <div className="absolute z-50 w-full mt-2 bg-white border border-stone-200 rounded-xl shadow-sm max-h-72 overflow-y-auto custom-scrollbar">
                   {filteredProducts.length > 0 ? (
                     filteredProducts.map((product) => (
                       <button
@@ -2069,7 +1989,7 @@ export const OrderEntryView = ({
                   min="0"
                   value={boxes}
                   onChange={(event) => setBoxes(event.target.value)}
-                  className="w-full rounded-2xl border-white/40 bg-white/35 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                  className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
                 />
               </div>
               <div>
@@ -2079,13 +1999,13 @@ export const OrderEntryView = ({
                   min="0"
                   value={items}
                   onChange={(event) => setItems(event.target.value)}
-                  className="w-full rounded-2xl border-white/40 bg-white/35 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                  className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
                 />
               </div>
             </div>
 
-            <div className="rounded-2xl bg-indigo-50/60 border border-indigo-100/70 p-3.5 sm:p-4">
-              <div className="text-xs font-black text-indigo-500 uppercase tracking-widest mb-2">{copy.currentSubtotal}</div>
+            <div className="rounded-xl bg-indigo-50/60 border border-indigo-100/70 p-3.5 sm:p-4">
+              <div className="text-xs font-black text-[#7c3037] uppercase tracking-widest mb-2">{copy.currentSubtotal}</div>
               <div className="text-2xl font-black text-slate-900">{formatCurrency(currentSubtotal)}</div>
               {enteredProduct && (
                 <div className="mt-1 text-sm font-bold text-slate-500">
@@ -2096,7 +2016,7 @@ export const OrderEntryView = ({
 
             <button
               type="submit"
-              className="w-full rounded-2xl bg-indigo-600/90 py-4 font-black text-white shadow-lg shadow-indigo-200/60 transition-all hover:bg-indigo-700 active:scale-[0.99] flex items-center justify-center gap-2"
+              className="w-full rounded-xl bg-[#7c3037] py-4 font-black text-white shadow-sm shadow-indigo-200/60 transition-all hover:bg-indigo-700 active:scale-[0.99] flex items-center justify-center gap-2"
             >
               <Plus size={20} />
               {copy.addToOrder}
@@ -2104,7 +2024,7 @@ export const OrderEntryView = ({
           </form>
         </div>
 
-        <div className="glass rounded-3xl p-5 sm:p-7 shadow-xl border border-white/35">
+        <div className="surface rounded-xl p-5 sm:p-7 shadow-sm border border-stone-200">
           <div className="mb-5 flex items-center justify-between gap-3 sm:mb-6">
             <div>
               <h3 className="text-lg font-black text-slate-800">
@@ -2123,7 +2043,7 @@ export const OrderEntryView = ({
           </div>
 
           {orderItems.length === 0 ? (
-            <div className="max-h-[70vh] overflow-auto rounded-2xl border border-slate-200/70 bg-white/75 shadow-[0_12px_28px_rgba(15,23,42,0.06)] custom-scrollbar">
+            <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-200/70 bg-white/75 custom-scrollbar">
               <table className="w-full table-fixed text-left">
                 <colgroup>
                   <col className="w-[25%]" />
@@ -2131,7 +2051,7 @@ export const OrderEntryView = ({
                   <col className="w-[27%]" />
                   <col className="w-[35%]" />
                 </colgroup>
-                <thead className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur-xl">
+                <thead className="sticky top-0 z-10 bg-slate-100/95">
                   <tr className="border-b border-slate-200/80">
                     <th className="px-2.5 py-3 text-[10px] font-black leading-tight text-slate-500 sm:px-4 sm:text-xs">{copy.priceModel}</th>
                     <th className="px-1 py-3 text-center text-[10px] font-black leading-tight text-slate-500 sm:px-4 sm:text-xs">{copy.priceSpec}</th>
@@ -2139,7 +2059,7 @@ export const OrderEntryView = ({
                       <span className="block">{copy.priceUnit}</span>
                       <span className="mt-0.5 block text-[8px] font-bold text-slate-400 sm:text-[9px]">XOF</span>
                     </th>
-                    <th className="px-2.5 py-3 text-right text-[10px] font-black leading-tight text-indigo-500 sm:px-4 sm:text-xs">
+                    <th className="px-2.5 py-3 text-right text-[10px] font-black leading-tight text-[#7c3037] sm:px-4 sm:text-xs">
                       <span className="block">{copy.priceBox}</span>
                       <span className="mt-0.5 block text-[8px] font-bold text-indigo-400 sm:text-[9px]">XOF</span>
                     </th>
@@ -2147,7 +2067,7 @@ export const OrderEntryView = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {sortedPriceProducts.map((product) => (
-                    <tr key={product.id} className="odd:bg-white/55 even:bg-slate-50/55 transition-colors hover:bg-indigo-50/45">
+                    <tr key={product.id} className="odd:bg-white even:bg-slate-50/55 transition-colors hover:bg-indigo-50/45">
                       <td className="truncate px-2.5 py-3.5 text-[11px] font-black text-slate-900 sm:px-4 sm:text-sm">{product.name}</td>
                       <td className="px-1 py-3.5 text-center text-[11px] font-bold text-slate-500 sm:px-4 sm:text-sm">
                         {formatPackaging(product.spec)}
@@ -2155,7 +2075,7 @@ export const OrderEntryView = ({
                       <td className="whitespace-nowrap px-2 py-3.5 text-right text-[11px] font-bold tabular-nums text-slate-600 sm:px-4 sm:text-sm">
                         {formatMobileAmount(product.price)}
                       </td>
-                      <td className="whitespace-nowrap px-2.5 py-3.5 text-right text-[11px] font-black tabular-nums text-indigo-600 sm:px-4 sm:text-sm">
+                      <td className="whitespace-nowrap px-2.5 py-3.5 text-right text-[11px] font-black tabular-nums text-[#7c3037] sm:px-4 sm:text-sm">
                         {formatMobileAmount(product.price * product.spec)}
                       </td>
                     </tr>
@@ -2165,7 +2085,7 @@ export const OrderEntryView = ({
             </div>
           ) : (
             <>
-          <div className="overflow-hidden rounded-2xl border border-white/55 bg-white/45 shadow-sm md:hidden">
+          <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm md:hidden">
             <table className="w-full table-fixed text-left">
               <colgroup>
                 <col className="w-[21%]" />
@@ -2193,7 +2113,7 @@ export const OrderEntryView = ({
                       <div className="mt-0.5 text-[9px] font-bold text-slate-400">XOF</div>
                     </td>
                     <td className="px-2 py-4">
-                      <div className="text-xs font-black leading-tight text-indigo-600">{formatMobileAmount(subtotal)}</div>
+                      <div className="text-xs font-black leading-tight text-[#7c3037]">{formatMobileAmount(subtotal)}</div>
                       <div className="mt-0.5 text-[9px] font-bold text-indigo-400">XOF</div>
                     </td>
                     <td className="px-1 py-4 text-right">
@@ -2201,7 +2121,7 @@ export const OrderEntryView = ({
                         <button
                           type="button"
                           onClick={() => startEditingOrderItem(item)}
-                          className="rounded-lg p-1.5 text-indigo-500 transition-colors hover:bg-indigo-50/80"
+                          className="rounded-lg p-1.5 text-[#7c3037] transition-colors hover:bg-indigo-50/80"
                           title={copy.edit}
                         >
                           <Pencil size={15} />
@@ -2225,31 +2145,31 @@ export const OrderEntryView = ({
           <div className="hidden overflow-x-auto custom-scrollbar md:block">
             <table className="w-full text-left">
               <thead>
-                <tr className="border-b border-white/20">
-                  <th className="pb-4 text-xs font-black uppercase tracking-widest text-slate-400">{copy.product}</th>
-                  <th className="pb-4 text-xs font-black uppercase tracking-widest text-slate-400">{copy.quantity}</th>
-                  <th className="pb-4 text-xs font-black uppercase tracking-widest text-slate-400">{copy.boxPrice}</th>
-                  <th className="pb-4 text-xs font-black uppercase tracking-widest text-slate-400">{copy.subtotal}</th>
-                  <th className="pb-4 text-right text-xs font-black uppercase tracking-widest text-slate-400">{copy.action}</th>
+                <tr className="border-b border-stone-200">
+                  <th className="py-2 text-xs font-black uppercase tracking-widest text-slate-400">{copy.product}</th>
+                  <th className="py-2 text-xs font-black uppercase tracking-widest text-slate-400">{copy.quantity}</th>
+                  <th className="py-2 text-xs font-black uppercase tracking-widest text-slate-400">{copy.boxPrice}</th>
+                  <th className="py-2 text-xs font-black uppercase tracking-widest text-slate-400">{copy.subtotal}</th>
+                  <th className="py-2 text-right text-xs font-black uppercase tracking-widest text-slate-400">{copy.action}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/20">
                 {orderRows.map(({ item, quantity, subtotal }) => {
                   return (
-                    <tr key={item.id} className="hover:bg-white/20 transition-colors">
+                    <tr key={item.id} className="hover:bg-white transition-colors">
                       <td className="py-4">
                         <div className="font-black text-slate-900">{item.product.name}</div>
                         <div className="text-xs font-bold text-slate-400">{copy.packaging}: {formatPackaging(item.product.spec)}</div>
                       </td>
                       <td className="py-4 text-sm font-bold text-slate-600">{formatOrderStock(quantity, item.product.spec)}</td>
                       <td className="py-4 text-sm font-bold text-slate-600">{formatCurrency(item.product.price * item.product.spec)}</td>
-                      <td className="py-4 text-sm font-black text-indigo-600">{formatCurrency(subtotal)}</td>
+                      <td className="py-4 text-sm font-black text-[#7c3037]">{formatCurrency(subtotal)}</td>
                       <td className="py-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
                             type="button"
                             onClick={() => startEditingOrderItem(item)}
-                            className="rounded-xl p-2 text-indigo-500 transition-all hover:bg-indigo-50/70"
+                            className="rounded-xl p-2 text-[#7c3037] transition-all hover:bg-indigo-50/70"
                             title={copy.edit}
                           >
                             <Pencil size={18} />
@@ -2270,7 +2190,7 @@ export const OrderEntryView = ({
               </tbody>
             </table>
           </div>
-          <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-rose-50/55 px-4 py-4 sm:mt-6 sm:justify-end sm:bg-transparent sm:px-0 sm:py-0 sm:pt-5">
+          <div className="mt-5 flex items-center justify-between gap-3 rounded-xl bg-rose-50/55 px-4 py-4 sm:mt-6 sm:justify-end sm:bg-transparent sm:px-0 sm:py-0 sm:pt-5">
             <span className="text-sm font-black text-slate-500">{copy.orderTotal}</span>
             <span className="text-2xl font-black tracking-tight text-rose-600 sm:text-3xl">{formatCurrency(committedTotal)}</span>
           </div>
@@ -2694,7 +2614,7 @@ export const StockView = ({
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       <AnimatePresence>
         {isHistoryQueryOpen && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
             <motion.div
               role="dialog"
               aria-modal="true"
@@ -2702,7 +2622,7 @@ export const StockView = ({
               initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
-              className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-8"
+              className="w-full max-w-lg rounded-xl bg-white p-6 shadow-sm sm:p-8"
             >
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
@@ -2784,7 +2704,7 @@ export const StockView = ({
                         initial={{ opacity: 0, y: -8 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -8 }}
-                        className="absolute z-20 mt-2 max-h-48 w-full overflow-y-auto rounded-2xl border border-slate-100 bg-white shadow-2xl custom-scrollbar"
+                        className="absolute z-20 mt-2 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-100 bg-white shadow-sm custom-scrollbar"
                       >
                         <button
                           type="button"
@@ -2793,7 +2713,7 @@ export const StockView = ({
                             setHistoryQueryProductTerm('');
                             setShowHistoryQueryProducts(false);
                           }}
-                          className="flex w-full items-center justify-between border-b border-slate-100 px-4 py-3 text-left font-bold text-indigo-600 transition-colors hover:bg-indigo-50"
+                          className="flex w-full items-center justify-between border-b border-slate-100 px-4 py-3 text-left font-bold text-[#7c3037] transition-colors hover:bg-indigo-50"
                         >
                           <span>全部商品</span>
                           <span className="text-xs text-slate-400">不限型号</span>
@@ -2826,7 +2746,7 @@ export const StockView = ({
                     type="checkbox"
                     checked={historyQueryAllTime}
                     onChange={(event) => setHistoryQueryAllTime(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    className="h-4 w-4 rounded border-slate-300 text-[#7c3037] focus:ring-indigo-500"
                   />
                   <span className="text-sm font-bold text-slate-700">所有时间</span>
                 </label>
@@ -2867,7 +2787,7 @@ export const StockView = ({
                   <button
                     type="button"
                     onClick={applyHistoryQuery}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 font-bold text-white shadow-lg shadow-indigo-200 transition-colors hover:bg-indigo-700"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#7c3037] py-3 font-bold text-white shadow-sm shadow-indigo-200 transition-colors hover:bg-indigo-700"
                   >
                     <Search size={18} /> 开始查询
                   </button>
@@ -2879,12 +2799,12 @@ export const StockView = ({
       </AnimatePresence>
       <AnimatePresence>
         {editingTransaction && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl"
+              className="bg-white rounded-xl p-8 w-full max-w-md shadow-sm"
             >
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-black text-slate-800">修改流水记录</h3>
@@ -2935,7 +2855,7 @@ export const StockView = ({
                         setShowEditDropdown(true);
                       }}
                       onFocus={() => setShowEditDropdown(true)}
-                      className="w-full rounded-2xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 font-bold pr-10"
+                      className="w-full rounded-xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 font-bold pr-10"
                     />
                     {editProductId && (
                       <button 
@@ -2955,7 +2875,7 @@ export const StockView = ({
                           initial={{ opacity: 0, y: -10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
-                          className="absolute z-10 w-full mt-2 bg-white rounded-2xl shadow-2xl border border-slate-100 max-h-48 overflow-y-auto"
+                          className="absolute z-10 w-full mt-2 bg-white rounded-xl shadow-sm border border-slate-100 max-h-48 overflow-y-auto"
                         >
                           {filteredEditProducts.map((p: Product) => (
                             <button
@@ -2967,7 +2887,7 @@ export const StockView = ({
                               }}
                               className="w-full text-left px-4 py-3 hover:bg-indigo-50 transition-colors flex items-center justify-between group"
                             >
-                              <span className="font-bold text-slate-700 group-hover:text-indigo-600">{p.name}</span>
+                              <span className="font-bold text-slate-700 group-hover:text-[#7c3037]">{p.name}</span>
                               <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded uppercase">规格: {p.spec}</span>
                             </button>
                           ))}
@@ -2987,7 +2907,7 @@ export const StockView = ({
                       type="number"
                       value={editBoxes}
                       onChange={(e) => setEditBoxes(e.target.value)}
-                      className="w-full rounded-2xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 font-bold"
+                      className="w-full rounded-xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 font-bold"
                     />
                   </div>
                   <div>
@@ -2996,7 +2916,7 @@ export const StockView = ({
                       type="number"
                       value={editItems}
                       onChange={(e) => setEditItems(e.target.value)}
-                      className="w-full rounded-2xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 font-bold"
+                      className="w-full rounded-xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 font-bold"
                     />
                   </div>
                 </div>
@@ -3006,20 +2926,20 @@ export const StockView = ({
                   <textarea
                     value={editRemark}
                     onChange={(e) => setEditRemark(e.target.value)}
-                    className="w-full rounded-2xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 font-bold h-24"
+                    className="w-full rounded-xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 font-bold h-24"
                   />
                 </div>
 
                 <div className="flex gap-3 pt-4">
                   <button
                     onClick={() => setEditingTransaction(null)}
-                    className="flex-1 py-4 rounded-2xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-all"
+                    className="flex-1 py-4 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-all"
                   >
                     取消
                   </button>
                   <button
                     onClick={handleUpdate}
-                    className="flex-1 py-4 rounded-2xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2"
+                    className="flex-1 py-4 rounded-xl font-bold text-white bg-[#7c3037] hover:bg-indigo-700 shadow-sm shadow-indigo-200 transition-all flex items-center justify-center gap-2"
                   >
                     <Save size={20} /> 保存修改
                   </button>
@@ -3031,12 +2951,12 @@ export const StockView = ({
       </AnimatePresence>
       <AnimatePresence>
         {batchOutResult && (
-          <div className="fixed inset-0 bg-black/35 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/35 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
-              className="glass rounded-3xl p-7 w-full max-w-lg border border-white/55"
+              className="surface rounded-xl p-7 w-full max-w-lg border border-stone-200"
             >
               <div className="flex items-start justify-between gap-4 mb-5">
                 <div>
@@ -3048,25 +2968,25 @@ export const StockView = ({
                 <button
                   type="button"
                   onClick={() => setBatchOutResult(null)}
-                  className="p-2 rounded-full hover:bg-white/45 transition-all text-slate-500"
+                  className="p-2 rounded-full hover:bg-white transition-all text-slate-500"
                 >
                   <X size={18} />
                 </button>
               </div>
 
               {batchOutResult.issues.length > 0 ? (
-                <div className="max-h-72 overflow-y-auto custom-scrollbar rounded-2xl border border-rose-100/70 bg-rose-50/45 p-4">
+                <div className="max-h-72 overflow-y-auto custom-scrollbar rounded-xl border border-rose-100/70 bg-rose-50/45 p-4">
                   <div className="mb-3 text-sm font-black text-rose-700">以下行未录入：</div>
                   <ul className="space-y-2">
                     {batchOutResult.issues.map((issue, index) => (
-                      <li key={`${issue}-${index}`} className="rounded-xl bg-white/70 px-3 py-2 text-sm font-bold text-rose-700">
+                      <li key={`${issue}-${index}`} className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-rose-700">
                         {issue}
                       </li>
                     ))}
                   </ul>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-emerald-100/70 bg-emerald-50/55 px-4 py-5 text-sm font-black text-emerald-700">
+                <div className="rounded-xl border border-emerald-100/70 bg-emerald-50/55 px-4 py-5 text-sm font-black text-emerald-700">
                   所有批量出库记录都已成功录入。
                 </div>
               )}
@@ -3074,7 +2994,7 @@ export const StockView = ({
               <button
                 type="button"
                 onClick={() => setBatchOutResult(null)}
-                className="mt-5 w-full rounded-2xl bg-indigo-600/90 py-3 font-black text-white shadow-lg shadow-indigo-200/50 transition-all hover:bg-indigo-700"
+                className="mt-5 w-full rounded-xl bg-[#7c3037] py-3 font-black text-white shadow-sm shadow-indigo-200/50 transition-all hover:bg-indigo-700"
               >
                 我知道了
               </button>
@@ -3084,9 +3004,9 @@ export const StockView = ({
       </AnimatePresence>
       {/* Form */}
       <div className="lg:col-span-1">
-        <div className="glass rounded-2xl p-6 shadow-sm border-white/20 sticky top-24">
+        <div className="surface rounded-xl p-6 shadow-sm border-stone-200 sticky top-24">
           <h2 className="text-lg font-semibold text-slate-800 mb-6 flex items-center gap-2">
-            <ArrowLeftRight size={20} className="text-indigo-500" />
+            <ArrowLeftRight size={20} className="text-[#7c3037]" />
             进出库操作
           </h2>
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -3101,8 +3021,8 @@ export const StockView = ({
                   }}
                   className={`py-2 rounded-xl border-2 transition-all flex items-center justify-center gap-2 font-bold ${
                     type === 'in' 
-                      ? 'border-emerald-500 bg-emerald-50/50 text-emerald-700 backdrop-blur-sm' 
-                      : 'border-white/20 text-slate-500 hover:border-white/40 bg-white/10'
+                      ? 'border-emerald-500 bg-emerald-50/50 text-emerald-700'
+                      : 'border-stone-200 text-slate-500 hover:border-stone-200 bg-white'
                   }`}
                 >
                   <TrendingUp size={18} /> 入库
@@ -3112,8 +3032,8 @@ export const StockView = ({
                   onClick={() => setType('out')}
                   className={`py-2 rounded-xl border-2 transition-all flex items-center justify-center gap-2 font-bold ${
                     type === 'out' 
-                      ? 'border-rose-500 bg-rose-50/50 text-rose-700 backdrop-blur-sm' 
-                      : 'border-white/20 text-slate-500 hover:border-white/40 bg-white/10'
+                      ? 'border-rose-500 bg-rose-50/50 text-rose-700'
+                      : 'border-stone-200 text-slate-500 hover:border-stone-200 bg-white'
                   }`}
                 >
                   <TrendingDown size={18} /> 出库
@@ -3128,7 +3048,7 @@ export const StockView = ({
                 className={`w-full rounded-xl border px-4 py-2.5 text-sm font-black transition-all ${
                   isBatchOutMode
                     ? 'border-rose-200 bg-rose-50/70 text-rose-600 shadow-sm'
-                    : 'border-white/40 bg-white/35 text-slate-600 hover:bg-white/55'
+                    : 'border-stone-200 bg-white text-slate-600 hover:bg-white'
                 }`}
               >
                 {isBatchOutMode ? '切换为单个出库' : '切换为批量出库'}
@@ -3137,7 +3057,7 @@ export const StockView = ({
 
             {isBatchOutMode ? (
               <>
-                <div className="rounded-2xl border border-rose-100/70 bg-rose-50/35 p-4 text-xs font-bold leading-5 text-rose-700">
+                <div className="rounded-xl border border-rose-100/70 bg-rose-50/35 p-4 text-xs font-bold leading-5 text-rose-700">
                   <div>粘贴 Markdown 表格后，系统只读取“款式”和“箱数”两列。</div>
                   <div>商品名必须和系统商品名一致；双数、金额等列会被忽略。</div>
                 </div>
@@ -3147,7 +3067,7 @@ export const StockView = ({
                     value={batchOutText}
                     onChange={(e) => setBatchOutText(e.target.value)}
                     placeholder="| 款式 | 箱数 | 双数 | 金额 |&#10;| --- | -: | --: | ---: |&#10;| 56-81 | 5 | 120 | 384,000 |"
-                    className="h-56 w-full rounded-xl border-white/40 bg-white/30 p-4 font-mono text-sm font-bold !text-left backdrop-blur-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    className="h-56 w-full rounded-xl border-stone-200 bg-white p-4 font-mono text-sm font-bold !text-left focus:border-indigo-500 focus:ring-indigo-500"
                   />
                 </div>
                 <div>
@@ -3156,7 +3076,7 @@ export const StockView = ({
                     type="text"
                     disabled
                     value={formatDateTimeLabel(Timestamp.now())}
-                    className="w-full rounded-xl border-white/20 bg-white/10 text-slate-400 cursor-not-allowed backdrop-blur-sm font-bold"
+                    className="w-full rounded-xl border-stone-200 bg-white text-slate-400 cursor-not-allowed font-bold"
                   />
                 </div>
                 <div>
@@ -3165,14 +3085,14 @@ export const StockView = ({
                     value={remark}
                     onChange={(e) => setRemark(e.target.value)}
                     placeholder="选填，默认：批量出库"
-                    className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 h-20 font-bold"
+                    className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 h-20 font-bold"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={handleBatchOutSubmit}
                   disabled={user?.role !== 'admin' || isBatchOutSubmitting}
-                  className={`w-full py-3 rounded-xl font-bold text-white shadow-lg transition-all active:scale-95 backdrop-blur-md ${
+                  className={`w-full py-3 rounded-xl font-bold text-white shadow-sm transition-all active:scale-95 ${
                     user?.role !== 'admin' || isBatchOutSubmitting
                       ? 'bg-slate-300/50 cursor-not-allowed shadow-none'
                       : 'bg-rose-500/90 hover:bg-rose-600'
@@ -3198,7 +3118,7 @@ export const StockView = ({
                         setShowDropdown(true);
                       }}
                       onFocus={() => setShowDropdown(true)}
-                      className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 pr-10 font-bold"
+                      className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 pr-10 font-bold"
                     />
                     {selectedId && (
                       <button 
@@ -3215,7 +3135,7 @@ export const StockView = ({
                   </div>
                   
                   {showDropdown && !selectedId && (
-                    <div className="absolute z-50 w-full mt-1 bg-white/80 backdrop-blur-xl border border-white/30 rounded-xl shadow-2xl max-h-60 overflow-y-auto custom-scrollbar">
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-stone-200 rounded-xl shadow-sm max-h-60 overflow-y-auto custom-scrollbar">
                       {filteredProducts.length > 0 ? (
                         filteredProducts.map((p: Product) => (
                           <button
@@ -3226,7 +3146,7 @@ export const StockView = ({
                               setSearchTerm('');
                               setShowDropdown(false);
                             }}
-                            className="w-full text-left px-4 py-3 hover:bg-indigo-50/50 transition-colors border-b border-white/10 last:border-0"
+                            className="w-full text-left px-4 py-3 hover:bg-indigo-50/50 transition-colors border-b border-stone-200 last:border-0"
                           >
                             <div className="font-bold text-slate-900">{p.name}</div>
                             <div className="text-xs font-bold text-slate-500">规格: {p.spec} | 库存: {formatStock(p.stock, p.spec)}</div>
@@ -3254,7 +3174,7 @@ export const StockView = ({
                       value={boxes}
                       onChange={(e) => setBoxes(e.target.value)}
                       placeholder="0"
-                      className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 font-bold"
+                      className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 font-bold"
                     />
                   </div>
                   <div>
@@ -3265,7 +3185,7 @@ export const StockView = ({
                       value={items}
                       onChange={(e) => setItems(e.target.value)}
                       placeholder="0"
-                      className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 font-bold"
+                      className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 font-bold"
                     />
                   </div>
                 </div>
@@ -3276,7 +3196,7 @@ export const StockView = ({
                     type="text"
                     disabled
                     value={formatDateTimeLabel(Timestamp.now())}
-                    className="w-full rounded-xl border-white/20 bg-white/10 text-slate-400 cursor-not-allowed backdrop-blur-sm font-bold"
+                    className="w-full rounded-xl border-stone-200 bg-white text-slate-400 cursor-not-allowed font-bold"
                   />
                 </div>
 
@@ -3286,14 +3206,14 @@ export const StockView = ({
                     value={remark}
                     onChange={(e) => setRemark(e.target.value)}
                     placeholder="选填..."
-                    className="w-full rounded-xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 h-20 font-bold"
+                    className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 h-20 font-bold"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={user?.role !== 'admin'}
-                  className={`w-full py-3 rounded-xl font-bold text-white shadow-lg transition-all active:scale-95 backdrop-blur-md ${
+                  className={`w-full py-3 rounded-xl font-bold text-white shadow-sm transition-all active:scale-95 ${
                     user?.role !== 'admin' 
                       ? 'bg-slate-300/50 cursor-not-allowed shadow-none' 
                       : (type === 'in' ? 'bg-emerald-500/90 hover:bg-emerald-600' : 'bg-rose-500/90 hover:bg-rose-600')
@@ -3309,7 +3229,7 @@ export const StockView = ({
 
       {/* History */}
       <div className="lg:col-span-2">
-        <div className="glass rounded-2xl p-6 shadow-sm border-white/20">
+        <div className="surface rounded-xl p-6 shadow-sm border-stone-200">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-6">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
@@ -3323,13 +3243,13 @@ export const StockView = ({
                 onClick={openHistoryQuery}
                 className={`flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-black transition-all sm:w-auto ${
                   activeHistoryQuery
-                    ? 'border-indigo-500 bg-indigo-600 text-white shadow-lg shadow-indigo-200/60'
-                    : 'border-white/40 bg-white/40 text-slate-700 hover:bg-white/65'
+                    ? 'border-indigo-500 bg-[#7c3037] text-white shadow-sm shadow-indigo-200/60'
+                    : 'border-stone-200 bg-white text-slate-700 hover:bg-white/65'
                 }`}
               >
                 <Search size={16} /> 查询流水
               </button>
-              <div className="flex bg-white/35 backdrop-blur-md p-1 rounded-xl border border-white/40">
+              <div className="flex bg-white p-1 rounded-xl border border-stone-200">
                 <button
                   type="button"
                   onClick={() => {
@@ -3337,7 +3257,7 @@ export const StockView = ({
                     setHistoryFilterMode('day');
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
-                    !activeHistoryQuery && historyFilterMode === 'day' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    !activeHistoryQuery && historyFilterMode === 'day' ? 'bg-white text-[#7c3037] shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
                   按日
@@ -3349,7 +3269,7 @@ export const StockView = ({
                     setHistoryFilterMode('week');
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
-                    !activeHistoryQuery && historyFilterMode === 'week' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    !activeHistoryQuery && historyFilterMode === 'week' ? 'bg-white text-[#7c3037] shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
                   按周
@@ -3361,7 +3281,7 @@ export const StockView = ({
                     setHistoryFilterMode('month');
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${
-                    !activeHistoryQuery && historyFilterMode === 'month' ? 'bg-white/80 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    !activeHistoryQuery && historyFilterMode === 'month' ? 'bg-white text-[#7c3037] shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
                   按月
@@ -3408,7 +3328,7 @@ export const StockView = ({
                   />
                 )}
               </div>
-              <div className="text-xs font-bold text-slate-400 bg-white/40 rounded-full px-3 py-1 border border-white/50 text-center">
+              <div className="text-xs font-bold text-slate-400 bg-white rounded-full px-3 py-1 border border-stone-200 text-center">
                 已显示 {visibleTransactions.length} / {filteredTransactions.length} 条
               </div>
             </div>
@@ -3418,7 +3338,7 @@ export const StockView = ({
             <div className="mb-5 space-y-3">
               <div className="flex flex-col gap-3 rounded-xl border border-indigo-100/70 bg-indigo-50/50 px-4 py-3 text-sm font-bold text-slate-600 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                  <span className="font-black text-indigo-700">{activeHistoryQueryProduct?.name ?? '全部商品'}</span>
+                  <span className="font-black text-[#7c3037]">{activeHistoryQueryProduct?.name ?? '全部商品'}</span>
                   <span>{activeHistoryQuery.type === 'in' ? '入库明细' : '出库明细'}</span>
                   <span>
                     {activeHistoryQuery.allTime
@@ -3429,7 +3349,7 @@ export const StockView = ({
                 <button
                   type="button"
                   onClick={clearHistoryQuery}
-                  className="flex items-center gap-1 self-start text-slate-500 transition-colors hover:text-indigo-700 sm:self-auto"
+                  className="flex items-center gap-1 self-start text-slate-500 transition-colors hover:text-[#7c3037] sm:self-auto"
                 >
                   <X size={15} /> 清除查询
                 </button>
@@ -3454,24 +3374,24 @@ export const StockView = ({
           )}
 
           <div className="space-y-4">
-            <div className="rounded-2xl border border-white/45 bg-white/28 backdrop-blur-xl">
+            <div className="rounded-xl border border-stone-200 bg-white">
               <div className="px-4 pb-4 pt-4 overflow-x-auto custom-scrollbar">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="border-b border-white/20">
-                      <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider">时间</th>
-                      <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider">类型</th>
-                      <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider">商品</th>
-                      <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider">数量</th>
-                      <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider">备注</th>
-                      <th className="pb-3 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
+                    <tr className="border-b border-stone-200">
+                      <th className="py-1.5 font-bold text-slate-500 text-xs uppercase tracking-wider">时间</th>
+                      <th className="py-1.5 font-bold text-slate-500 text-xs uppercase tracking-wider">类型</th>
+                      <th className="py-1.5 font-bold text-slate-500 text-xs uppercase tracking-wider">商品</th>
+                      <th className="py-1.5 font-bold text-slate-500 text-xs uppercase tracking-wider">数量</th>
+                      <th className="py-1.5 font-bold text-slate-500 text-xs uppercase tracking-wider">备注</th>
+                      <th className="py-1.5 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/10">
                     {visibleTransactions.map((t: Transaction) => {
                       const p = products.find((prod: Product) => prod.id === t.productId);
                       return (
-                        <tr key={t.id} className="hover:bg-white/20 transition-colors">
+                        <tr key={t.id} className="hover:bg-white transition-colors">
                           <td className="py-4 text-sm text-slate-500 font-medium">{formatDateTime(t.occurredAt)}</td>
                           <td className="py-4">
                             <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
@@ -3491,7 +3411,7 @@ export const StockView = ({
                                 <button
                                   type="button"
                                   onClick={() => startEditing(t)}
-                                  className="p-2 text-indigo-500 hover:bg-indigo-50/50 rounded-lg transition-all cursor-pointer backdrop-blur-sm"
+                                  className="p-2 text-[#7c3037] hover:bg-indigo-50/50 rounded-lg transition-all cursor-pointer"
                                   title="修改流水"
                                 >
                                   <Pencil size={16} />
@@ -3499,7 +3419,7 @@ export const StockView = ({
                                 <button
                                   type="button"
                                   onClick={() => deleteTransaction(t.id)}
-                                  className="p-2 text-rose-500 hover:bg-rose-50/50 rounded-lg transition-all cursor-pointer backdrop-blur-sm"
+                                  className="p-2 text-rose-500 hover:bg-rose-50/50 rounded-lg transition-all cursor-pointer"
                                   title="删除流水"
                                 >
                                   <Trash2 size={16} />
@@ -3524,7 +3444,7 @@ export const StockView = ({
                 <button
                   type="button"
                   onClick={handleShowMore}
-                  className="px-4 py-2 rounded-xl bg-white/45 border border-white/50 text-slate-700 font-bold hover:bg-white/70 transition-all disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl bg-white border border-stone-200 text-slate-700 font-bold hover:bg-white transition-all disabled:opacity-50"
                 >
                   显示更多（+20条）
                 </button>
@@ -3694,26 +3614,26 @@ export const ProductsView = ({
     <div className="space-y-8">
       <AnimatePresence>
         {editingProduct && (
-          <div className="fixed inset-0 bg-black/35 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/35 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
-              className="glass rounded-3xl p-7 w-full max-w-md border border-white/55"
+              className="surface rounded-xl p-7 w-full max-w-md border border-stone-200"
             >
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-black text-slate-800">编辑商品信息</h3>
                 <button
                   type="button"
                   onClick={() => setEditingProduct(null)}
-                  className="p-2 rounded-full hover:bg-white/45 transition-all text-slate-500"
+                  className="p-2 rounded-full hover:bg-white transition-all text-slate-500"
                 >
                   <X size={18} />
                 </button>
               </div>
 
               <div className="space-y-5">
-                <div className="rounded-2xl bg-white/40 border border-white/50 p-4">
+                <div className="rounded-xl bg-white border border-stone-200 p-4">
                   <div className="space-y-4">
                     <div>
                       <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">商品名</label>
@@ -3721,7 +3641,7 @@ export const ProductsView = ({
                         type="text"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
-                        className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
+                        className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
                       />
                     </div>
                     <div>
@@ -3731,7 +3651,7 @@ export const ProductsView = ({
                         min="1"
                         value={editSpec}
                         onChange={(e) => setEditSpec(e.target.value)}
-                        className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
+                        className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
                       />
                     </div>
                     <div>
@@ -3741,7 +3661,7 @@ export const ProductsView = ({
                         min="0"
                         value={editPrice}
                         onChange={(e) => setEditPrice(e.target.value)}
-                        className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
+                        className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold !text-left"
                       />
                     </div>
                   </div>
@@ -3755,7 +3675,7 @@ export const ProductsView = ({
                       min="0"
                       value={editBoxes}
                       onChange={(e) => setEditBoxes(e.target.value)}
-                      className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                      className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
                     />
                   </div>
                   <div>
@@ -3765,7 +3685,7 @@ export const ProductsView = ({
                       min="0"
                       value={editItems}
                       onChange={(e) => setEditItems(e.target.value)}
-                      className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                      className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
                     />
                   </div>
                 </div>
@@ -3778,14 +3698,14 @@ export const ProductsView = ({
                   <button
                     type="button"
                     onClick={() => setEditingProduct(null)}
-                    className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-white/55 hover:bg-white/75 border border-white/60 transition-all"
+                    className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-white hover:bg-white/75 border border-stone-200 transition-all"
                   >
                     取消
                   </button>
                   <button
                     type="button"
                     onClick={handleSaveStock}
-                    className="flex-1 py-3 rounded-xl font-bold text-white bg-indigo-600/90 hover:bg-indigo-700 shadow-lg shadow-indigo-200/50 transition-all flex items-center justify-center gap-2"
+                    className="flex-1 py-3 rounded-xl font-bold text-white bg-[#7c3037] hover:bg-indigo-700 shadow-sm shadow-indigo-200/50 transition-all flex items-center justify-center gap-2"
                   >
                     <Save size={16} />
                     保存修改
@@ -3798,11 +3718,11 @@ export const ProductsView = ({
       </AnimatePresence>
 
       {/* Add Product Form */}
-      <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
+      <div className="surface rounded-xl p-8 shadow-sm border-stone-200">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-50/50 backdrop-blur-md rounded-xl border border-indigo-100/30">
-              <Plus size={20} className="text-indigo-600" />
+            <div className="p-2 bg-indigo-50/50 rounded-xl border border-indigo-100/30">
+              <Plus size={20} className="text-[#7c3037]" />
             </div>
             <h2 className="text-xl font-black text-slate-800 tracking-tight">
               {isBatchMode ? 'Excel 批量导入商品' : '添加新商品'}
@@ -3810,7 +3730,7 @@ export const ProductsView = ({
           </div>
           <button
             onClick={() => setIsBatchMode(!isBatchMode)}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-100/50 text-purple-700 rounded-xl font-bold text-sm hover:bg-purple-200/50 transition-all backdrop-blur-sm border border-purple-100/30"
+            className="flex items-center gap-2 px-4 py-2 bg-purple-100/50 text-[#7c3037] rounded-xl font-bold text-sm hover:bg-purple-200/50 transition-all border border-purple-100/30"
           >
             <ArrowLeftRight size={16} />
             {isBatchMode ? '切换为 单个添加' : '切换为 Excel批量导入'}
@@ -3819,7 +3739,7 @@ export const ProductsView = ({
 
         {isBatchMode ? (
           <div className="space-y-4">
-            <div className="bg-amber-50/30 border border-amber-100/30 rounded-2xl p-4 text-sm text-amber-800 backdrop-blur-sm">
+            <div className="bg-amber-50/30 border border-amber-100/30 rounded-xl p-4 text-sm text-amber-800">
               <p className="font-bold mb-1">导入说明：</p>
               <ul className="list-disc list-inside space-y-1 opacity-80">
                 <li>请在 Excel 中排列：商品名称 | 规格 | 单价 | 初始库存箱数</li>
@@ -3831,12 +3751,12 @@ export const ProductsView = ({
               value={batchText}
               onChange={(e) => setBatchText(e.target.value)}
               placeholder="在此粘贴 Excel 数据..."
-              className="w-full h-48 rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 p-4 font-mono text-sm font-bold"
+              className="w-full h-48 rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 p-4 font-mono text-sm font-bold"
             />
             <button
               onClick={handleBatchImport}
               disabled={user?.role !== 'admin' || !batchText.trim()}
-              className={`w-full font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 backdrop-blur-md ${
+              className={`w-full font-bold py-4 rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${
                 user?.role !== 'admin' || !batchText.trim()
                   ? 'bg-slate-200/50 text-slate-400 cursor-not-allowed shadow-none'
                   : 'bg-emerald-600/90 hover:bg-emerald-700 text-white shadow-emerald-200/50'
@@ -3855,7 +3775,7 @@ export const ProductsView = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="例如：AJ1 芝加哥"
-                className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
               />
             </div>
             <div>
@@ -3866,7 +3786,7 @@ export const ProductsView = ({
                 value={spec}
                 onChange={(e) => setSpec(e.target.value)}
                 placeholder="12"
-                className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
               />
             </div>
             <div>
@@ -3877,16 +3797,16 @@ export const ProductsView = ({
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
                 placeholder="5000"
-                className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+                className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
               />
             </div>
             <button
               type="submit"
               disabled={user?.role !== 'admin'}
-              className={`font-bold py-3.5 rounded-2xl shadow-lg transition-all active:scale-95 backdrop-blur-md ${
+              className={`font-bold py-3.5 rounded-xl shadow-sm transition-all active:scale-95 ${
                 user?.role !== 'admin'
                   ? 'bg-slate-200/50 text-slate-400 cursor-not-allowed shadow-none'
-                  : 'bg-indigo-600/90 hover:bg-indigo-700 text-white shadow-indigo-200/50'
+                  : 'bg-[#7c3037] hover:bg-indigo-700 text-white shadow-indigo-200/50'
               }`}
             >
               {user?.role !== 'admin' ? '无权限' : '添加商品'}
@@ -3896,7 +3816,7 @@ export const ProductsView = ({
       </div>
 
       {/* Product List */}
-      <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
+      <div className="surface rounded-xl p-8 shadow-sm border-stone-200">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
             <Package size={24} className="text-slate-600" />
@@ -3906,10 +3826,10 @@ export const ProductsView = ({
             type="button"
             onClick={handleExportProductList}
             disabled={products.length === 0}
-            className={`inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-black shadow-lg transition-all active:scale-95 ${
+            className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-black shadow-sm transition-all active:scale-95 ${
               products.length === 0
                 ? 'cursor-not-allowed bg-slate-200/50 text-slate-400 shadow-none'
-                : 'bg-indigo-600/90 text-white shadow-indigo-200/50 hover:bg-indigo-700'
+                : 'bg-[#7c3037] text-white shadow-indigo-200/50 hover:bg-indigo-700'
             }`}
           >
             <Download size={17} />
@@ -3919,23 +3839,23 @@ export const ProductsView = ({
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-white/10">
-                <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">产品名称</th>
-                <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">规格</th>
-                <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">单价</th>
-                <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">箱价</th>
-                <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">当前库存</th>
-                <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">状态</th>
-                <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
+              <tr className="border-b border-stone-200">
+                <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider">产品名称</th>
+                <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider">规格</th>
+                <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider">单价</th>
+                <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider">箱价</th>
+                <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider">当前库存</th>
+                <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider">状态</th>
+                <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {products.map((p: Product) => (
-                <tr key={p.id} className="hover:bg-white/20 transition-colors">
+                <tr key={p.id} className="hover:bg-white transition-colors">
                   <td className="py-4 text-sm font-bold text-slate-900">{p.name}</td>
                   <td className="py-4 text-sm text-slate-600 font-bold">{p.spec} 个/箱</td>
                   <td className="py-4 text-sm text-slate-600 font-bold">{formatCurrency(p.price)}</td>
-                  <td className="py-4 text-sm text-indigo-600 font-black">{formatCurrency(p.price * p.spec)}</td>
+                  <td className="py-4 text-sm text-[#7c3037] font-black">{formatCurrency(p.price * p.spec)}</td>
                   <td className="py-4 text-sm text-slate-600 font-bold">{formatStock(p.stock, p.spec)}</td>
                   <td className="py-4 text-sm">
                     <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${
@@ -3954,7 +3874,7 @@ export const ProductsView = ({
                           await toggleProductActive(p.id, p.isActive === false);
                         }}
                         disabled={user?.role !== 'admin'}
-                        className={`p-2 rounded-lg transition-all backdrop-blur-sm ${
+                        className={`p-2 rounded-lg transition-all ${
                           user?.role !== 'admin'
                             ? 'text-slate-300 cursor-not-allowed'
                             : (p.isActive !== false
@@ -3973,10 +3893,10 @@ export const ProductsView = ({
                         type="button"
                         onClick={() => openEditStockModal(p)}
                         disabled={user?.role !== 'admin'}
-                        className={`p-2 rounded-lg transition-all backdrop-blur-sm ${
+                        className={`p-2 rounded-lg transition-all ${
                           user?.role !== 'admin'
                             ? 'text-slate-300 cursor-not-allowed'
-                            : 'text-indigo-500 hover:bg-indigo-50/50'
+                            : 'text-[#7c3037] hover:bg-indigo-50/50'
                         }`}
                         title={user?.role !== 'admin' ? '无权限' : '编辑库存'}
                       >
@@ -4108,10 +4028,10 @@ export const ExpensesView = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Add Expense Form */}
         <div className="lg:col-span-1">
-          <div className="glass rounded-3xl p-8 shadow-xl border-white/30 sticky top-24">
+          <div className="surface rounded-xl p-8 shadow-sm border-stone-200 sticky top-24">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-rose-50/50 backdrop-blur-md rounded-xl border border-rose-100/30">
+                <div className="p-2 bg-rose-50/50 rounded-xl border border-rose-100/30">
                   <Plus size={20} className="text-rose-600" />
                 </div>
                 <h2 className="text-xl font-black text-slate-800 tracking-tight">新增支出</h2>
@@ -4131,7 +4051,7 @@ export const ExpensesView = ({
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0"
-                  className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-rose-500 focus:border-rose-500 py-3 font-bold"
+                  className="w-full rounded-xl border-stone-200 bg-white focus:ring-rose-500 focus:border-rose-500 py-3 font-bold"
                 />
               </div>
               <div>
@@ -4140,7 +4060,7 @@ export const ExpensesView = ({
                   required
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-rose-500 focus:border-rose-500 py-3 font-bold"
+                  className="w-full rounded-xl border-stone-200 bg-white focus:ring-rose-500 focus:border-rose-500 py-3 font-bold"
                 >
                   <option value="" disabled>
                     请选择支出类别
@@ -4165,7 +4085,7 @@ export const ExpensesView = ({
                   onChange={setDate}
                   displayValue={dateLabel}
                   ariaLabel="选择支出日期"
-                  className="w-full justify-between rounded-2xl py-3"
+                  className="w-full justify-between rounded-xl py-3"
                 />
               </div>
               <div>
@@ -4174,13 +4094,13 @@ export const ExpensesView = ({
                   value={remark}
                   onChange={(e) => setRemark(e.target.value)}
                   placeholder="选填..."
-                  className="w-full rounded-2xl border-white/40 bg-white/30 backdrop-blur-sm focus:ring-rose-500 focus:border-rose-500 h-24 font-bold"
+                  className="w-full rounded-xl border-stone-200 bg-white focus:ring-rose-500 focus:border-rose-500 h-24 font-bold"
                 />
               </div>
               <button
                 type="submit"
                 disabled={user?.role !== 'admin'}
-                className={`w-full font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 backdrop-blur-md ${
+                className={`w-full font-bold py-4 rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${
                   user?.role !== 'admin'
                     ? 'bg-slate-200/50 text-slate-400 cursor-not-allowed shadow-none'
                     : 'bg-rose-600/90 hover:bg-rose-700 text-white shadow-rose-200/50'
@@ -4196,11 +4116,7 @@ export const ExpensesView = ({
         {/* Expense List & Summary */}
         <div className="lg:col-span-2 space-y-8">
           {/* Monthly Summary Card */}
-          <div className="glass rounded-3xl p-8 shadow-xl overflow-hidden relative border border-white/35">
-            {/* Decorative background elements */}
-            <div className="absolute -right-10 -top-10 w-64 h-64 bg-sky-400/20 rounded-full blur-3xl" />
-            <div className="absolute -left-10 -bottom-10 w-64 h-64 bg-emerald-400/15 rounded-full blur-3xl" />
-            
+          <div className="surface rounded-xl p-8 shadow-sm overflow-hidden relative border border-stone-200">
             <div className="relative z-10 space-y-8">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
                 <div className="space-y-1">
@@ -4216,7 +4132,7 @@ export const ExpensesView = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 bg-white/45 backdrop-blur-xl p-4 rounded-2xl border border-white/55 shadow-sm">
+                <div className="flex items-center gap-4 bg-white p-4 rounded-xl border border-stone-200 shadow-sm">
                   <div className="p-2 bg-sky-100/80 rounded-lg">
                     <Calendar size={20} className="text-sky-600" />
                   </div>
@@ -4235,12 +4151,12 @@ export const ExpensesView = ({
               </div>
 
               {/* Quick Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/30">
-                <div className="bg-white/45 rounded-2xl p-4 border border-white/55 backdrop-blur-md">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-stone-200">
+                <div className="bg-white rounded-xl p-4 border border-stone-200">
                   <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">日均支出</div>
                   <div className="text-xl font-black text-sky-700">{formatCurrency(dailyAverage)}</div>
                 </div>
-                <div className="bg-white/50 rounded-2xl p-4 border border-emerald-200/45 backdrop-blur-md shadow-[0_12px_28px_rgba(16,185,129,0.1)]">
+                <div className="bg-white rounded-xl p-4 border border-emerald-200/45">
                   <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mb-1">预计提成</div>
                   <div className="text-xl font-black text-emerald-700">{formatCurrency(estimatedCommission)}</div>
                   <div className="mt-1 text-[11px] font-semibold text-slate-400">
@@ -4250,7 +4166,7 @@ export const ExpensesView = ({
                     当月销量总额: {formatCurrency(monthlySalesTotal)}
                   </div>
                 </div>
-                <div className="bg-white/45 rounded-2xl p-4 border border-white/55 backdrop-blur-md">
+                <div className="bg-white rounded-xl p-4 border border-stone-200">
                   <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">本月记录</div>
                   <div className="text-xl font-black text-rose-500">{filteredExpenses.length} 笔</div>
                 </div>
@@ -4260,9 +4176,9 @@ export const ExpensesView = ({
 
           {/* Category Breakdown Card */}
           {categoryBreakdown.length > 0 && (
-            <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
+            <div className="surface rounded-xl p-8 shadow-sm border-stone-200">
               <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                <TrendingUp size={16} className="text-indigo-500" />
+                <TrendingUp size={16} className="text-[#7c3037]" />
                 支出分类统计
               </h3>
               <div className="space-y-4">
@@ -4286,13 +4202,13 @@ export const ExpensesView = ({
           )}
 
           {/* Detailed List */}
-          <div className="glass rounded-3xl p-8 shadow-xl border-white/30">
+          <div className="surface rounded-xl p-8 shadow-sm border-stone-200">
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
                 <History size={24} className="text-slate-600" />
                 支出明细
               </h2>
-              <div className="text-sm font-bold text-slate-400 bg-white/30 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20">
+              <div className="text-sm font-bold text-slate-400 bg-white px-4 py-1.5 rounded-full border border-stone-200">
                 本月 {filteredExpenses.length} 笔记录
               </div>
             </div>
@@ -4300,20 +4216,20 @@ export const ExpensesView = ({
             <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">日期</th>
-                    <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">项目</th>
-                    <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">金额</th>
-                    <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider">备注</th>
-                    <th className="pb-4 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
+                  <tr className="border-b border-stone-200">
+                    <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider">日期</th>
+                    <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider">项目</th>
+                    <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider">金额</th>
+                    <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider">备注</th>
+                    <th className="py-2 font-bold text-slate-500 text-xs uppercase tracking-wider text-right">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
                   {visibleExpenses.map((e: Expense) => (
-                    <tr key={e.id} className="hover:bg-white/20 transition-colors">
+                    <tr key={e.id} className="hover:bg-white transition-colors">
                       <td className="py-4 text-sm font-medium text-slate-500">{formatDateTime(e.occurredAt)}</td>
                       <td className="py-4">
-                        <span className="px-3 py-1 bg-white/50 backdrop-blur-sm border border-white/30 rounded-lg text-sm font-bold text-slate-700">
+                        <span className="px-3 py-1 bg-white border border-stone-200 rounded-lg text-sm font-bold text-slate-700">
                           {e.category}
                         </span>
                       </td>
@@ -4325,7 +4241,7 @@ export const ExpensesView = ({
                         {user?.role === 'admin' && (
                           <button
                             onClick={() => deleteExpense(e.id)}
-                            className="p-2 text-rose-500 hover:bg-rose-50/50 rounded-lg transition-all backdrop-blur-sm"
+                            className="p-2 text-rose-500 hover:bg-rose-50/50 rounded-lg transition-all"
                             title="删除记录"
                           >
                             <Trash2 size={18} />
@@ -4351,7 +4267,7 @@ export const ExpensesView = ({
                   <button
                     type="button"
                     onClick={() => setVisibleExpenseCount((prev) => prev + 20)}
-                    className="px-4 py-2 rounded-xl bg-white/45 border border-white/50 text-slate-700 font-bold hover:bg-white/70 transition-all disabled:opacity-50"
+                    className="px-4 py-2 rounded-xl bg-white border border-stone-200 text-slate-700 font-bold hover:bg-white transition-all disabled:opacity-50"
                   >
                     显示更多支出（+20条）
                   </button>
@@ -4480,7 +4396,7 @@ export const DebtsView = ({
 
   return (
     <>
-      <section className="glass mb-8 flex flex-wrap items-center justify-between gap-5 rounded-3xl border border-white/30 px-8 py-6 shadow-xl">
+      <section className="surface mb-8 flex flex-wrap items-center justify-between gap-5 rounded-xl border border-stone-200 px-8 py-6 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="rounded-xl border border-rose-100/60 bg-rose-50/70 p-2">
             <Wallet size={22} className="text-rose-600" />
@@ -4495,7 +4411,7 @@ export const DebtsView = ({
 
       <div className="grid grid-cols-1 gap-8 xl:grid-cols-4">
         <section className="min-w-0 xl:col-span-1">
-          <div className="glass sticky top-24 rounded-2xl border border-white/30 p-6 shadow-xl">
+          <div className="surface sticky top-24 rounded-xl border border-stone-200 p-6 shadow-sm">
           <div className="mb-6 flex items-center gap-3">
             <div className="rounded-xl border border-amber-100/60 bg-amber-50/70 p-2">
               <HandCoins size={20} className="text-amber-600" />
@@ -4513,7 +4429,7 @@ export const DebtsView = ({
                 value={customerName}
                 onChange={(event) => setCustomerName(event.target.value)}
                 placeholder="输入客户姓名"
-                className="w-full rounded-2xl border-white/40 bg-white/30 py-3 font-bold backdrop-blur-sm focus:border-amber-500 focus:ring-amber-500"
+                className="w-full rounded-xl border-stone-200 bg-white py-3 font-bold focus:border-amber-500 focus:ring-amber-500"
               />
             </div>
             <div>
@@ -4526,7 +4442,7 @@ export const DebtsView = ({
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
                 placeholder="0"
-                className="w-full rounded-2xl border-white/40 bg-white/30 py-3 font-bold backdrop-blur-sm focus:border-amber-500 focus:ring-amber-500"
+                className="w-full rounded-xl border-stone-200 bg-white py-3 font-bold focus:border-amber-500 focus:ring-amber-500"
               />
             </div>
             <div>
@@ -4537,13 +4453,13 @@ export const DebtsView = ({
                 onChange={setDate}
                 displayValue={dateLabel}
                 ariaLabel="选择欠款日期"
-                className="w-full justify-between rounded-2xl py-3"
+                className="w-full justify-between rounded-xl py-3"
               />
             </div>
             <button
               type="submit"
               disabled={user?.role !== 'admin' || isSubmitting}
-              className={`flex w-full items-center justify-center gap-2 rounded-2xl py-4 font-bold shadow-lg transition-all active:scale-95 ${
+              className={`flex w-full items-center justify-center gap-2 rounded-xl py-4 font-bold shadow-sm transition-all active:scale-95 ${
                 user?.role !== 'admin' || isSubmitting
                   ? 'cursor-not-allowed bg-slate-200/50 text-slate-400 shadow-none'
                   : 'bg-amber-500 text-white shadow-amber-200/60 hover:bg-amber-600'
@@ -4556,13 +4472,13 @@ export const DebtsView = ({
           </div>
         </section>
 
-        <section className="glass min-w-0 rounded-2xl border border-white/30 p-6 shadow-xl xl:col-span-3">
+        <section className="surface min-w-0 rounded-xl border border-stone-200 p-6 shadow-sm xl:col-span-3">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-xl font-black tracking-tight text-slate-800">
             <History size={24} className="text-slate-600" />
             欠款明细
           </h2>
-          <div className="rounded-full border border-white/20 bg-white/30 px-4 py-1.5 text-sm font-bold text-slate-400 backdrop-blur-md">
+          <div className="rounded-full border border-stone-200 bg-white px-4 py-1.5 text-sm font-bold text-slate-400">
             共 {debts.length} 笔记录
           </div>
         </div>
@@ -4578,13 +4494,13 @@ export const DebtsView = ({
               <col className="w-[16%]" />
             </colgroup>
             <thead>
-              <tr className="border-b border-white/10">
-                <th className="pb-4 text-xs font-bold text-slate-500">客户名</th>
-                <th className="pb-4 text-xs font-bold text-slate-500">原欠款</th>
-                <th className="pb-4 text-xs font-bold text-slate-500">已还金额</th>
-                <th className="pb-4 text-xs font-bold text-slate-500">剩余金额</th>
-                <th className="pb-4 text-xs font-bold text-slate-500">欠款日期</th>
-                <th className="pb-4 text-right text-xs font-bold text-slate-500">操作</th>
+              <tr className="border-b border-stone-200">
+                <th className="py-2 text-xs font-bold text-slate-500">客户名</th>
+                <th className="py-2 text-xs font-bold text-slate-500">原欠款</th>
+                <th className="py-2 text-xs font-bold text-slate-500">已还金额</th>
+                <th className="py-2 text-xs font-bold text-slate-500">剩余金额</th>
+                <th className="py-2 text-xs font-bold text-slate-500">欠款日期</th>
+                <th className="py-2 text-right text-xs font-bold text-slate-500">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
@@ -4592,7 +4508,7 @@ export const DebtsView = ({
                 const remainingAmount = debt.amount - debt.paidAmount;
                 const isSettled = remainingAmount === 0;
                 return (
-                  <tr key={debt.id} className="transition-colors hover:bg-white/20">
+                  <tr key={debt.id} className="transition-colors hover:bg-white">
                     <td className="py-4 text-sm font-bold text-slate-800">{debt.customerName}</td>
                     <td className="py-4 text-sm font-black text-amber-600">{formatCurrency(debt.amount)}</td>
                     <td className="py-4 text-sm font-bold text-sky-600">{formatCurrency(debt.paidAmount)}</td>
@@ -4656,12 +4572,12 @@ export const DebtsView = ({
 
       <AnimatePresence>
         {editingDebt && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-md">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4">
             <motion.div
               initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
-              className="w-full max-w-md rounded-3xl border border-white/60 bg-white p-8 shadow-2xl"
+              className="w-full max-w-md rounded-xl border border-stone-200 bg-white p-8 shadow-sm"
             >
               <div className="mb-6 flex items-center justify-between gap-4">
                 <h3 className="text-xl font-black text-slate-800">编辑欠账</h3>
@@ -4686,7 +4602,7 @@ export const DebtsView = ({
                     maxLength={99}
                     value={editCustomerName}
                     onChange={(event) => setEditCustomerName(event.target.value)}
-                    className="w-full rounded-2xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
+                    className="w-full rounded-xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
                   />
                 </div>
 
@@ -4700,7 +4616,7 @@ export const DebtsView = ({
                       step="1"
                       value={editAmount}
                       onChange={(event) => setEditAmount(event.target.value)}
-                      className="w-full rounded-2xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
+                      className="w-full rounded-xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
                     />
                   </div>
                   <div>
@@ -4712,7 +4628,7 @@ export const DebtsView = ({
                       max={editAmount || undefined}
                       value={editPaidAmount}
                       onChange={(event) => setEditPaidAmount(event.target.value)}
-                      className="w-full rounded-2xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
+                      className="w-full rounded-xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
                     />
                   </div>
                 </div>
@@ -4725,7 +4641,7 @@ export const DebtsView = ({
                     onChange={setEditDate}
                     displayValue={editDate.replaceAll('-', '/')}
                     ariaLabel="修改欠款日期"
-                    className="w-full justify-between rounded-2xl py-3"
+                    className="w-full justify-between rounded-xl py-3"
                   />
                 </div>
 
@@ -4734,14 +4650,14 @@ export const DebtsView = ({
                     type="button"
                     onClick={closeEditModal}
                     disabled={isEditing}
-                    className="flex-1 rounded-2xl bg-slate-100 py-3 font-bold text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-50"
+                    className="flex-1 rounded-xl bg-slate-100 py-3 font-bold text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-50"
                   >
                     取消
                   </button>
                   <button
                     type="submit"
                     disabled={isEditing}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-sky-500 py-3 font-bold text-white shadow-lg shadow-sky-200/60 transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-500 py-3 font-bold text-white shadow-sm shadow-sky-200/60 transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
                   >
                     <Save size={18} />
                     {isEditing ? '正在保存...' : '保存修改'}

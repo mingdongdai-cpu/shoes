@@ -4,19 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef, Component } from 'react';
-import { 
-  LayoutDashboard, 
-  BarChart3,
-  Package, 
-  ArrowLeftRight, 
-  ChevronDown,
-  ChevronRight,
-  XCircle,
-  CheckCircle2,
-  AlertTriangle,
-  Wallet,
-  HandCoins
-} from 'lucide-react';
+import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth } from './firebase';
 import { 
@@ -46,6 +34,7 @@ import {
 } from 'firebase/firestore';
 import { Product, OrderProduct, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, SalesPeriodData, DashboardMetrics } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
+import { AppShell } from './components/AppShell';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate, type ReportPeriod } from './lib/timeWindow';
 import { hasDuplicateProductName, normalizeProductName } from './lib/productNames';
 
@@ -109,14 +98,14 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       }
 
       return (
-        <div className="ios-shell min-h-screen flex items-center justify-center p-4">
-          <div className="glass p-8 rounded-3xl border border-white/60 max-w-md w-full text-center">
+        <div className="app-shell min-h-screen flex items-center justify-center p-4">
+          <div className="surface p-8 rounded-xl border border-stone-200 max-w-md w-full text-center">
             <XCircle className="text-rose-500 mx-auto mb-4" size={48} />
             <h2 className="text-xl font-black text-slate-900 mb-2">出错了</h2>
             <p className="text-slate-600 mb-6">{errorMessage}</p>
             <button 
               onClick={() => window.location.reload()}
-              className="w-full py-3 rounded-xl font-bold ios-primary hover:brightness-105 transition-all"
+              className="w-full py-3 rounded-xl font-bold button-primary hover:brightness-105 transition-all"
             >
               刷新页面
             </button>
@@ -338,7 +327,6 @@ export default function App() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [currentView, setCurrentView] = useState<View>('home');
-  const [isInventoryMenuOpen, setIsInventoryMenuOpen] = useState(false);
   const [inventoryComparisonMode, setInventoryComparisonMode] = useState<'week' | 'month'>('week');
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('day');
   
@@ -735,13 +723,6 @@ export default function App() {
     return activeProducts.filter((product) => productRiskMetricsByProduct[product.id]?.isStale);
   }, [activeProducts, productRiskMetricsByProduct]);
 
-  const isInventoryView = (
-    currentView === 'inventory-warnings' ||
-    currentView === 'inventory-stale' ||
-    currentView === 'inventory-stock' ||
-    currentView === 'inventory-comparison'
-  );
-
   const handleViewChange = (nextView: View) => {
     if (user?.role === 'order') {
       setCurrentView('order-entry');
@@ -749,13 +730,6 @@ export default function App() {
     }
     if (nextView === 'order-entry') return;
     setCurrentView(nextView);
-    const nextIsInventoryView = (
-      nextView === 'inventory-warnings' ||
-      nextView === 'inventory-stale' ||
-      nextView === 'inventory-stock' ||
-      nextView === 'inventory-comparison'
-    );
-    setIsInventoryMenuOpen(nextIsInventoryView);
   };
 
   useEffect(() => {
@@ -1681,7 +1655,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="ios-shell min-h-screen flex items-center justify-center">
+      <div className="app-shell min-h-screen flex items-center justify-center">
         <div className="h-12 w-12 animate-spin rounded-full border-[3px] border-sky-100 border-t-sky-500"></div>
       </div>
     );
@@ -1689,162 +1663,17 @@ export default function App() {
 
   if (!user) return <LoginView handleLogin={handleLogin} />;
 
-  const roleLabel = user.role === 'admin' ? '管理员' : user.role === 'order' ? 'Saisie' : '查询员';
-
   return (
     <ErrorBoundary>
-      <div className="ios-shell min-h-screen font-sans text-slate-900 pb-28 md:pb-8">
-        {/* Mobile Header */}
-      <header className="md:hidden glass sticky top-0 z-20 border-b border-white/55">
-        <div className="px-4 sm:px-6">
-          <div className="flex items-center justify-between py-3.5 gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-2xl ios-primary flex items-center justify-center border border-white/30">
-                <Package className="text-white" size={24} />
-              </div>
-                <div className="min-w-0">
-                  <h1 className="text-xl font-black tracking-tight text-slate-900 truncate">TOP STAR SHOES</h1>
-                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                    <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : user.role === 'order' ? 'bg-indigo-500' : 'bg-amber-500'}`}></span>
-                    <span className="truncate">{roleLabel} · {user.username}</span>
-                  </div>
-                </div>
-              </div>
-            <button
-              onClick={handleLogout}
-              className="ios-float-button p-2.5 rounded-xl text-slate-500 hover:text-rose-500 transition-all shrink-0"
-              title={user.role === 'order' ? 'Se déconnecter' : '退出登录'}
-            >
-              <XCircle size={20} />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="md:flex md:items-start md:gap-5 md:px-5 md:pt-6">
-        {/* Desktop Sidebar */}
-        {user.role !== 'order' && (
-        <aside className="hidden md:block md:w-[250px] md:shrink-0">
-          <div className="glass fixed left-5 top-6 h-[calc(100vh-3rem)] w-[250px] rounded-3xl border border-white/60 shadow-xl p-5 flex flex-col">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-2xl ios-primary flex items-center justify-center border border-white/30">
-                <Package className="text-white" size={24} />
-              </div>
-              <div className="min-w-0">
-                <h1 className="text-2xl font-black tracking-tight text-slate-900 truncate">TOP STAR</h1>
-                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                  <span className={`w-1.5 h-1.5 rounded-full ${user.role === 'admin' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-                  <span className="truncate">{roleLabel} · {user.username}</span>
-                </div>
-              </div>
-            </div>
-
-            <nav className="mt-7 flex flex-col gap-2">
-              <NavButton
-                active={currentView === 'home'}
-                onClick={() => handleViewChange('home')}
-                icon={<LayoutDashboard size={18} />}
-                label="首页概览"
-                variant="sidebar"
-              />
-              <NavButton
-                active={currentView === 'dashboard'}
-                onClick={() => handleViewChange('dashboard')}
-                icon={<BarChart3 size={18} />}
-                label="数据看板"
-                variant="sidebar"
-              />
-              <button
-                type="button"
-                onClick={() => setIsInventoryMenuOpen((prev) => !prev)}
-                className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold transition-all flex items-center justify-between ${
-                  isInventoryView
-                    ? 'bg-white/70 text-indigo-600'
-                    : 'text-slate-600 hover:bg-white/55 hover:text-slate-800'
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <AlertTriangle size={18} />
-                  <span>库存概况</span>
-                </span>
-                {isInventoryMenuOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-              </button>
-              {isInventoryMenuOpen && (
-                <div className="ml-3 pl-3 border-l border-white/45 flex flex-col gap-1">
-                  <NavButton
-                    active={currentView === 'inventory-warnings'}
-                    onClick={() => handleViewChange('inventory-warnings')}
-                    icon={<AlertTriangle size={16} />}
-                    label="库存预警"
-                    variant="sidebar-sub"
-                  />
-                  <NavButton
-                    active={currentView === 'inventory-stale'}
-                    onClick={() => handleViewChange('inventory-stale')}
-                    icon={<AlertTriangle size={16} />}
-                    label="滞销品"
-                    variant="sidebar-sub"
-                  />
-                  <NavButton
-                    active={currentView === 'inventory-stock'}
-                    onClick={() => handleViewChange('inventory-stock')}
-                    icon={<Package size={16} />}
-                    label="库存总览"
-                    variant="sidebar-sub"
-                  />
-                  <NavButton
-                    active={currentView === 'inventory-comparison'}
-                    onClick={() => handleViewChange('inventory-comparison')}
-                    icon={<LayoutDashboard size={16} />}
-                    label="销量明细"
-                    variant="sidebar-sub"
-                  />
-                </div>
-              )}
-              <NavButton
-                active={currentView === 'stock'}
-                onClick={() => handleViewChange('stock')}
-                icon={<ArrowLeftRight size={18} />}
-                label="进出库管理"
-                variant="sidebar"
-              />
-              <NavButton
-                active={currentView === 'products'}
-                onClick={() => handleViewChange('products')}
-                icon={<Package size={18} />}
-                label="商品管理"
-                variant="sidebar"
-              />
-              <NavButton
-                active={currentView === 'expenses'}
-                onClick={() => handleViewChange('expenses')}
-                icon={<Wallet size={18} />}
-                label="记账管理"
-                variant="sidebar"
-              />
-              <NavButton
-                active={currentView === 'debts'}
-                onClick={() => handleViewChange('debts')}
-                icon={<HandCoins size={18} />}
-                label="欠账管理"
-                variant="sidebar"
-              />
-            </nav>
-
-            <button
-              onClick={handleLogout}
-              className="mt-auto ios-float-button rounded-2xl px-4 py-3 text-slate-600 hover:text-rose-500 transition-all flex items-center gap-2 justify-center font-semibold"
-              title="退出登录"
-            >
-              <XCircle size={18} />
-              <span>退出登录</span>
-            </button>
-          </div>
-        </aside>
-        )}
-
+      <AppShell
+        user={user}
+        currentView={currentView}
+        onViewChange={handleViewChange}
+        onLogout={handleLogout}
+      >
+      <div className="contents">
       {/* Main Content */}
-      <main className="relative z-10 flex-1 min-w-0 px-4 sm:px-6 lg:px-8 pt-8 pb-28 md:px-0 md:pt-0 md:pb-8">
+      <main className="min-w-0">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentView}
@@ -2031,81 +1860,18 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
-      </div>
-
-      {/* Mobile Dock */}
-      {user.role !== 'order' && (
-      <nav
-        className="md:hidden fixed left-1/2 -translate-x-1/2 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] w-[calc(100%-1.25rem)] max-w-[28rem] z-40"
-        aria-label="手机底部导航"
-      >
-        <div className="ios-dock p-2">
-          <div className="grid grid-cols-7 gap-1">
-            <NavButton
-              active={currentView === 'home'}
-              onClick={() => handleViewChange('home')}
-              icon={<LayoutDashboard size={18} />}
-              label="首页"
-              variant="mobile"
-            />
-            <NavButton
-              active={currentView === 'dashboard'}
-              onClick={() => handleViewChange('dashboard')}
-              icon={<BarChart3 size={18} />}
-              label="看板"
-              variant="mobile"
-            />
-            <NavButton
-              active={isInventoryView}
-              onClick={() => handleViewChange('inventory-stock')}
-              icon={<Package size={18} />}
-              label="库存"
-              variant="mobile"
-            />
-            <NavButton
-              active={currentView === 'stock'}
-              onClick={() => handleViewChange('stock')}
-              icon={<ArrowLeftRight size={18} />}
-              label="进出库"
-              variant="mobile"
-            />
-            <NavButton
-              active={currentView === 'products'}
-              onClick={() => handleViewChange('products')}
-              icon={<Package size={18} />}
-              label="商品"
-              variant="mobile"
-            />
-            <NavButton
-              active={currentView === 'expenses'}
-              onClick={() => handleViewChange('expenses')}
-              icon={<Wallet size={18} />}
-              label="记账"
-              variant="mobile"
-            />
-            <NavButton
-              active={currentView === 'debts'}
-              onClick={() => handleViewChange('debts')}
-              icon={<HandCoins size={18} />}
-              label="欠账"
-              variant="mobile"
-            />
-          </div>
-        </div>
-      </nav>
-      )}
 
       {/* Confirm Delete Modal */}
       <AnimatePresence>
         {confirmDeleteId && (
-          <div className="fixed inset-0 bg-slate-900/25 backdrop-blur-lg z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/25 z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="glass rounded-3xl p-8 w-full max-w-sm border border-white/60 text-center"
+              className="surface rounded-xl p-8 w-full max-w-sm border border-stone-200 text-center"
             >
-              <div className="w-16 h-16 bg-rose-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-rose-50 rounded-xl flex items-center justify-center mx-auto mb-4">
                 <AlertTriangle className="text-rose-500" size={32} />
               </div>
               <h3 className="text-xl font-black text-slate-800 mb-2">确认删除？</h3>
@@ -2113,13 +1879,13 @@ export default function App() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setConfirmDeleteId(null)}
-                  className="flex-1 py-3 rounded-xl font-semibold text-slate-600 ios-float-button hover:bg-white/90 transition-all"
+                  className="flex-1 py-3 rounded-xl font-semibold text-slate-600 button-secondary hover:bg-white transition-all"
                 >
                   取消
                 </button>
                 <button
                   onClick={() => deleteTransaction(confirmDeleteId)}
-                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-rose-500/90 hover:bg-rose-600 shadow-lg shadow-rose-300/30 transition-all"
+                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-rose-500/90 hover:bg-rose-600 shadow-sm shadow-rose-300/30 transition-all"
                 >
                   确认删除
                 </button>
@@ -2132,14 +1898,14 @@ export default function App() {
       {/* Confirm Delete Expense Modal */}
       <AnimatePresence>
         {confirmDeleteExpenseId && (
-          <div className="fixed inset-0 bg-slate-900/25 backdrop-blur-lg z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-900/25 z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="glass rounded-3xl p-8 w-full max-w-sm border border-white/60 text-center"
+              className="surface rounded-xl p-8 w-full max-w-sm border border-stone-200 text-center"
             >
-              <div className="w-16 h-16 bg-rose-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-rose-50 rounded-xl flex items-center justify-center mx-auto mb-4">
                 <AlertTriangle className="text-rose-500" size={32} />
               </div>
               <h3 className="text-xl font-black text-slate-800 mb-2">确认删除？</h3>
@@ -2147,13 +1913,13 @@ export default function App() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setConfirmDeleteExpenseId(null)}
-                  className="flex-1 py-3 rounded-xl font-semibold text-slate-600 ios-float-button hover:bg-white/90 transition-all"
+                  className="flex-1 py-3 rounded-xl font-semibold text-slate-600 button-secondary hover:bg-white transition-all"
                 >
                   取消
                 </button>
                 <button
                   onClick={() => deleteExpense(confirmDeleteExpenseId)}
-                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-rose-500/90 hover:bg-rose-600 shadow-lg shadow-rose-300/30 transition-all"
+                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-rose-500/90 hover:bg-rose-600 shadow-sm shadow-rose-300/30 transition-all"
                 >
                   确认删除
                 </button>
@@ -2172,7 +1938,7 @@ export default function App() {
               initial={{ opacity: 0, x: 20, scale: 0.9 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: 20, scale: 0.9 }}
-              className={`flex items-center gap-3 px-5 py-3 rounded-2xl border glass ${
+              className={`flex items-center gap-3 px-5 py-3 rounded-xl border surface ${
                 toast.type === 'success' 
                   ? 'border-emerald-200/50 text-emerald-900' 
                   : 'border-rose-200/50 text-rose-900'
@@ -2185,82 +1951,7 @@ export default function App() {
         </AnimatePresence>
       </div>
     </div>
+    </AppShell>
   </ErrorBoundary>
 );
-}
-
-// --- Components ---
-
-function NavButton({
-  active,
-  onClick,
-  icon,
-  label,
-  variant = 'desktop'
-}: {
-  active: boolean,
-  onClick: () => void,
-  icon: React.ReactNode,
-  label: string,
-  variant?: 'desktop' | 'mobile' | 'sidebar' | 'sidebar-sub'
-}) {
-  if (variant === 'mobile') {
-    return (
-      <button
-        onClick={onClick}
-        className={`ios-dock-item flex flex-col items-center justify-center gap-0.5 py-2 px-0.5 text-[10px] font-bold ${
-          active ? 'ios-dock-item-active' : 'text-slate-500'
-        }`}
-      >
-        {icon}
-        <span>{label}</span>
-      </button>
-    );
-  }
-
-  if (variant === 'sidebar') {
-    return (
-      <button
-        onClick={onClick}
-        className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold transition-all flex items-center gap-2 ${
-          active
-            ? 'bg-white/85 text-indigo-600 shadow-[0_10px_26px_rgba(99,102,241,0.18)]'
-            : 'text-slate-600 hover:bg-white/55 hover:text-slate-800'
-        }`}
-      >
-        {icon}
-        <span>{label}</span>
-      </button>
-    );
-  }
-
-  if (variant === 'sidebar-sub') {
-    return (
-      <button
-        onClick={onClick}
-        className={`w-full rounded-xl px-3 py-2 text-xs font-semibold transition-all flex items-center gap-2 ${
-          active
-            ? 'bg-white/88 text-indigo-600 shadow-[0_8px_20px_rgba(99,102,241,0.16)]'
-            : 'text-slate-500 hover:bg-white/60 hover:text-slate-700'
-        }`}
-      >
-        {icon}
-        <span>{label}</span>
-      </button>
-    );
-  }
-
-  return (
-    <button
-      onClick={onClick}
-      className={`ios-segment-item flex items-center gap-2 px-4 sm:px-5 py-2.5 text-sm font-semibold ${
-        active 
-          ? 'ios-segment-item-active' 
-          : 'hover:bg-white/55 hover:text-slate-700'
-      }`}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
-  );
 }

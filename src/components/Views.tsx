@@ -1498,7 +1498,8 @@ export const InventoryOverviewView = ({
 interface StockViewProps {
   products: Product[];
   transactions: Transaction[];
-  handleTransaction: (productId: string, type: 'in' | 'out', boxes: number, items: number, remark: string, silentSuccess?: boolean) => Promise<boolean | undefined>;
+  handleTransaction: (productId: string, type: 'in' | 'out', boxes: number, items: number, remark: string) => Promise<boolean | undefined>;
+  handleBatchOut: (lines: Array<{ productId: string; boxes: number }>, remark: string) => Promise<boolean>;
   deleteTransaction: (id: string | null) => void;
   updateTransaction: (
     transactionId: string,
@@ -2203,7 +2204,7 @@ export const OrderEntryView = ({
 };
 
 export const StockView = ({
-  products, transactions, handleTransaction, deleteTransaction, 
+  products, transactions, handleTransaction, handleBatchOut, deleteTransaction,
   updateTransaction, editingTransaction, setEditingTransaction,
   user, formatStock, showToast,
   type, setType, selectedId, setSelectedId, searchTerm, setSearchTerm, showDropdown, setShowDropdown,
@@ -2294,7 +2295,6 @@ export const StockView = ({
   }
 
   interface BatchOutTarget {
-    lineNumber: number;
     product: Product;
     boxes: number;
   }
@@ -2537,7 +2537,7 @@ export const StockView = ({
       }
 
       remainingStockByProductId[product.id] = remainingStock - quantity;
-      targets.push({ lineNumber: row.lineNumber, product, boxes: row.boxes });
+      targets.push({ product, boxes: row.boxes });
     }
 
     if (targets.length === 0) {
@@ -2547,30 +2547,21 @@ export const StockView = ({
     }
 
     setIsBatchOutSubmitting(true);
-    let successCount = 0;
     try {
-      for (const target of targets) {
-        const success = await handleTransaction(
-          target.product.id,
-          'out',
-          target.boxes,
-          0,
-          remark.trim() || '批量出库',
-          true
-        );
-        if (!success) {
-          issues.push(`第 ${target.lineNumber} 行出库失败：${target.product.name}`);
-          continue;
-        }
-        successCount += 1;
-      }
-
-      setBatchOutResult({ successCount, issues });
-      showToast(`批量出库完成！成功: ${successCount}, 失败: ${issues.length}`, issues.length > 0 ? 'error' : 'success');
-      if (successCount > 0) {
+      const success = await handleBatchOut(
+        targets.map((target) => ({ productId: target.product.id, boxes: target.boxes })),
+        remark
+      );
+      if (success) {
+        setBatchOutResult({ successCount: targets.length, issues });
         setBatchOutText('');
         setRemark('');
         setIsBatchOutMode(false);
+      } else {
+        setBatchOutResult({
+          successCount: 0,
+          issues: [...issues, '批量出库未执行，所有数据均未写入']
+        });
       }
     } finally {
       setIsBatchOutSubmitting(false);
@@ -3461,6 +3452,7 @@ interface ProductsViewProps {
   user: User | null;
   products: Product[];
   addProduct: (name: string, spec: number, price: number) => Promise<boolean>;
+  deleteProduct: (id: string) => Promise<boolean>;
   updateProductStock: (id: string, newStock: number, nextName?: string, nextSpec?: number, nextPrice?: number) => Promise<boolean>;
   toggleProductActive: (id: string, nextActive: boolean) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error') => void;
@@ -3480,11 +3472,13 @@ interface ProductsViewProps {
 }
 
 export const ProductsView = ({
-  user, products, addProduct, updateProductStock, toggleProductActive, showToast, formatCurrency, formatStock,
+  user, products, addProduct, deleteProduct, updateProductStock, toggleProductActive, showToast, formatCurrency, formatStock,
   name, setName, spec, setSpec, price, setPrice, isBatchMode, setIsBatchMode, batchText, setBatchText,
   handleBatchImport
 }: ProductsViewProps) => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [pendingDeleteProduct, setPendingDeleteProduct] = useState<Product | null>(null);
+  const [isDeletingProduct, setIsDeletingProduct] = useState(false);
   const [editName, setEditName] = useState('');
   const [editSpec, setEditSpec] = useState('0');
   const [editPrice, setEditPrice] = useState('0');
@@ -3717,6 +3711,67 @@ export const ProductsView = ({
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {pendingDeleteProduct && (
+          <div className="fixed inset-0 bg-black/35 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              className="surface rounded-xl p-7 w-full max-w-md border border-stone-200"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black text-slate-800">删除商品</h3>
+                <button
+                  type="button"
+                  onClick={() => setPendingDeleteProduct(null)}
+                  disabled={isDeletingProduct}
+                  className="p-2 rounded-full hover:bg-white transition-all text-slate-500 disabled:opacity-50"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div className="rounded-xl border border-stone-200 bg-white p-4">
+                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">商品</div>
+                  <div className="mt-1 text-base font-black text-slate-800">{pendingDeleteProduct.name}</div>
+                </div>
+
+                <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                  系统会先检查该商品是否产生过流水。只有从未产生任何流水的商品才能彻底删除；有流水的商品请使用下架。
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setPendingDeleteProduct(null)}
+                    disabled={isDeletingProduct}
+                    className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-white border border-stone-200 transition-all disabled:opacity-50"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isDeletingProduct}
+                    onClick={async () => {
+                      setIsDeletingProduct(true);
+                      const success = await deleteProduct(pendingDeleteProduct.id);
+                      setIsDeletingProduct(false);
+                      if (success) setPendingDeleteProduct(null);
+                    }}
+                    className="flex-1 py-3 rounded-xl font-bold text-white bg-rose-600 hover:bg-rose-700 transition-all disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <Trash2 size={16} />
+                    {isDeletingProduct ? '正在检查...' : '确认删除'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Add Product Form */}
       <div className="surface rounded-xl p-8 shadow-sm border-stone-200">
         <div className="flex items-center justify-between mb-8">
@@ -3901,6 +3956,19 @@ export const ProductsView = ({
                         title={user?.role !== 'admin' ? '无权限' : '编辑库存'}
                       >
                         <Pencil size={18} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingDeleteProduct(p)}
+                        disabled={user?.role !== 'admin'}
+                        className={`p-2 rounded-lg transition-all ${
+                          user?.role !== 'admin'
+                            ? 'text-slate-300 cursor-not-allowed'
+                            : 'text-rose-500 hover:bg-rose-50/70'
+                        }`}
+                        title={user?.role !== 'admin' ? '无权限' : '删除未产生流水的商品'}
+                      >
+                        <Trash2 size={18} />
                       </button>
                     </div>
                   </td>

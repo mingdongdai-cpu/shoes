@@ -37,6 +37,7 @@ import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, O
 import { AppShell } from './components/AppShell';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate, type ReportPeriod } from './lib/timeWindow';
 import { hasDuplicateProductName, normalizeProductName } from './lib/productNames';
+import { aggregateBatchOutLines, getStockAfterTransactionDeletion, type BatchOutLine } from './lib/inventoryOperations';
 
 
 // --- Error Handling ---
@@ -341,6 +342,8 @@ export default function App() {
   const toastIdRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [isDeletingTransaction, setIsDeletingTransaction] = useState(false);
+  const deletingTransactionRef = useRef(false);
   const [confirmDeleteExpenseId, setConfirmDeleteExpenseId] = useState<string | null>(null);
 
   // --- StockView State (Persistent) ---
@@ -361,6 +364,16 @@ export default function App() {
 
   // --- Editing Transaction State ---
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+
+  const orderCatalogRevision = useMemo(() => JSON.stringify(
+    products.map((product) => [
+      product.id,
+      product.name,
+      product.spec,
+      product.price,
+      product.isActive
+    ])
+  ), [products]);
 
   // --- Firebase Auth & Persistence ---
   useEffect(() => {
@@ -467,71 +480,35 @@ export default function App() {
       }
     );
 
-    // Sync Transactions (new schema + legacy schema merge)
-    let txModern: Transaction[] = [];
-    let txLegacy: Transaction[] = [];
-    const syncMergedTransactions = () => {
-      const map = new Map<string, Transaction>();
-      for (const item of txLegacy) map.set(item.id, item);
-      for (const item of txModern) map.set(item.id, item);
-      const merged = [...map.values()].sort(
-        (a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis()
-      );
-      setTransactions(merged);
-    };
-
-    const qTransactionsModern = query(collection(db, 'transactions'), orderBy('occurredAt', 'desc'));
-    const unsubscribeTransactionsModern = onSnapshot(qTransactionsModern, 
+    // Sync all transaction schemas with one listener to avoid duplicate reads.
+    const unsubscribeTransactions = onSnapshot(
+      collection(db, 'transactions'),
       (snapshot) => {
-        txModern = snapshot.docs.map((itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data()));
-        syncMergedTransactions();
+        const merged = snapshot.docs.map(
+          (itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data())
+        ).sort(
+          (a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis()
+        );
+        setTransactions(merged);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.GET, 'transactions/modern');
-      }
-    );
-    const qTransactionsLegacy = query(collection(db, 'transactions'), orderBy('date', 'desc'));
-    const unsubscribeTransactionsLegacy = onSnapshot(qTransactionsLegacy, 
-      (snapshot) => {
-        txLegacy = snapshot.docs.map((itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data()));
-        syncMergedTransactions();
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.GET, 'transactions/legacy');
+        handleFirestoreError(error, OperationType.GET, 'transactions');
       }
     );
 
-    // Sync Expenses (new schema + legacy schema merge)
-    let expenseModern: Expense[] = [];
-    let expenseLegacy: Expense[] = [];
-    const syncMergedExpenses = () => {
-      const map = new Map<string, Expense>();
-      for (const item of expenseLegacy) map.set(item.id, item);
-      for (const item of expenseModern) map.set(item.id, item);
-      const merged = [...map.values()].sort(
-        (a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis()
-      );
-      setExpenses(merged);
-    };
-
-    const qExpensesModern = query(collection(db, 'expenses'), orderBy('occurredAt', 'desc'));
-    const unsubscribeExpensesModern = onSnapshot(qExpensesModern,
+    // Sync all expense schemas with one listener to avoid duplicate reads.
+    const unsubscribeExpenses = onSnapshot(
+      collection(db, 'expenses'),
       (snapshot) => {
-        expenseModern = snapshot.docs.map((itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data()));
-        syncMergedExpenses();
+        const merged = snapshot.docs.map(
+          (itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data())
+        ).sort(
+          (a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis()
+        );
+        setExpenses(merged);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.GET, 'expenses/modern');
-      }
-    );
-    const qExpensesLegacy = query(collection(db, 'expenses'), orderBy('date', 'desc'));
-    const unsubscribeExpensesLegacy = onSnapshot(qExpensesLegacy,
-      (snapshot) => {
-        expenseLegacy = snapshot.docs.map((itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data()));
-        syncMergedExpenses();
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.GET, 'expenses/legacy');
+        handleFirestoreError(error, OperationType.GET, 'expenses');
       }
     );
 
@@ -548,10 +525,8 @@ export default function App() {
 
     return () => {
       unsubscribeProducts();
-      unsubscribeTransactionsModern();
-      unsubscribeTransactionsLegacy();
-      unsubscribeExpensesModern();
-      unsubscribeExpensesLegacy();
+      unsubscribeTransactions();
+      unsubscribeExpenses();
       unsubscribeDebts();
     };
   }, [user]);
@@ -606,7 +581,7 @@ export default function App() {
     };
 
     void syncOrderCatalog();
-  }, [products, productsLoaded, user?.role]);
+  }, [orderCatalogRevision, productsLoaded, user?.role]);
 
   // --- Toast Logic ---
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -1192,54 +1167,99 @@ export default function App() {
     }
   };
 
-  const deleteTransaction = async (id: string) => {
+  const deleteProduct = async (id: string) => {
+    if (user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+
+    const targetProduct = products.find((product) => product.id === id);
+    if (!targetProduct) {
+      showToast('商品不存在', 'error');
+      return false;
+    }
+
     try {
-      if (user?.role !== 'admin') {
-        showToast('权限不足：只有管理员可以删除流水', 'error');
-        return;
-      }
-      
-      const t = transactions.find(trans => trans.id === id);
-      if (!t) {
-        showToast('错误：找不到该流水记录', 'error');
-        return;
-      }
-
-      const product = products.find(p => p.id === t.productId);
-      if (!product) {
-        showToast('错误：找不到关联商品', 'error');
-        return;
+      const transactionSnapshot = await getDocs(query(
+        collection(db, 'transactions'),
+        where('productId', '==', id),
+        limit(1)
+      ));
+      if (!transactionSnapshot.empty) {
+        showToast('该商品已有流水，不能删除；如不再销售请使用下架', 'error');
+        return false;
       }
 
-      // 1. Revert Product Stock calculation
-      const currentStock = product.stock || 0;
-      const newStock = t.type === 'in' ? currentStock - t.quantity : currentStock + t.quantity;
-      if (newStock < 0) {
-        showToast('删除失败：回滚后库存将变为负数，操作已取消', 'error');
-        return;
-      }
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'products', id));
+      batch.delete(doc(db, 'orderCatalog', id));
+      await batch.commit();
+      showToast(`商品“${targetProduct.name}”已删除`);
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
+      showToast('商品删除失败，请稍后重试', 'error');
+      return false;
+    }
+  };
 
+  const deleteTransaction = async (id: string) => {
+    if (deletingTransactionRef.current) return;
+    if (user?.role !== 'admin') {
+      showToast('权限不足：只有管理员可以删除流水', 'error');
+      return;
+    }
+
+    deletingTransactionRef.current = true;
+    setIsDeletingTransaction(true);
+    try {
       const transactionRef = doc(db, 'transactions', id);
-      const productRef = doc(db, 'products', t.productId);
-      await runTransaction(db, async (trx) => {
+      const result = await runTransaction(db, async (trx) => {
         const txSnap = await trx.get(transactionRef);
         if (!txSnap.exists()) throw new Error('目标流水不存在');
         const dbTx = mapTransactionDoc(txSnap.id, txSnap.data());
 
+        const productRef = doc(db, 'products', dbTx.productId);
         const prodSnap = await trx.get(productRef);
-        if (!prodSnap.exists()) throw new Error('关联商品不存在');
+        if (!prodSnap.exists()) {
+          trx.delete(transactionRef);
+          return { orphaned: true };
+        }
         const productData = prodSnap.data() as Product;
         const currentDbStock = Number(productData.stock ?? 0);
-        const revertedStock = dbTx.type === 'in' ? currentDbStock - dbTx.quantity : currentDbStock + dbTx.quantity;
-        if (revertedStock < 0) throw new Error('回滚后库存将变为负数');
+        const revertedStock = getStockAfterTransactionDeletion(
+          currentDbStock,
+          dbTx.type,
+          dbTx.quantity
+        );
+        if (revertedStock < 0) {
+          throw new Error('该入库流水对应的库存已被使用，删除后库存会变为负数，不能删除');
+        }
 
         trx.update(productRef, { stock: revertedStock });
         trx.delete(transactionRef);
+        return { orphaned: false };
       });
-      showToast('流水已成功删除，库存已回滚', 'success');
+      showToast(
+        result.orphaned ? '关联商品已不存在，流水已删除' : '流水已成功删除，库存已回滚',
+        'success'
+      );
       setConfirmDeleteId(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `transactions/${id}`);
+      const firestoreCode = typeof error === 'object' && error !== null && 'code' in error
+        ? String(error.code)
+        : '';
+      const errorMessage = error instanceof Error ? error.message : '';
+      showToast(
+        firestoreCode === 'resource-exhausted' || errorMessage.includes('Quota exceeded')
+          ? 'Firestore 今日读取额度已用完，请等待每日配额重置或升级计费方案'
+          : (errorMessage || '流水删除失败，请稍后重试'),
+        'error'
+      );
+    } finally {
+      deletingTransactionRef.current = false;
+      setIsDeletingTransaction(false);
     }
   };
 
@@ -1248,8 +1268,7 @@ export default function App() {
     type: 'in' | 'out', 
     boxes: number, 
     items: number, 
-    remark: string,
-    silentSuccess = false
+    remark: string
   ) => {
     if (user?.role !== 'admin') {
       showToast('权限不足', 'error');
@@ -1302,12 +1321,97 @@ export default function App() {
         trx.update(productRef, { stock: nextStock });
       });
 
-      if (!silentSuccess) {
-        showToast(type === 'in' ? '入库成功' : '出库成功');
-      }
+      showToast(type === 'in' ? '入库成功' : '出库成功');
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'transactions/products');
+      return false;
+    }
+  };
+
+  const handleBatchOut = async (lines: BatchOutLine[], remark: string) => {
+    if (user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    if (!auth.currentUser?.uid) {
+      showToast('登录状态异常，请重新登录', 'error');
+      return false;
+    }
+    if (lines.length === 0) {
+      showToast('没有可出库数据', 'error');
+      return false;
+    }
+    if (lines.some((line) => !line.productId || !Number.isInteger(line.boxes) || line.boxes <= 0)) {
+      showToast('批量出库包含无效商品或箱数', 'error');
+      return false;
+    }
+
+    const aggregatedLines = aggregateBatchOutLines(lines);
+    const productRefs = new Map(
+      aggregatedLines.map((line) => [line.productId, doc(db, 'products', line.productId)])
+    );
+    const transactionRefs = lines.map(() => doc(collection(db, 'transactions')));
+    const operatorUid = auth.currentUser.uid;
+    const occurredAt = Timestamp.now();
+    const normalizedRemark = remark.trim() || '批量出库';
+    if (normalizedRemark.length >= 500) {
+      showToast('备注不能超过 499 个字符', 'error');
+      return false;
+    }
+
+    try {
+      await runTransaction(db, async (trx) => {
+        const productSnapshots = await Promise.all(
+          aggregatedLines.map((line) => trx.get(productRefs.get(line.productId)!))
+        );
+        const productDataById = new Map<string, Product>();
+
+        productSnapshots.forEach((snapshot, index) => {
+          const productId = aggregatedLines[index].productId;
+          if (!snapshot.exists()) throw new Error('批量出库包含已删除的商品');
+          productDataById.set(productId, snapshot.data() as Product);
+        });
+
+        for (const line of aggregatedLines) {
+          const productData = productDataById.get(line.productId)!;
+          const spec = Number(productData.spec ?? 0);
+          const currentStock = Number(productData.stock ?? 0);
+          if (spec <= 0) throw new Error('批量出库包含规格错误的商品');
+          if (productData.isActive === false) throw new Error('批量出库包含已下架的商品');
+
+          const totalQuantity = line.boxes * spec;
+          if (totalQuantity > currentStock) {
+            throw new Error(`商品“${String(productData.name ?? line.productId)}”库存不足`);
+          }
+        }
+
+        lines.forEach((line, index) => {
+          const productData = productDataById.get(line.productId)!;
+          const spec = Number(productData.spec);
+          trx.set(transactionRefs[index], {
+            productId: line.productId,
+            type: 'out',
+            quantity: line.boxes * spec,
+            unitPrice: Number(productData.price ?? 0),
+            occurredAt,
+            operatorUid,
+            remark: normalizedRemark
+          });
+        });
+
+        for (const line of aggregatedLines) {
+          const productData = productDataById.get(line.productId)!;
+          const nextStock = Number(productData.stock) - line.boxes * Number(productData.spec);
+          trx.update(productRefs.get(line.productId)!, { stock: nextStock });
+        }
+      });
+
+      showToast(`批量出库完成，共 ${lines.length} 条`);
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'transactions/batch-out');
+      showToast(error instanceof Error ? error.message : '批量出库失败，未写入任何数据', 'error');
       return false;
     }
   };
@@ -1772,6 +1876,7 @@ export default function App() {
                   products={activeProducts}
                 transactions={transactions}
                 handleTransaction={handleTransaction}
+                handleBatchOut={handleBatchOut}
                 deleteTransaction={setConfirmDeleteId}
                 updateTransaction={updateTransaction}
                 editingTransaction={editingTransaction}
@@ -1810,6 +1915,7 @@ export default function App() {
                 user={user}
                 products={products}
                 addProduct={addProduct}
+                deleteProduct={deleteProduct}
                 updateProductStock={updateProductStock}
                 toggleProductActive={toggleProductActive}
                 showToast={showToast}
@@ -1879,15 +1985,17 @@ export default function App() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setConfirmDeleteId(null)}
-                  className="flex-1 py-3 rounded-xl font-semibold text-slate-600 button-secondary hover:bg-white transition-all"
+                  disabled={isDeletingTransaction}
+                  className="flex-1 py-3 rounded-xl font-semibold text-slate-600 button-secondary hover:bg-white transition-all disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   取消
                 </button>
                 <button
-                  onClick={() => deleteTransaction(confirmDeleteId)}
-                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-rose-500/90 hover:bg-rose-600 shadow-sm shadow-rose-300/30 transition-all"
+                  onClick={() => void deleteTransaction(confirmDeleteId)}
+                  disabled={isDeletingTransaction}
+                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-rose-500/90 hover:bg-rose-600 shadow-sm shadow-rose-300/30 transition-all disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  确认删除
+                  {isDeletingTransaction ? '删除中...' : '确认删除'}
                 </button>
               </div>
             </motion.div>

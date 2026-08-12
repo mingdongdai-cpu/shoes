@@ -164,10 +164,11 @@ service cloud.firestore {
       // Staff and admins can read products
       allow read: if isStaff();
       
-      // Only admins can create, update, or delete products
+      // Only admins can create or update products.
       allow create: if isAdmin() && isValidProduct(request.resource.data);
       allow update: if isAdmin() && isValidProduct(request.resource.data);
-      allow delete: if isAdmin();
+      // Products are retained for historical transaction references; use isActive to retire them.
+      allow delete: if false;
     }
 
     // Sanitized catalog for order-entry-only accounts. Stock is intentionally excluded.

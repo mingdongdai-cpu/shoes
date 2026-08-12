@@ -36,6 +36,7 @@ import {
   query, 
   where,
   orderBy,
+  limit,
   getDoc,
   getDocs,
   writeBatch,
@@ -46,6 +47,7 @@ import {
 import { Product, OrderProduct, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, SalesPeriodData, DashboardMetrics } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate, type ReportPeriod } from './lib/timeWindow';
+import { hasDuplicateProductName, normalizeProductName } from './lib/productNames';
 
 
 // --- Error Handling ---
@@ -1089,13 +1091,18 @@ export default function App() {
       showToast('权限不足', 'error');
       return false;
     }
-    if (products.some(p => p.name === name)) {
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      showToast('商品名不能为空', 'error');
+      return false;
+    }
+    if (hasDuplicateProductName(products, normalizedName)) {
       showToast('商品名称已存在', 'error');
       return false;
     }
     try {
       await addDoc(collection(db, 'products'), {
-        name,
+        name: normalizedName,
         spec,
         price,
         stock: 0,
@@ -1107,24 +1114,6 @@ export default function App() {
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'products');
       return false;
-    }
-  };
-
-  const deleteProduct = async (id: string) => {
-    if (user?.role !== 'admin') {
-      showToast('权限不足', 'error');
-      return;
-    }
-    const product = products.find(p => p.id === id);
-    if (product && product.stock > 0) {
-      showToast('请先清空库存再删除', 'error');
-      return;
-    }
-    try {
-      await deleteDoc(doc(db, 'products', id));
-      showToast('商品已删除');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
     }
   };
 
@@ -1167,10 +1156,7 @@ export default function App() {
     }
 
     if (normalizedName !== undefined) {
-      const duplicated = products.some(
-        (product) => product.id !== id && product.name.toLowerCase() === normalizedName.toLowerCase()
-      );
-      if (duplicated) {
+      if (hasDuplicateProductName(products, normalizedName, id)) {
         showToast('商品名称已存在', 'error');
         return false;
       }
@@ -1189,52 +1175,21 @@ export default function App() {
         patch.price = nextPrice;
       }
 
-      const nextSpecValue = nextSpec ?? targetProduct.spec;
-      const shouldSyncTransactionUnitPrice = nextPrice !== undefined;
-      const shouldSyncTransactionQuantity = nextSpec !== undefined && nextSpec !== targetProduct.spec;
-      const shouldSyncTransactions = shouldSyncTransactionUnitPrice || shouldSyncTransactionQuantity;
-      const transactionQuery = query(collection(db, 'transactions'), where('productId', '==', id));
-      const transactionSnapshot = shouldSyncTransactions ? await getDocs(transactionQuery) : null;
-      const transactionDocs = transactionSnapshot?.docs ?? [];
-      const batchSize = 450;
-      let batch = writeBatch(db);
-      let operationCount = 0;
-
-      batch.update(productRef, patch);
-      operationCount += 1;
-
-      for (const transactionDoc of transactionDocs) {
-        const transactionData = mapTransactionDoc(transactionDoc.id, transactionDoc.data());
-        const transactionPatch: { unitPrice?: number; quantity?: number } = {};
-
-        if (shouldSyncTransactionUnitPrice) {
-          transactionPatch.unitPrice = nextPrice;
-        }
-
-        if (shouldSyncTransactionQuantity) {
-          const originalBoxes = Math.max(1, Math.round(transactionData.quantity / targetProduct.spec));
-          transactionPatch.quantity = originalBoxes * nextSpecValue;
-        }
-
-        batch.update(transactionDoc.ref, transactionPatch);
-        operationCount += 1;
-
-        if (operationCount >= batchSize) {
-          await batch.commit();
-          batch = writeBatch(db);
-          operationCount = 0;
+      const isSpecChanging = nextSpec !== undefined && nextSpec !== targetProduct.spec;
+      if (isSpecChanging) {
+        const transactionSnapshot = await getDocs(query(
+          collection(db, 'transactions'),
+          where('productId', '==', id),
+          limit(1)
+        ));
+        if (!transactionSnapshot.empty) {
+          showToast('该商品已有历史流水，不能修改规格；请下架后新建商品', 'error');
+          return false;
         }
       }
 
-      if (operationCount > 0) {
-        await batch.commit();
-      }
-      const wantsMetaUpdate = nextName !== undefined || nextSpec !== undefined || nextPrice !== undefined;
-      showToast(
-        wantsMetaUpdate
-          ? `商品信息与库存修改成功，已同步 ${transactionDocs.length} 条历史流水`
-          : '库存修改成功'
-      );
+      await updateDoc(productRef, patch);
+      showToast('商品信息与库存修改成功');
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `products/${id}`);
@@ -1391,7 +1346,7 @@ export default function App() {
     let successCount = 0;
     let errorCount = 0;
     const existingNames = new Set(
-      products.map((product) => product.name.trim().toLowerCase())
+      products.map((product) => normalizeProductName(product.name))
     );
     const importedNames = new Set<string>();
 
@@ -1410,7 +1365,7 @@ export default function App() {
       const pPrice = Number.parseInt(columns[2], 10);
       const pBoxes = columns[3] ? Number.parseInt(columns[3], 10) : 0;
       const pStock = pBoxes * pSpec;
-      const normalizedName = pName.toLowerCase();
+      const normalizedName = normalizeProductName(pName);
 
       if (
         !pName ||
@@ -2026,7 +1981,6 @@ export default function App() {
                 user={user}
                 products={products}
                 addProduct={addProduct}
-                deleteProduct={deleteProduct}
                 updateProductStock={updateProductStock}
                 toggleProductActive={toggleProductActive}
                 showToast={showToast}

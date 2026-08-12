@@ -26,6 +26,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
 import { DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, Debt, SalesPeriodData } from '../types';
 import { formatDateInputValue, formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek, type ReportPeriod } from '../lib/timeWindow';
+import { findUniqueProductByName } from '../lib/productNames';
 
 // --- Components ---
 
@@ -1729,12 +1730,8 @@ export const OrderEntryView = ({
 
   const selectedProduct = products.find((product) => product.id === selectedId);
   const editProduct = products.find((product) => product.id === editProductId);
-  const enteredProduct = selectedProduct ?? products.find(
-    (product) => product.name.toLowerCase() === searchTerm.trim().toLowerCase()
-  );
-  const enteredEditProduct = editProduct ?? products.find(
-    (product) => product.name.toLowerCase() === editSearchTerm.trim().toLowerCase()
-  );
+  const enteredProduct = selectedProduct ?? findUniqueProductByName(products, searchTerm);
+  const enteredEditProduct = editProduct ?? findUniqueProductByName(products, editSearchTerm);
   const filteredProducts = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
     if (!keyword) return products;
@@ -3544,7 +3541,6 @@ interface ProductsViewProps {
   user: User | null;
   products: Product[];
   addProduct: (name: string, spec: number, price: number) => Promise<boolean>;
-  deleteProduct: (id: string) => void;
   updateProductStock: (id: string, newStock: number, nextName?: string, nextSpec?: number, nextPrice?: number) => Promise<boolean>;
   toggleProductActive: (id: string, nextActive: boolean) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error') => void;
@@ -3564,12 +3560,11 @@ interface ProductsViewProps {
 }
 
 export const ProductsView = ({
-  user, products, addProduct, deleteProduct, updateProductStock, toggleProductActive, showToast, formatCurrency, formatStock,
+  user, products, addProduct, updateProductStock, toggleProductActive, showToast, formatCurrency, formatStock,
   name, setName, spec, setSpec, price, setPrice, isBatchMode, setIsBatchMode, batchText, setBatchText,
   handleBatchImport
 }: ProductsViewProps) => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [pendingDeleteProduct, setPendingDeleteProduct] = useState<Product | null>(null);
   const [editName, setEditName] = useState('');
   const [editSpec, setEditSpec] = useState('0');
   const [editPrice, setEditPrice] = useState('0');
@@ -3776,7 +3771,7 @@ export const ProductsView = ({
                 </div>
 
                 <div className="text-xs font-semibold text-slate-500 bg-indigo-50/60 border border-indigo-100/70 rounded-xl px-3 py-2">
-                  可修改商品名、规格、库存和单价；保存后会同步更新该商品历史流水单价，历史销售金额会按新单价重新计算。
+                  修改当前库存或单价不会改写历史流水；已产生流水的商品不能修改规格。
                 </div>
 
                 <div className="flex gap-3 pt-2">
@@ -3794,65 +3789,6 @@ export const ProductsView = ({
                   >
                     <Save size={16} />
                     保存修改
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {pendingDeleteProduct && (
-          <div className="fixed inset-0 bg-black/35 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.92, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.92, opacity: 0 }}
-              className="glass rounded-3xl p-7 w-full max-w-md border border-white/55"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-black text-slate-800">确认删除商品</h3>
-                <button
-                  type="button"
-                  onClick={() => setPendingDeleteProduct(null)}
-                  className="p-2 rounded-full hover:bg-white/45 transition-all text-slate-500"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="space-y-5">
-                <div className="rounded-2xl bg-white/40 border border-white/50 p-4">
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">商品</div>
-                  <div className="mt-1 text-base font-black text-slate-800">{pendingDeleteProduct.name}</div>
-                  <div className="text-sm font-semibold text-slate-500">
-                    规格: {pendingDeleteProduct.spec} 个/箱 · 当前库存: {formatStock(pendingDeleteProduct.stock, pendingDeleteProduct.spec)}
-                  </div>
-                </div>
-
-                <div className="text-xs font-semibold text-rose-600 bg-rose-50/60 border border-rose-100/70 rounded-xl px-3 py-2">
-                  删除后该商品将从列表移除，请确认这是你要执行的操作。
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setPendingDeleteProduct(null)}
-                    className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-white/55 hover:bg-white/75 border border-white/60 transition-all"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await deleteProduct(pendingDeleteProduct.id);
-                      setPendingDeleteProduct(null);
-                    }}
-                    className="flex-1 py-3 rounded-xl font-bold text-white bg-rose-600/90 hover:bg-rose-700 shadow-lg shadow-rose-200/50 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Trash2 size={16} />
-                    确认删除
                   </button>
                 </div>
               </div>
@@ -4046,30 +3982,13 @@ export const ProductsView = ({
                       >
                         <Pencil size={18} />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setPendingDeleteProduct(p)}
-                        disabled={p.stock > 0 || user?.role !== 'admin'}
-                        className={`p-2 rounded-lg transition-all backdrop-blur-sm ${
-                          p.stock > 0 || user?.role !== 'admin'
-                            ? 'text-slate-300 cursor-not-allowed' 
-                            : 'text-rose-500 hover:bg-rose-50/50'
-                        }`}
-                        title={
-                          user?.role !== 'admin'
-                            ? '无权限'
-                            : (p.stock > 0 ? '请先清空库存再删除' : '删除商品')
-                        }
-                      >
-                        <Trash2 size={18} />
-                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
               {products.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400 font-bold">暂无商品数据</td>
+                  <td colSpan={7} className="py-12 text-center text-slate-400 font-bold">暂无商品数据</td>
                 </tr>
               )}
             </tbody>

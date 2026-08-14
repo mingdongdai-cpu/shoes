@@ -2,6 +2,7 @@
 
 @theme {
   --font-sans: "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Songti SC", "STSong", "Noto Serif CJK SC", "Times New Roman", ui-serif, serif;
   --font-mono: "SFMono-Regular", "JetBrains Mono", ui-monospace, monospace;
 }
 
@@ -25,7 +26,7 @@
   --amber: #9a6722;
   --danger: #a04448;
   --focus-ring: rgba(155, 120, 69, 0.2);
-  --display-font: "Songti SC", "STSong", "Noto Serif CJK SC", "Times New Roman", ui-serif, serif;
+  --display-font: var(--font-serif);
 }
 
 * {
@@ -132,7 +133,11 @@ input[type='datetime-local'] {
 }
 
 h1,
-h2 {
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: var(--display-font);
   letter-spacing: -0.025em;
 }
@@ -549,11 +554,11 @@ tbody tr:hover {
 }
 
 .app-main {
+  font-family: var(--font-sans);
   padding: 34px 36px 54px;
 }
 
-.mobile-shell-header,
-.order-shell-header {
+.mobile-shell-header {
   position: sticky;
   top: 0;
   z-index: 30;
@@ -563,16 +568,6 @@ tbody tr:hover {
   border-bottom: 1px solid var(--line);
   background: rgba(247, 245, 241, 0.96);
   padding: 11px 16px;
-}
-
-.order-shell-header {
-  position: relative;
-}
-
-.order-shell-content {
-  margin: 0 auto;
-  max-width: 1180px;
-  padding: 24px 18px 44px;
 }
 
 .mobile-navigation {
@@ -589,6 +584,10 @@ tbody tr:hover {
   border-radius: 12px;
   background: rgba(255, 254, 250, 0.98);
   box-shadow: 0 10px 28px rgba(47, 41, 33, 0.14);
+}
+
+.order-mobile-navigation {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .mobile-navigation .shell-nav-item,
@@ -754,6 +753,18 @@ tbody tr:hover {
 
 .metric-danger {
   color: var(--danger);
+}
+
+.customer-order-money {
+  font-family: var(--display-font);
+  letter-spacing: -0.025em;
+}
+
+.customer-order-total-value {
+  margin-top: 4px;
+  color: var(--oxblood);
+  font-size: clamp(24px, 2.6vw, 34px);
+  line-height: 1;
 }
 
 .section-panel {

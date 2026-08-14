@@ -20,6 +20,7 @@ import {
   addDoc, 
   deleteDoc, 
   updateDoc,
+  setDoc,
   doc, 
   query, 
   where,
@@ -30,14 +31,24 @@ import {
   writeBatch,
   runTransaction,
   Timestamp,
+  increment,
+  serverTimestamp,
+  deleteField,
+  type Transaction as FirestoreWriteTransaction,
   type DocumentData
 } from 'firebase/firestore';
-import { Product, OrderProduct, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, SalesPeriodData, DashboardMetrics } from './types';
+import { Product, OrderProduct, CustomerOrder, CustomerOrderItem, CustomerOrderSync, OrderCashCount, OrderDailyExpense, CashDenominationCounts, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, SalesPeriodData, DashboardMetrics, AnalyticsOverview, AnalyticsMonth } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
+import { CustomerOrdersView, OrderDebtsView, OrderPriceListView } from './components/OrderViews';
+import { OrderAccountingView } from './components/OrderAccountingView';
 import { AppShell } from './components/AppShell';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate, type ReportPeriod } from './lib/timeWindow';
 import { hasDuplicateProductName, normalizeProductName } from './lib/productNames';
 import { aggregateBatchOutLines, getStockAfterTransactionDeletion, type BatchOutLine } from './lib/inventoryOperations';
+import { isCustomerOrderDebt, isOrderDate, normalizeCustomerOrderDebtHistory, normalizeCustomerOrderPaidAmount, normalizeCustomerOrderUnpaid } from './lib/customerOrders';
+import { calculateCashTotal, normalizeCashCounts } from './lib/orderAccounting';
+import { buildAnalyticsDelta, IN_TOTAL_BASELINE_VALUE, type AnalyticsDelta, type AnalyticsExpenseInput, type AnalyticsTransactionInput } from './lib/analytics';
+import { aggregateCustomerOrdersForInventory } from './lib/customerOrderSync';
 
 
 // --- Error Handling ---
@@ -223,21 +234,9 @@ const buildSalesPeriodData = (
   };
 };
 
-const IN_TOTAL_BASELINE_VALUE = 193154500;
-const IN_TOTAL_BASELINE_DATE = new Date(2026, 3, 23, 0, 0, 0, 0);
-
-function coerceTimestamp(primary: unknown, legacyDate: unknown): Timestamp {
-  if (primary instanceof Timestamp) return primary;
-  if (legacyDate instanceof Timestamp) return legacyDate;
-  if (typeof primary === 'string') {
-    const parsed = new Date(primary.replace(' ', 'T'));
-    if (!Number.isNaN(parsed.getTime())) return Timestamp.fromDate(parsed);
-  }
-  if (typeof legacyDate === 'string') {
-    const parsed = new Date(legacyDate.replace(' ', 'T'));
-    if (!Number.isNaN(parsed.getTime())) return Timestamp.fromDate(parsed);
-  }
-  return Timestamp.fromDate(new Date(0));
+function requireTimestamp(value: unknown, fieldName: string): Timestamp {
+  if (value instanceof Timestamp) return value;
+  throw new Error(`${fieldName} 必须是 Firestore Timestamp`);
 }
 
 function mapTransactionDoc(id: string, data: DocumentData): Transaction {
@@ -247,16 +246,17 @@ function mapTransactionDoc(id: string, data: DocumentData): Transaction {
     type: data.type === 'in' ? 'in' : 'out',
     quantity: Number(data.quantity ?? 0),
     unitPrice: Number(data.unitPrice ?? data.price ?? 0),
-    occurredAt: coerceTimestamp(data.occurredAt, data.date),
+    occurredAt: requireTimestamp(data.occurredAt, 'transactions.occurredAt'),
     operatorUid: String(data.operatorUid ?? 'legacy'),
-    remark: String(data.remark ?? '')
+    remark: String(data.remark ?? ''),
+    sourceOrderSyncId: typeof data.sourceOrderSyncId === 'string' ? data.sourceOrderSyncId : undefined
   };
 }
 
 function mapExpenseDoc(id: string, data: DocumentData): Expense {
   return {
     id,
-    occurredAt: coerceTimestamp(data.occurredAt, data.date),
+    occurredAt: requireTimestamp(data.occurredAt, 'expenses.occurredAt'),
     operatorUid: String(data.operatorUid ?? 'legacy'),
     amount: Number(data.amount ?? 0),
     category: String(data.category ?? ''),
@@ -292,8 +292,80 @@ function mapProductDoc(id: string, data: DocumentData): Product {
     price: Number(data.price ?? 0),
     stock: Number(data.stock ?? 0),
     isActive: data.isActive !== false,
-    createdAt: coerceProductCreatedAt(data.createdAt)
+    createdAt: coerceProductCreatedAt(data.createdAt),
+    lastOutAt: data.lastOutAt instanceof Timestamp ? data.lastOutAt : null
   };
+}
+
+function mapAnalyticsOverview(data: DocumentData): AnalyticsOverview {
+  return {
+    inTotal: Number(data.inTotal ?? IN_TOTAL_BASELINE_VALUE),
+    outTotal: Number(data.outTotal ?? 0),
+    balance: Number(data.balance ?? IN_TOTAL_BASELINE_VALUE),
+    transactionCount: Number(data.transactionCount ?? 0),
+    expenseCount: Number(data.expenseCount ?? 0)
+  };
+}
+
+function mapAnalyticsMonth(id: string, data: DocumentData): AnalyticsMonth {
+  const outByProduct = data.outByProduct && typeof data.outByProduct === 'object'
+    ? Object.fromEntries(Object.entries(data.outByProduct).map(([productId, value]) => {
+        const item = value as { quantity?: unknown; amount?: unknown };
+        return [productId, { quantity: Number(item?.quantity ?? 0), amount: Number(item?.amount ?? 0) }];
+      }))
+    : {};
+  const [fallbackYear, fallbackMonth] = id.split('-').map(Number);
+  return {
+    monthKey: String(data.monthKey ?? id),
+    year: Number(data.year ?? fallbackYear),
+    month: Number(data.month ?? fallbackMonth),
+    inAmount: Number(data.inAmount ?? 0),
+    outAmount: Number(data.outAmount ?? 0),
+    expenseAmount: Number(data.expenseAmount ?? 0),
+    outByProduct
+  };
+}
+
+function analyticsTransactionInput(transaction: Transaction): AnalyticsTransactionInput {
+  return { ...transaction, occurredAt: transaction.occurredAt.toDate() };
+}
+
+function analyticsExpenseInput(expense: Expense): AnalyticsExpenseInput {
+  return { amount: expense.amount, occurredAt: expense.occurredAt.toDate() };
+}
+
+function writeAnalyticsDelta(trx: FirestoreWriteTransaction, delta: AnalyticsDelta) {
+  const overview = delta.overview;
+  trx.set(doc(db, 'analytics', 'overview'), {
+    inTotal: increment(overview.inTotal),
+    outTotal: increment(overview.outTotal),
+    balance: increment(overview.balance),
+    transactionCount: increment(overview.transactionCount),
+    expenseCount: increment(overview.expenseCount),
+    schemaVersion: 1,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  for (const [monthKey, month] of Object.entries(delta.months)) {
+    const [year, monthNumber] = monthKey.split('-').map(Number);
+    const outByProduct = Object.fromEntries(
+      Object.entries(month.outByProduct).map(([productId, product]) => [
+        productId,
+        { quantity: increment(product.quantity), amount: increment(product.amount) }
+      ])
+    );
+    trx.set(doc(db, 'analyticsMonths', monthKey), {
+      monthKey,
+      year,
+      month: monthNumber,
+      inAmount: increment(month.inAmount),
+      outAmount: increment(month.outAmount),
+      expenseAmount: increment(month.expenseAmount),
+      ...(Object.keys(outByProduct).length > 0 ? { outByProduct } : {}),
+      schemaVersion: 1,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  }
 }
 
 function mapOrderProductDoc(id: string, data: DocumentData): OrderProduct {
@@ -302,6 +374,80 @@ function mapOrderProductDoc(id: string, data: DocumentData): OrderProduct {
     name: String(data.name ?? ''),
     spec: Number(data.spec ?? 0),
     price: Number(data.price ?? 0)
+  };
+}
+
+function mapCustomerOrderDoc(id: string, data: DocumentData): CustomerOrder {
+  const items = Array.isArray(data.items)
+    ? data.items.map((item): CustomerOrderItem => ({
+        productId: String(item?.productId ?? ''),
+        productName: String(item?.productName ?? ''),
+        spec: Number(item?.spec ?? 0),
+        unitPrice: Number(item?.unitPrice ?? 0),
+        boxes: Number(item?.boxes ?? 0),
+        quantity: Number(item?.quantity ?? 0),
+        subtotal: Number(item?.subtotal ?? 0)
+      }))
+    : [];
+  const totalAmount = Number(data.totalAmount ?? 0);
+  const isUnpaid = normalizeCustomerOrderUnpaid(data.isUnpaid);
+
+  return {
+    id,
+    customerName: String(data.customerName ?? ''),
+    orderDate: String(data.orderDate ?? ''),
+    isUnpaid,
+    paidAmount: normalizeCustomerOrderPaidAmount(data.paidAmount, isUnpaid, totalAmount),
+    hasDebtHistory: normalizeCustomerOrderDebtHistory(data.hasDebtHistory),
+    items,
+    totalAmount,
+    operatorUid: String(data.operatorUid ?? ''),
+    createdAt: requireTimestamp(data.createdAt, 'customerOrders.createdAt'),
+    inventorySyncId: typeof data.inventorySyncId === 'string' ? data.inventorySyncId : undefined
+  };
+}
+
+function mapCustomerOrderSyncDoc(id: string, data: DocumentData): CustomerOrderSync {
+  return {
+    id,
+    orderDate: String(data.orderDate ?? id),
+    orderIds: Array.isArray(data.orderIds) ? data.orderIds.map(String) : [],
+    transactionIds: Array.isArray(data.transactionIds) ? data.transactionIds.map(String) : [],
+    lines: Array.isArray(data.lines) ? data.lines.map((line) => ({
+      transactionId: String(line?.transactionId ?? ''),
+      productId: String(line?.productId ?? ''),
+      productName: String(line?.productName ?? ''),
+      quantity: Number(line?.quantity ?? 0),
+      amount: Number(line?.amount ?? 0),
+      unitPrice: Number(line?.unitPrice ?? 0)
+    })) : [],
+    operatorUid: String(data.operatorUid ?? ''),
+    createdAt: requireTimestamp(data.createdAt, 'customerOrderSyncs.createdAt')
+  };
+}
+
+function mapOrderCashCountDoc(id: string, data: DocumentData): OrderCashCount {
+  const counts = normalizeCashCounts(data.counts);
+  return {
+    id,
+    recordDate: String(data.recordDate ?? id),
+    counts,
+    totalAmount: calculateCashTotal(counts),
+    operatorUid: String(data.operatorUid ?? ''),
+    createdAt: requireTimestamp(data.createdAt, 'orderCashCounts.createdAt'),
+    updatedAt: requireTimestamp(data.updatedAt, 'orderCashCounts.updatedAt')
+  };
+}
+
+function mapOrderDailyExpenseDoc(id: string, data: DocumentData): OrderDailyExpense {
+  return {
+    id,
+    expenseDate: String(data.expenseDate ?? ''),
+    amount: Number(data.amount ?? 0),
+    remark: String(data.remark ?? ''),
+    operatorUid: String(data.operatorUid ?? ''),
+    createdAt: requireTimestamp(data.createdAt, 'orderDailyExpenses.createdAt'),
+    updatedAt: requireTimestamp(data.updatedAt, 'orderDailyExpenses.updatedAt')
   };
 }
 
@@ -323,10 +469,15 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [orderProducts, setOrderProducts] = useState<OrderProduct[]>([]);
-  const [productsLoaded, setProductsLoaded] = useState(false);
+  const [customerOrders, setCustomerOrders] = useState<CustomerOrder[]>([]);
+  const [customerOrderSync, setCustomerOrderSync] = useState<CustomerOrderSync | null>(null);
+  const [orderCashCounts, setOrderCashCounts] = useState<OrderCashCount[]>([]);
+  const [orderDailyExpenses, setOrderDailyExpenses] = useState<OrderDailyExpense[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
+  const [analyticsOverview, setAnalyticsOverview] = useState<AnalyticsOverview | null>(null);
+  const [analyticsMonths, setAnalyticsMonths] = useState<AnalyticsMonth[]>([]);
   const [currentView, setCurrentView] = useState<View>('home');
   const [inventoryComparisonMode, setInventoryComparisonMode] = useState<'week' | 'month'>('week');
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('day');
@@ -337,6 +488,16 @@ export default function App() {
   const [reportStartDate, setReportStartDate] = useState(getTogoDate());
   const [reportEndDate, setReportEndDate] = useState(getTogoDate());
   const [dashboardHotMonth, setDashboardHotMonth] = useState(getTogoMonth());
+  const [customerOrdersDate, setCustomerOrdersDate] = useState(getTogoDate());
+  const [accountingDate, setAccountingDate] = useState(getTogoDate());
+  const [adminOrderAccountingDate, setAdminOrderAccountingDate] = useState(getTogoDate());
+  const [expenseFilterMonth, setExpenseFilterMonth] = useState(getTogoMonth());
+  const [stockHistoryRequest, setStockHistoryRequest] = useState(() => ({
+    startDate: getTogoDate(),
+    endDate: getTogoDate(),
+    productId: '',
+    allTime: false
+  }));
   
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastIdRef = useRef(0);
@@ -365,16 +526,6 @@ export default function App() {
   // --- Editing Transaction State ---
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
-  const orderCatalogRevision = useMemo(() => JSON.stringify(
-    products.map((product) => [
-      product.id,
-      product.name,
-      product.spec,
-      product.price,
-      product.isActive
-    ])
-  ), [products]);
-
   // --- Firebase Auth & Persistence ---
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -387,10 +538,15 @@ export default function App() {
       setUser(null);
       setProducts([]);
       setOrderProducts([]);
-      setProductsLoaded(false);
+      setCustomerOrders([]);
+      setCustomerOrderSync(null);
+      setOrderCashCounts([]);
+      setOrderDailyExpenses([]);
       setTransactions([]);
       setExpenses([]);
       setDebts([]);
+      setAnalyticsOverview(null);
+      setAnalyticsMonths([]);
     };
 
     // Set persistence to session-based (requires re-login after closing browser)
@@ -423,7 +579,7 @@ export default function App() {
               username: firebaseUser.email?.split('@')[0] || firebaseUser.uid,
               role
             });
-            setCurrentView(role === 'order' ? 'order-entry' : 'home');
+            setCurrentView('home');
           } catch (error) {
             handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
             clearLocalSession();
@@ -445,13 +601,11 @@ export default function App() {
 
   // --- Firebase Data Sync ---
   useEffect(() => {
-    // 确保不仅 user 状态存在，Firebase 底层 auth 对象也已识别到当前用户
     if (!user || !auth.currentUser) return;
 
     if (user.role === 'order') {
-      const qOrderProducts = query(collection(db, 'orderCatalog'));
-      return onSnapshot(
-        qOrderProducts,
+      const unsubscribeOrderProducts = onSnapshot(
+        collection(db, 'orderCatalog'),
         (snapshot) => {
           const catalog = snapshot.docs
             .map((itemDoc) => mapOrderProductDoc(itemDoc.id, itemDoc.data()))
@@ -462,126 +616,47 @@ export default function App() {
           handleFirestoreError(error, OperationType.GET, 'orderCatalog');
         }
       );
+      return unsubscribeOrderProducts;
     }
 
-    // Sync Products
-    const qProducts = query(collection(db, 'products'));
-    const unsubscribeProducts = onSnapshot(qProducts, 
+    const unsubscribeProducts = onSnapshot(collection(db, 'products'),
       (snapshot) => {
         const productsData: Product[] = [];
         snapshot.forEach((itemDoc) => {
           productsData.push(mapProductDoc(itemDoc.id, itemDoc.data()));
         });
         setProducts(sortProductsByCreatedAtDesc(productsData));
-        setProductsLoaded(true);
       },
       (error) => {
         handleFirestoreError(error, OperationType.GET, 'products');
       }
     );
 
-    // Sync all transaction schemas with one listener to avoid duplicate reads.
-    const unsubscribeTransactions = onSnapshot(
-      collection(db, 'transactions'),
+    const unsubscribeOverview = onSnapshot(
+      doc(db, 'analytics', 'overview'),
       (snapshot) => {
-        const merged = snapshot.docs.map(
-          (itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data())
-        ).sort(
-          (a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis()
-        );
-        setTransactions(merged);
+        setAnalyticsOverview(snapshot.exists() ? mapAnalyticsOverview(snapshot.data()) : null);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.GET, 'transactions');
+        handleFirestoreError(error, OperationType.GET, 'analytics/overview');
       }
     );
-
-    // Sync all expense schemas with one listener to avoid duplicate reads.
-    const unsubscribeExpenses = onSnapshot(
-      collection(db, 'expenses'),
+    const unsubscribeMonths = onSnapshot(
+      collection(db, 'analyticsMonths'),
       (snapshot) => {
-        const merged = snapshot.docs.map(
-          (itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data())
-        ).sort(
-          (a, b) => b.occurredAt.toMillis() - a.occurredAt.toMillis()
-        );
-        setExpenses(merged);
+        setAnalyticsMonths(snapshot.docs.map((itemDoc) => mapAnalyticsMonth(itemDoc.id, itemDoc.data())));
       },
       (error) => {
-        handleFirestoreError(error, OperationType.GET, 'expenses');
-      }
-    );
-
-    const qDebts = query(collection(db, 'debts'), orderBy('occurredAt', 'desc'));
-    const unsubscribeDebts = onSnapshot(
-      qDebts,
-      (snapshot) => {
-        setDebts(snapshot.docs.map((itemDoc) => mapDebtDoc(itemDoc.id, itemDoc.data())));
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.GET, 'debts');
+        handleFirestoreError(error, OperationType.GET, 'analyticsMonths');
       }
     );
 
     return () => {
       unsubscribeProducts();
-      unsubscribeTransactions();
-      unsubscribeExpenses();
-      unsubscribeDebts();
+      unsubscribeOverview();
+      unsubscribeMonths();
     };
   }, [user]);
-
-  useEffect(() => {
-    if (user?.role !== 'admin' || !productsLoaded) return;
-
-    const syncOrderCatalog = async () => {
-      try {
-        const catalogSnapshot = await getDocs(collection(db, 'orderCatalog'));
-        const catalogById = new Map(
-          catalogSnapshot.docs.map((itemDoc) => [itemDoc.id, mapOrderProductDoc(itemDoc.id, itemDoc.data())])
-        );
-        const activeProductsById = new Map(
-          products
-            .filter((product) => product.isActive !== false)
-            .map((product) => [product.id, product])
-        );
-        const batch = writeBatch(db);
-        let operationCount = 0;
-
-        for (const [productId, product] of activeProductsById) {
-          const catalogProduct = catalogById.get(productId);
-          if (
-            !catalogProduct ||
-            catalogProduct.name !== product.name ||
-            catalogProduct.spec !== product.spec ||
-            catalogProduct.price !== product.price
-          ) {
-            batch.set(doc(db, 'orderCatalog', productId), {
-              name: product.name,
-              spec: product.spec,
-              price: product.price
-            });
-            operationCount += 1;
-          }
-        }
-
-        for (const catalogProduct of catalogSnapshot.docs) {
-          if (!activeProductsById.has(catalogProduct.id)) {
-            batch.delete(catalogProduct.ref);
-            operationCount += 1;
-          }
-        }
-
-        if (operationCount > 0) {
-          await batch.commit();
-        }
-      } catch (error) {
-        handleFirestoreError(error, OperationType.WRITE, 'orderCatalog');
-      }
-    };
-
-    void syncOrderCatalog();
-  }, [orderCatalogRevision, productsLoaded, user?.role]);
 
   // --- Toast Logic ---
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -595,20 +670,12 @@ export default function App() {
 
   // --- Computed Data ---
   const stats = useMemo(() => {
-    const inAfterBaseline = transactions
-      .filter(t => t.type === 'in')
-      .filter(t => timestampToDate(t.occurredAt) >= IN_TOTAL_BASELINE_DATE)
-      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
-    const inTotal = IN_TOTAL_BASELINE_VALUE + inAfterBaseline;
-    const outTotal = transactions
-      .filter(t => t.type === 'out')
-      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
-    return {
-      inTotal,
-      outTotal,
-      balance: inTotal - outTotal
+    return analyticsOverview ?? {
+      inTotal: IN_TOTAL_BASELINE_VALUE,
+      outTotal: 0,
+      balance: IN_TOTAL_BASELINE_VALUE
     };
-  }, [transactions]);
+  }, [analyticsOverview]);
 
   const activeProducts = useMemo(() => {
     return products.filter((product) => product.isActive !== false);
@@ -631,7 +698,7 @@ export default function App() {
 
     for (const product of activeProducts) {
       recentOutQtyByProduct[product.id] = 0;
-      lastSaleByProduct[product.id] = null;
+      lastSaleByProduct[product.id] = product.lastOutAt?.toDate() ?? null;
     }
 
     for (const transaction of transactions) {
@@ -700,15 +767,26 @@ export default function App() {
 
   const handleViewChange = (nextView: View) => {
     if (user?.role === 'order') {
-      setCurrentView('order-entry');
+      if (nextView === 'home' || nextView === 'order-entry' || nextView === 'order-accounting' || nextView === 'order-debts') {
+        setCurrentView(nextView);
+      }
       return;
     }
     if (nextView === 'order-entry') return;
+    if (nextView === 'customer-orders' && user?.role !== 'admin') return;
     setCurrentView(nextView);
   };
 
   useEffect(() => {
+    if (user?.role === 'order' && currentView !== 'home' && currentView !== 'order-entry' && currentView !== 'order-accounting' && currentView !== 'order-debts') {
+      setCurrentView('home');
+      return;
+    }
     if (user?.role !== 'order' && currentView === 'order-entry') {
+      setCurrentView('home');
+      return;
+    }
+    if (user?.role !== 'admin' && currentView === 'customer-orders') {
       setCurrentView('home');
     }
   }, [currentView, user?.role]);
@@ -749,20 +827,31 @@ export default function App() {
 
   const monthlySalesPeriods = useMemo<SalesPeriodData>(() => {
     const now = new Date();
-    const periods: SalesPeriodWindow[] = Array.from({ length: now.getMonth() + 1 }, (_, monthIndex) => ({
-      key: `${now.getFullYear()}-${String(monthIndex + 1).padStart(2, '0')}`,
-      label: `${monthIndex + 1}月`,
-      start: new Date(now.getFullYear(), monthIndex, 1),
-      end: new Date(now.getFullYear(), monthIndex + 1, 1)
-    }));
+    const months = Array.from({ length: now.getMonth() + 1 }, (_, index) => `${now.getFullYear()}-${String(index + 1).padStart(2, '0')}`);
+    const summaries = new Map(analyticsMonths.map((item) => [item.monthKey, item]));
+    return {
+      title: `${now.getFullYear()}年月度销量`,
+      columns: months.map((key, index) => ({ key, label: `${index + 1}月` })),
+      rows: activeProducts.map((product) => ({
+        productId: product.id,
+        name: product.name,
+        boxesByPeriod: months.map((key) => (summaries.get(key)?.outByProduct[product.id]?.quantity ?? 0) / (product.spec || 1))
+      })).sort((left, right) => (
+        right.boxesByPeriod.reduce((sum, value) => sum + value, 0) - left.boxesByPeriod.reduce((sum, value) => sum + value, 0) ||
+        left.name.localeCompare(right.name)
+      ))
+    };
+  }, [activeProducts, analyticsMonths]);
 
-    return buildSalesPeriodData(
-      `${now.getFullYear()}年月度销量`,
-      activeProducts,
-      transactions,
-      periods
-    );
-  }, [activeProducts, transactions]);
+  const totalOutQuantityByProduct = useMemo(() => {
+    const totals: Record<string, number> = {};
+    for (const month of analyticsMonths) {
+      for (const [productId, aggregate] of Object.entries(month.outByProduct)) {
+        totals[productId] = (totals[productId] ?? 0) + aggregate.quantity;
+      }
+    }
+    return totals;
+  }, [analyticsMonths]);
 
   const currentReportRange = useMemo(() => {
     return getRangeByPeriod(
@@ -774,6 +863,141 @@ export default function App() {
       reportEndDate
     );
   }, [reportPeriod, selectedDate, selectedWeek, selectedMonth, reportStartDate, reportEndDate]);
+
+  useEffect(() => {
+    if (!user || !auth.currentUser) return;
+    const unsubscribers: Array<() => void> = [];
+    const listenTransactions = (sourceQuery: ReturnType<typeof query>) => {
+      unsubscribers.push(onSnapshot(sourceQuery, (snapshot) => {
+        setTransactions(snapshot.docs
+          .map((itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data()))
+          .sort((left, right) => right.occurredAt.toMillis() - left.occurredAt.toMillis()));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'transactions')));
+    };
+    const listenCustomerOrders = (sourceQuery: ReturnType<typeof query>) => {
+      unsubscribers.push(onSnapshot(sourceQuery, (snapshot) => {
+        setCustomerOrders(snapshot.docs
+          .map((itemDoc) => mapCustomerOrderDoc(itemDoc.id, itemDoc.data()))
+          .sort((left, right) => (
+            right.orderDate.localeCompare(left.orderDate) ||
+            right.createdAt.toMillis() - left.createdAt.toMillis()
+          )));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'customerOrders')));
+    };
+
+    setTransactions([]);
+    setExpenses([]);
+    setDebts([]);
+    setCustomerOrders([]);
+    setCustomerOrderSync(null);
+
+    if (user.role === 'order') {
+      if (currentView === 'order-debts') {
+        listenCustomerOrders(query(collection(db, 'customerOrders'), where('hasDebtHistory', '==', true)));
+      } else if (currentView === 'order-entry') {
+        listenCustomerOrders(query(collection(db, 'customerOrders'), where('orderDate', '==', customerOrdersDate)));
+      }
+      return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+    }
+
+    if (currentView === 'home') {
+      listenTransactions(query(
+        collection(db, 'transactions'),
+        where('occurredAt', '>=', Timestamp.fromDate(currentReportRange.start)),
+        where('occurredAt', '<=', Timestamp.fromDate(currentReportRange.end)),
+        orderBy('occurredAt', 'desc')
+      ));
+      unsubscribers.push(onSnapshot(query(
+        collection(db, 'expenses'),
+        where('occurredAt', '>=', Timestamp.fromDate(currentReportRange.start)),
+        where('occurredAt', '<=', Timestamp.fromDate(currentReportRange.end)),
+        orderBy('occurredAt', 'desc')
+      ), (snapshot) => setExpenses(snapshot.docs.map((itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data()))),
+      (error) => handleFirestoreError(error, OperationType.GET, 'expenses')));
+    } else if (currentView === 'stock') {
+      if (stockHistoryRequest.allTime) {
+        listenTransactions(stockHistoryRequest.productId
+          ? query(collection(db, 'transactions'), where('productId', '==', stockHistoryRequest.productId), orderBy('occurredAt', 'desc'))
+          : query(collection(db, 'transactions'), orderBy('occurredAt', 'desc')));
+      } else {
+        const start = timestampFromDateInput(stockHistoryRequest.startDate);
+        const endDate = new Date(`${stockHistoryRequest.endDate}T23:59:59.999`);
+        listenTransactions(stockHistoryRequest.productId
+          ? query(
+              collection(db, 'transactions'),
+              where('productId', '==', stockHistoryRequest.productId),
+              where('occurredAt', '>=', start),
+              where('occurredAt', '<=', Timestamp.fromDate(endDate)),
+              orderBy('occurredAt', 'desc')
+            )
+          : query(
+              collection(db, 'transactions'),
+              where('occurredAt', '>=', start),
+              where('occurredAt', '<=', Timestamp.fromDate(endDate)),
+              orderBy('occurredAt', 'desc')
+            ));
+      }
+    } else if (currentView.startsWith('inventory-')) {
+      const lookbackStart = new Date();
+      lookbackStart.setHours(0, 0, 0, 0);
+      lookbackStart.setDate(lookbackStart.getDate() - 30);
+      listenTransactions(query(
+        collection(db, 'transactions'),
+        where('occurredAt', '>=', Timestamp.fromDate(lookbackStart)),
+        orderBy('occurredAt', 'desc')
+      ));
+    } else if (currentView === 'expenses') {
+      const range = getRangeByMonth(expenseFilterMonth);
+      unsubscribers.push(onSnapshot(query(
+        collection(db, 'expenses'),
+        where('occurredAt', '>=', Timestamp.fromDate(range.start)),
+        where('occurredAt', '<=', Timestamp.fromDate(range.end)),
+        orderBy('occurredAt', 'desc')
+      ), (snapshot) => setExpenses(snapshot.docs.map((itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data()))),
+      (error) => handleFirestoreError(error, OperationType.GET, 'expenses')));
+    } else if (currentView === 'customer-orders' && user.role === 'admin') {
+      listenCustomerOrders(query(collection(db, 'customerOrders'), where('orderDate', '==', customerOrdersDate)));
+      unsubscribers.push(onSnapshot(doc(db, 'customerOrderSyncs', customerOrdersDate), (snapshot) => {
+        setCustomerOrderSync(snapshot.exists() ? mapCustomerOrderSyncDoc(snapshot.id, snapshot.data()) : null);
+      }, (error) => handleFirestoreError(error, OperationType.GET, `customerOrderSyncs/${customerOrdersDate}`)));
+    } else if (currentView === 'debts') {
+      unsubscribers.push(onSnapshot(
+        query(collection(db, 'debts'), orderBy('occurredAt', 'desc')),
+        (snapshot) => setDebts(snapshot.docs.map((itemDoc) => mapDebtDoc(itemDoc.id, itemDoc.data()))),
+        (error) => handleFirestoreError(error, OperationType.GET, 'debts')
+      ));
+      if (user.role === 'admin') {
+        listenCustomerOrders(query(collection(db, 'customerOrders'), where('hasDebtHistory', '==', true)));
+      }
+    }
+
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [user, currentView, currentReportRange, customerOrdersDate, expenseFilterMonth, stockHistoryRequest]);
+
+  useEffect(() => {
+    setOrderCashCounts([]);
+    setOrderDailyExpenses([]);
+    if (!user || !auth.currentUser) return;
+    const isOrderAccounting = user.role === 'order' && currentView === 'order-accounting';
+    const isAdminAccounting = user.role === 'admin' && currentView === 'expenses';
+    if (!isOrderAccounting && !isAdminAccounting) return;
+
+    const selectedAccountingDate = isAdminAccounting ? adminOrderAccountingDate : accountingDate;
+    const unsubscribeCash = onSnapshot(doc(db, 'orderCashCounts', selectedAccountingDate), (snapshot) => {
+      setOrderCashCounts(snapshot.exists() ? [mapOrderCashCountDoc(snapshot.id, snapshot.data())] : []);
+    }, (error) => handleFirestoreError(error, OperationType.GET, `orderCashCounts/${selectedAccountingDate}`));
+    const unsubscribeExpenses = onSnapshot(
+      query(collection(db, 'orderDailyExpenses'), where('expenseDate', '==', selectedAccountingDate)),
+      (snapshot) => setOrderDailyExpenses(snapshot.docs
+        .map((itemDoc) => mapOrderDailyExpenseDoc(itemDoc.id, itemDoc.data()))
+        .sort((left, right) => right.createdAt.toMillis() - left.createdAt.toMillis())),
+      (error) => handleFirestoreError(error, OperationType.GET, 'orderDailyExpenses')
+    );
+    return () => {
+      unsubscribeCash();
+      unsubscribeExpenses();
+    };
+  }, [user, currentView, accountingDate, adminOrderAccountingDate]);
 
   const salesReport = useMemo(() => {
     const filtered = transactions.filter(t => {
@@ -815,25 +1039,14 @@ export default function App() {
   }, [transactions, products, expenses, currentReportRange]);
 
   const homeMetrics = useMemo(() => {
-    const currentMonthRange = getRangeByMonth(selectedMonth);
     const previousMonth = getPreviousMonth(selectedMonth);
-    const previousMonthRange = getRangeByMonth(previousMonth);
-
-    const currentMonthSales = transactions
-      .filter((t) => t.type === 'out' && isWithinRange(t.occurredAt, currentMonthRange))
-      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
-
-    const previousMonthSales = transactions
-      .filter((t) => t.type === 'out' && isWithinRange(t.occurredAt, previousMonthRange))
-      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
-
-    const currentMonthExpenses = expenses
-      .filter((e) => isWithinRange(e.occurredAt, currentMonthRange))
-      .reduce((sum, e) => sum + e.amount, 0);
-
-    const previousMonthExpenses = expenses
-      .filter((e) => isWithinRange(e.occurredAt, previousMonthRange))
-      .reduce((sum, e) => sum + e.amount, 0);
+    const summaries = new Map(analyticsMonths.map((item) => [item.monthKey, item]));
+    const currentSummary = summaries.get(selectedMonth);
+    const previousSummary = summaries.get(previousMonth);
+    const currentMonthSales = currentSummary?.outAmount ?? 0;
+    const previousMonthSales = previousSummary?.outAmount ?? 0;
+    const currentMonthExpenses = currentSummary?.expenseAmount ?? 0;
+    const previousMonthExpenses = previousSummary?.expenseAmount ?? 0;
 
     const salesMoM = previousMonthSales > 0
       ? ((currentMonthSales - previousMonthSales) / previousMonthSales) * 100
@@ -852,7 +1065,7 @@ export default function App() {
       salesMoM,
       expenseMoM
     };
-  }, [selectedMonth, transactions, expenses, warnings.length, staleProducts.length]);
+  }, [selectedMonth, analyticsMonths, warnings.length, staleProducts.length]);
 
   const dashboardMetrics = useMemo<DashboardMetrics>(() => {
     const now = new Date();
@@ -860,12 +1073,13 @@ export default function App() {
     const currentMonthIndex = now.getMonth();
     const selectedMonthKey = `${selectedYear}-${`${currentMonthIndex + 1}`.padStart(2, '0')}`;
 
+    const summaryByMonth = new Map(analyticsMonths.map((item) => [item.monthKey, item]));
     const monthlyBuckets = Array.from({ length: currentMonthIndex + 1 }, (_, monthIndex) => {
       const monthKey = `${selectedYear}-${`${monthIndex + 1}`.padStart(2, '0')}`;
       return {
         monthKey,
         monthLabel: `${monthIndex + 1}月`,
-        salesTotal: 0
+        salesTotal: summaryByMonth.get(monthKey)?.outAmount ?? 0
       };
     });
 
@@ -881,37 +1095,17 @@ export default function App() {
     const productById = new Map(products.map((product) => [product.id, product]));
     const hotMonthByProduct = new Map<string, ProductAggItem>();
 
-    for (const transaction of transactions) {
-      if (transaction.type !== 'out') continue;
-
-      const occurredAt = timestampToDate(transaction.occurredAt);
-      const monthIndex = occurredAt.getMonth();
-      const amount = transaction.quantity * transaction.unitPrice;
-      const monthKey = `${occurredAt.getFullYear()}-${`${monthIndex + 1}`.padStart(2, '0')}`;
-
-      if (occurredAt.getFullYear() === selectedYear && monthIndex >= 0 && monthIndex <= currentMonthIndex) {
-        monthlyBuckets[monthIndex].salesTotal += amount;
-      }
-
-      if (monthKey !== dashboardHotMonth) continue;
-
-      const product = productById.get(transaction.productId);
+    const hotMonth = summaryByMonth.get(dashboardHotMonth);
+    for (const [productId, aggregate] of Object.entries(hotMonth?.outByProduct ?? {})) {
+      const product = productById.get(productId);
       const spec = product && product.spec > 0 ? product.spec : 1;
-      const existing = hotMonthByProduct.get(transaction.productId);
-      if (existing) {
-        existing.amount += amount;
-        existing.quantity += transaction.quantity;
-        existing.boxes += transaction.quantity / spec;
-        continue;
-      }
-
-      hotMonthByProduct.set(transaction.productId, {
-        productId: transaction.productId,
+      hotMonthByProduct.set(productId, {
+        productId,
         productName: product?.name || '未知商品',
         spec,
-        amount,
-        quantity: transaction.quantity,
-        boxes: transaction.quantity / spec
+        amount: aggregate.amount,
+        quantity: aggregate.quantity,
+        boxes: aggregate.quantity / spec
       });
     }
 
@@ -992,7 +1186,7 @@ export default function App() {
       hotByAmount,
       hotByVolume
     };
-  }, [transactions, products, dashboardHotMonth]);
+  }, [analyticsMonths, products, dashboardHotMonth]);
 
   // --- Actions ---
   const handleLogin = async (username: string, pass: string) => {
@@ -1035,6 +1229,466 @@ export default function App() {
     }
   };
 
+  const createCustomerOrder = async ({
+    customerName,
+    orderDate,
+    isUnpaid,
+    items
+  }: {
+    customerName: string;
+    orderDate: string;
+    isUnpaid: boolean;
+    items: CustomerOrderItem[];
+  }) => {
+    if (user?.role !== 'order') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    if (!auth.currentUser?.uid) {
+      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      return false;
+    }
+
+    const normalizedCustomerName = customerName.trim();
+    if (!normalizedCustomerName || normalizedCustomerName.length > 100) {
+      showToast('Saisissez un nom de client valide', 'error');
+      return false;
+    }
+    if (!isOrderDate(orderDate)) {
+      showToast('Sélectionnez une date valide', 'error');
+      return false;
+    }
+    if (items.length === 0 || items.length > 100) {
+      showToast('Ajoutez au moins un produit', 'error');
+      return false;
+    }
+    const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
+
+    try {
+      await addDoc(collection(db, 'customerOrders'), {
+        customerName: normalizedCustomerName,
+        orderDate,
+        isUnpaid,
+        paidAmount: isUnpaid ? 0 : totalAmount,
+        hasDebtHistory: isUnpaid,
+        items,
+        totalAmount,
+        operatorUid: auth.currentUser.uid,
+        createdAt: Timestamp.now()
+      });
+      showToast('Commande enregistrée');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'customerOrders');
+      showToast('Échec de l’enregistrement de la commande', 'error');
+      return false;
+    }
+  };
+
+  const updateCustomerOrder = async (
+    orderId: string,
+    customerName: string,
+    items: CustomerOrderItem[],
+    isUnpaid: boolean,
+    paidAmount: number
+  ) => {
+    if (user?.role !== 'admin' && user?.role !== 'order') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    const currentUid = auth.currentUser?.uid;
+    if (!currentUid) {
+      showToast(user.role === 'order' ? 'Session expirée, veuillez vous reconnecter' : '登录已失效，请重新登录', 'error');
+      return false;
+    }
+
+    const normalizedCustomerName = customerName.trim();
+    if (!normalizedCustomerName || normalizedCustomerName.length > 100 || items.length === 0 || items.length > 100) {
+      showToast(user.role === 'order' ? 'Commande invalide' : '订单内容不完整', 'error');
+      return false;
+    }
+    const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
+    if (!Number.isFinite(totalAmount) || totalAmount < 0 || !Number.isFinite(paidAmount) || paidAmount < 0 || !Number.isInteger(paidAmount)) {
+      showToast(user.role === 'order' ? 'Commande invalide' : '订单金额无效', 'error');
+      return false;
+    }
+
+    try {
+      const orderRef = doc(db, 'customerOrders', orderId);
+      const orderSnapshot = await getDoc(orderRef);
+      if (!orderSnapshot.exists()) {
+        showToast(user.role === 'order' ? 'Commande introuvable' : '订单不存在', 'error');
+        return false;
+      }
+      const existingOrder = mapCustomerOrderDoc(orderSnapshot.id, orderSnapshot.data());
+      if (user.role === 'order' && existingOrder.operatorUid !== currentUid) {
+        showToast('Vous ne pouvez modifier que vos commandes', 'error');
+        return false;
+      }
+      const inventoryDetailsChanged = existingOrder.customerName !== normalizedCustomerName ||
+        existingOrder.totalAmount !== totalAmount ||
+        JSON.stringify(existingOrder.items) !== JSON.stringify(items);
+      if (existingOrder.inventorySyncId && inventoryDetailsChanged) {
+        showToast(user.role === 'order' ? 'La synchronisation doit être annulée par l’administrateur avant modification' : '该订单已同步出库，请先撤销当天同步', 'error');
+        return false;
+      }
+
+      const normalizedPaidAmount = isUnpaid ? 0 : paidAmount;
+      const hasDebtHistory = existingOrder.hasDebtHistory ||
+        isCustomerOrderDebt(existingOrder) ||
+        isUnpaid ||
+        normalizedPaidAmount < totalAmount;
+
+      await updateDoc(orderRef, {
+        customerName: normalizedCustomerName,
+        items,
+        totalAmount,
+        isUnpaid,
+        paidAmount: normalizedPaidAmount,
+        hasDebtHistory
+      });
+      showToast(user.role === 'order' ? 'Commande modifiée' : '订单已更新');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `customerOrders/${orderId}`);
+      showToast(user.role === 'order' ? 'Échec de la modification' : '订单更新失败', 'error');
+      return false;
+    }
+  };
+
+  const deleteCustomerOrder = async (orderId: string) => {
+    if (user?.role !== 'admin' && user?.role !== 'order') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    const currentUid = auth.currentUser?.uid;
+    if (!currentUid) {
+      showToast(user.role === 'order' ? 'Session expirée, veuillez vous reconnecter' : '登录已失效，请重新登录', 'error');
+      return false;
+    }
+
+    const existingOrder = customerOrders.find((order) => order.id === orderId);
+    if (user.role === 'order' && existingOrder?.operatorUid !== currentUid) {
+      showToast('Vous ne pouvez supprimer que vos commandes', 'error');
+      return false;
+    }
+    if (existingOrder?.inventorySyncId) {
+      showToast(user.role === 'order' ? 'La synchronisation doit être annulée par l’administrateur avant suppression' : '该订单已同步出库，请先撤销当天同步', 'error');
+      return false;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'customerOrders', orderId));
+      showToast(user.role === 'order' ? 'Commande supprimée' : '订单已删除');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `customerOrders/${orderId}`);
+      showToast(user.role === 'order' ? 'Échec de la suppression' : '订单删除失败', 'error');
+      return false;
+    }
+  };
+
+  const syncCustomerOrdersToInventory = async (orderDate: string) => {
+    if (user?.role !== 'admin' || !auth.currentUser?.uid) {
+      showToast('仅管理员可以同步客户订单', 'error');
+      return false;
+    }
+    if (!isOrderDate(orderDate)) {
+      showToast('同步日期无效', 'error');
+      return false;
+    }
+
+    try {
+      const initialOrders = await getDocs(query(collection(db, 'customerOrders'), where('orderDate', '==', orderDate)));
+      if (initialOrders.empty) {
+        showToast('该日期没有可同步的客户订单', 'error');
+        return false;
+      }
+      const orderRefs = initialOrders.docs.map((snapshot) => snapshot.ref);
+      const syncRef = doc(db, 'customerOrderSyncs', orderDate);
+      const operatorUid = auth.currentUser.uid;
+      const occurredAt = Timestamp.fromDate(new Date(`${orderDate}T12:00:00.000Z`));
+
+      const result = await runTransaction(db, async (trx) => {
+        const syncSnapshot = await trx.get(syncRef);
+        if (syncSnapshot.exists()) throw new Error('该日期已经同步，请勿重复操作');
+
+        const orderSnapshots = await Promise.all(orderRefs.map((orderRef) => trx.get(orderRef)));
+        const orders = orderSnapshots.map((snapshot) => {
+          if (!snapshot.exists()) throw new Error('同步期间订单发生变化，请重试');
+          const order = mapCustomerOrderDoc(snapshot.id, snapshot.data());
+          if (order.orderDate !== orderDate) throw new Error('订单日期不一致，无法同步');
+          if (order.inventorySyncId) throw new Error('存在已同步订单，请先撤销原同步');
+          return order;
+        });
+        const lines = aggregateCustomerOrdersForInventory(orders);
+        if (lines.length === 0) throw new Error('订单中没有可同步的商品');
+        if (orders.length + lines.length * 2 + 4 > 450) throw new Error('该日期订单过多，请联系管理员分批处理');
+
+        const productRefs = lines.map((line) => doc(db, 'products', line.productId));
+        const productSnapshots = await Promise.all(productRefs.map((productRef) => trx.get(productRef)));
+        const transactionRefs = lines.map(() => doc(collection(db, 'transactions')));
+        const transactionsToCreate: Transaction[] = [];
+
+        lines.forEach((line, index) => {
+          const productSnapshot = productSnapshots[index];
+          if (!productSnapshot.exists()) throw new Error(`商品“${line.productName}”不存在`);
+          const product = mapProductDoc(productSnapshot.id, productSnapshot.data());
+          if (!product.isActive) throw new Error(`商品“${product.name}”已下架，无法同步`);
+          if (product.stock < line.quantity) {
+            throw new Error(`商品“${product.name}”库存不足，需要 ${formatStock(line.quantity, product.spec)}，当前 ${formatStock(product.stock, product.spec)}`);
+          }
+          const currentLastOutAt = product.lastOutAt instanceof Timestamp ? product.lastOutAt : null;
+          trx.update(productRefs[index], {
+            stock: product.stock - line.quantity,
+            lastOutAt: !currentLastOutAt || occurredAt.toMillis() > currentLastOutAt.toMillis() ? occurredAt : currentLastOutAt
+          });
+          const transactionData = {
+            productId: line.productId,
+            type: 'out' as const,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            occurredAt,
+            operatorUid,
+            remark: `客户订单同步 ${orderDate}（${orders.length} 张订单）`,
+            sourceOrderSyncId: orderDate
+          };
+          trx.set(transactionRefs[index], transactionData);
+          transactionsToCreate.push({ id: transactionRefs[index].id, ...transactionData });
+        });
+
+        orderRefs.forEach((orderRef) => trx.update(orderRef, { inventorySyncId: orderDate }));
+        const syncLines = lines.map((line, index) => ({ ...line, transactionId: transactionRefs[index].id }));
+        trx.set(syncRef, {
+          orderDate,
+          orderIds: orders.map((order) => order.id),
+          transactionIds: transactionRefs.map((transactionRef) => transactionRef.id),
+          lines: syncLines,
+          operatorUid,
+          createdAt: Timestamp.now()
+        });
+        writeAnalyticsDelta(trx, buildAnalyticsDelta({
+          afterTransactions: transactionsToCreate.map(analyticsTransactionInput)
+        }));
+        return { orderCount: orders.length, productCount: lines.length };
+      });
+
+      showToast(`同步完成：${result.orderCount} 张订单，生成 ${result.productCount} 条出库流水`);
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `customerOrderSyncs/${orderDate}`);
+      showToast(error instanceof Error ? error.message : '客户订单同步失败', 'error');
+      return false;
+    }
+  };
+
+  const undoCustomerOrdersInventorySync = async (orderDate: string) => {
+    if (user?.role !== 'admin' || !auth.currentUser?.uid) {
+      showToast('仅管理员可以撤销同步', 'error');
+      return false;
+    }
+    try {
+      const syncRef = doc(db, 'customerOrderSyncs', orderDate);
+      const initialSyncSnapshot = await getDoc(syncRef);
+      if (!initialSyncSnapshot.exists()) throw new Error('该日期没有可撤销的同步记录');
+      const initialSync = mapCustomerOrderSyncDoc(initialSyncSnapshot.id, initialSyncSnapshot.data());
+      const initialProductIds = [...new Set(initialSync.lines.map((line) => line.productId))];
+      const previousLastOutEntries = await Promise.all(initialProductIds.map(async (productId) => {
+        const latest = await getDocs(query(
+          collection(db, 'transactions'),
+          where('productId', '==', productId),
+          where('type', '==', 'out'),
+          orderBy('occurredAt', 'desc'),
+          limit(2)
+        ));
+        const previous = latest.docs
+          .map((snapshot) => mapTransactionDoc(snapshot.id, snapshot.data()))
+          .find((transaction) => transaction.sourceOrderSyncId !== orderDate);
+        return [productId, previous?.occurredAt ?? null] as const;
+      }));
+      const previousLastOutByProduct = new Map(previousLastOutEntries);
+
+      await runTransaction(db, async (trx) => {
+        const syncSnapshot = await trx.get(syncRef);
+        if (!syncSnapshot.exists()) throw new Error('该日期没有可撤销的同步记录');
+        const syncRecord = mapCustomerOrderSyncDoc(syncSnapshot.id, syncSnapshot.data());
+        const transactionRefs = syncRecord.transactionIds.map((id) => doc(db, 'transactions', id));
+        const orderRefs = syncRecord.orderIds.map((id) => doc(db, 'customerOrders', id));
+        const transactionSnapshots = await Promise.all(transactionRefs.map((transactionRef) => trx.get(transactionRef)));
+        const orderSnapshots = await Promise.all(orderRefs.map((orderRef) => trx.get(orderRef)));
+        const transactionsToDelete = transactionSnapshots.map((snapshot) => {
+          if (!snapshot.exists()) throw new Error('同步流水不完整，撤销已停止');
+          const transaction = mapTransactionDoc(snapshot.id, snapshot.data());
+          if (transaction.sourceOrderSyncId !== orderDate || transaction.type !== 'out') throw new Error('同步流水校验失败，撤销已停止');
+          return transaction;
+        });
+        const quantityByProduct = new Map<string, number>();
+        for (const transaction of transactionsToDelete) {
+          quantityByProduct.set(transaction.productId, (quantityByProduct.get(transaction.productId) ?? 0) + transaction.quantity);
+        }
+        const productIds = [...quantityByProduct.keys()];
+        const productRefs = productIds.map((id) => doc(db, 'products', id));
+        const productSnapshots = await Promise.all(productRefs.map((productRef) => trx.get(productRef)));
+
+        productSnapshots.forEach((snapshot, index) => {
+          if (!snapshot.exists()) throw new Error('关联商品不存在，撤销已停止');
+          const product = mapProductDoc(snapshot.id, snapshot.data());
+          const deletedTransaction = transactionsToDelete.find((transaction) => transaction.productId === productIds[index]);
+          const currentLastOutIsDeleted = Boolean(
+            deletedTransaction &&
+            product.lastOutAt instanceof Timestamp &&
+            product.lastOutAt.isEqual(deletedTransaction.occurredAt)
+          );
+          trx.update(productRefs[index], {
+            stock: product.stock + (quantityByProduct.get(productIds[index]) ?? 0),
+            lastOutAt: currentLastOutIsDeleted ? (previousLastOutByProduct.get(productIds[index]) ?? null) : (product.lastOutAt ?? null)
+          });
+        });
+        transactionRefs.forEach((transactionRef) => trx.delete(transactionRef));
+        orderSnapshots.forEach((snapshot, index) => {
+          if (!snapshot.exists()) throw new Error('同步订单不完整，撤销已停止');
+          const order = mapCustomerOrderDoc(snapshot.id, snapshot.data());
+          if (order.inventorySyncId !== orderDate) throw new Error('订单同步状态不一致，撤销已停止');
+          trx.update(orderRefs[index], { inventorySyncId: deleteField() });
+        });
+        trx.delete(syncRef);
+        writeAnalyticsDelta(trx, buildAnalyticsDelta({
+          beforeTransactions: transactionsToDelete.map(analyticsTransactionInput)
+        }));
+      });
+      showToast('已撤销同步，库存和流水均已回滚');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `customerOrderSyncs/${orderDate}`);
+      showToast(error instanceof Error ? error.message : '撤销同步失败', 'error');
+      return false;
+    }
+  };
+
+  const saveOrderCashCount = async (recordDate: string, counts: CashDenominationCounts) => {
+    if (user?.role !== 'order' || !auth.currentUser?.uid) {
+      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      return false;
+    }
+    const countValues = Object.values(counts);
+    if (!isOrderDate(recordDate) || countValues.some((count) => !Number.isInteger(count) || count < 0)) {
+      showToast('Saisissez une caisse valide', 'error');
+      return false;
+    }
+
+    try {
+      const cashRef = doc(db, 'orderCashCounts', recordDate);
+      const existingCash = await getDoc(cashRef);
+      const now = Timestamp.now();
+      const cashData = { recordDate, counts, totalAmount: calculateCashTotal(counts), updatedAt: now };
+      if (existingCash.exists()) {
+        await updateDoc(cashRef, cashData);
+      } else {
+        await setDoc(cashRef, { ...cashData, operatorUid: auth.currentUser.uid, createdAt: now });
+      }
+      showToast(existingCash.exists() ? 'Caisse modifiée' : 'Caisse enregistrée');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `orderCashCounts/${recordDate}`);
+      showToast('Échec de l’enregistrement de la caisse', 'error');
+      return false;
+    }
+  };
+
+  const deleteOrderCashCount = async (recordDate: string) => {
+    if (user?.role !== 'order' || !auth.currentUser?.uid) {
+      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      return false;
+    }
+    if (!isOrderDate(recordDate)) {
+      showToast('Date de caisse invalide', 'error');
+      return false;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'orderCashCounts', recordDate));
+      showToast('Caisse supprimée');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `orderCashCounts/${recordDate}`);
+      showToast('Échec de la suppression de la caisse', 'error');
+      return false;
+    }
+  };
+
+  const createOrderDailyExpense = async (expenseDate: string, amount: number, remark: string) => {
+    if (user?.role !== 'order' || !auth.currentUser?.uid) {
+      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      return false;
+    }
+    const normalizedRemark = remark.trim();
+    if (!isOrderDate(expenseDate) || !Number.isInteger(amount) || amount <= 0 || !normalizedRemark || normalizedRemark.length > 500) {
+      showToast('Saisissez une dépense valide', 'error');
+      return false;
+    }
+
+    try {
+      const now = Timestamp.now();
+      await addDoc(collection(db, 'orderDailyExpenses'), {
+        expenseDate,
+        amount,
+        remark: normalizedRemark,
+        operatorUid: auth.currentUser.uid,
+        createdAt: now,
+        updatedAt: now
+      });
+      showToast('Dépense enregistrée');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'orderDailyExpenses');
+      showToast('Échec de l’enregistrement de la dépense', 'error');
+      return false;
+    }
+  };
+
+  const updateOrderDailyExpense = async (expenseId: string, expenseDate: string, amount: number, remark: string) => {
+    if (user?.role !== 'order' || !auth.currentUser?.uid) {
+      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      return false;
+    }
+    const normalizedRemark = remark.trim();
+    if (!isOrderDate(expenseDate) || !Number.isInteger(amount) || amount <= 0 || !normalizedRemark || normalizedRemark.length > 500) {
+      showToast('Saisissez une dépense valide', 'error');
+      return false;
+    }
+
+    try {
+      await updateDoc(doc(db, 'orderDailyExpenses', expenseId), {
+        expenseDate,
+        amount,
+        remark: normalizedRemark,
+        updatedAt: Timestamp.now()
+      });
+      showToast('Dépense modifiée');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `orderDailyExpenses/${expenseId}`);
+      showToast('Échec de la modification de la dépense', 'error');
+      return false;
+    }
+  };
+
+  const deleteOrderDailyExpense = async (expenseId: string) => {
+    if (user?.role !== 'order' || !auth.currentUser?.uid) {
+      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      return false;
+    }
+    try {
+      await deleteDoc(doc(db, 'orderDailyExpenses', expenseId));
+      showToast('Dépense supprimée');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `orderDailyExpenses/${expenseId}`);
+      showToast('Échec de la suppression de la dépense', 'error');
+      return false;
+    }
+  };
+
   const addProduct = async (name: string, spec: number, price: number) => {
     if (user?.role !== 'admin') {
       showToast('权限不足', 'error');
@@ -1050,14 +1704,24 @@ export default function App() {
       return false;
     }
     try {
-      await addDoc(collection(db, 'products'), {
+      const productRef = doc(collection(db, 'products'));
+      const batch = writeBatch(db);
+      const productData = {
         name: normalizedName,
         spec,
         price,
         stock: 0,
         isActive: true,
-        createdAt: Timestamp.now()
+        createdAt: Timestamp.now(),
+        lastOutAt: null
+      };
+      batch.set(productRef, productData);
+      batch.set(doc(db, 'orderCatalog', productRef.id), {
+        name: normalizedName,
+        spec,
+        price
       });
+      await batch.commit();
       showToast('商品添加成功');
       return true;
     } catch (error) {
@@ -1137,7 +1801,17 @@ export default function App() {
         }
       }
 
-      await updateDoc(productRef, patch);
+      const batch = writeBatch(db);
+      batch.update(productRef, patch);
+      const catalogChanged = normalizedName !== undefined || nextSpec !== undefined || nextPrice !== undefined;
+      if (targetProduct.isActive && catalogChanged) {
+        batch.set(doc(db, 'orderCatalog', id), {
+          name: normalizedName ?? targetProduct.name,
+          spec: nextSpec ?? targetProduct.spec,
+          price: nextPrice ?? targetProduct.price
+        });
+      }
+      await batch.commit();
       showToast('商品信息与库存修改成功');
       return true;
     } catch (error) {
@@ -1158,7 +1832,18 @@ export default function App() {
     }
 
     try {
-      await updateDoc(doc(db, 'products', id), { isActive: nextActive });
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'products', id), { isActive: nextActive });
+      if (nextActive) {
+        batch.set(doc(db, 'orderCatalog', id), {
+          name: targetProduct.name,
+          spec: targetProduct.spec,
+          price: targetProduct.price
+        });
+      } else {
+        batch.delete(doc(db, 'orderCatalog', id));
+      }
+      await batch.commit();
       showToast(nextActive ? '商品已重新上架' : '商品已下架（数据保留）');
       return true;
     } catch (error) {
@@ -1203,6 +1888,19 @@ export default function App() {
     }
   };
 
+  const refreshProductLastOutAt = async (productId: string) => {
+    const latest = await getDocs(query(
+      collection(db, 'transactions'),
+      where('productId', '==', productId),
+      where('type', '==', 'out'),
+      orderBy('occurredAt', 'desc'),
+      limit(1)
+    ));
+    await updateDoc(doc(db, 'products', productId), {
+      lastOutAt: latest.empty ? null : mapTransactionDoc(latest.docs[0].id, latest.docs[0].data()).occurredAt
+    });
+  };
+
   const deleteTransaction = async (id: string) => {
     if (deletingTransactionRef.current) return;
     if (user?.role !== 'admin') {
@@ -1218,12 +1916,15 @@ export default function App() {
         const txSnap = await trx.get(transactionRef);
         if (!txSnap.exists()) throw new Error('目标流水不存在');
         const dbTx = mapTransactionDoc(txSnap.id, txSnap.data());
+        if (dbTx.sourceOrderSyncId) throw new Error('该流水来自客户订单，请在客户订单页面撤销同步');
+        const analyticsDelta = buildAnalyticsDelta({ beforeTransactions: [analyticsTransactionInput(dbTx)] });
 
         const productRef = doc(db, 'products', dbTx.productId);
         const prodSnap = await trx.get(productRef);
         if (!prodSnap.exists()) {
           trx.delete(transactionRef);
-          return { orphaned: true };
+          writeAnalyticsDelta(trx, analyticsDelta);
+          return { orphaned: true, productId: dbTx.productId, refreshLastOutAt: false };
         }
         const productData = prodSnap.data() as Product;
         const currentDbStock = Number(productData.stock ?? 0);
@@ -1236,10 +1937,21 @@ export default function App() {
           throw new Error('该入库流水对应的库存已被使用，删除后库存会变为负数，不能删除');
         }
 
-        trx.update(productRef, { stock: revertedStock });
+        trx.update(productRef, {
+          stock: revertedStock,
+          ...(dbTx.type === 'out' && productData.lastOutAt instanceof Timestamp && productData.lastOutAt.isEqual(dbTx.occurredAt)
+            ? { lastOutAt: null }
+            : {})
+        });
         trx.delete(transactionRef);
-        return { orphaned: false };
+        writeAnalyticsDelta(trx, analyticsDelta);
+        return {
+          orphaned: false,
+          productId: dbTx.productId,
+          refreshLastOutAt: dbTx.type === 'out' && productData.lastOutAt instanceof Timestamp && productData.lastOutAt.isEqual(dbTx.occurredAt)
+        };
       });
+      if (result.refreshLastOutAt) await refreshProductLastOutAt(result.productId);
       showToast(
         result.orphaned ? '关联商品已不存在，流水已删除' : '流水已成功删除，库存已回滚',
         'success'
@@ -1295,6 +2007,7 @@ export default function App() {
       }
       const productRef = doc(db, 'products', productId);
       const transactionRef = doc(collection(db, 'transactions'));
+      const occurredAt = Timestamp.now();
       await runTransaction(db, async (trx) => {
         const productSnap = await trx.get(productRef);
         if (!productSnap.exists()) throw new Error('商品不存在');
@@ -1309,16 +2022,23 @@ export default function App() {
         const nextStock = type === 'in' ? currentStock + totalQuantity : currentStock - totalQuantity;
         if (nextStock < 0) throw new Error('库存不足');
 
-        trx.set(transactionRef, {
+        const transactionData = {
           productId,
           type,
           quantity: totalQuantity,
           unitPrice: dbUnitPrice,
-          occurredAt: Timestamp.now(),
+          occurredAt,
           operatorUid: auth.currentUser.uid,
           remark
+        };
+        trx.set(transactionRef, transactionData);
+        trx.update(productRef, {
+          stock: nextStock,
+          ...(type === 'out' ? { lastOutAt: occurredAt } : {})
         });
-        trx.update(productRef, { stock: nextStock });
+        writeAnalyticsDelta(trx, buildAnalyticsDelta({
+          afterTransactions: [analyticsTransactionInput({ id: transactionRef.id, ...transactionData })]
+        }));
       });
 
       showToast(type === 'in' ? '入库成功' : '出库成功');
@@ -1403,8 +2123,20 @@ export default function App() {
         for (const line of aggregatedLines) {
           const productData = productDataById.get(line.productId)!;
           const nextStock = Number(productData.stock) - line.boxes * Number(productData.spec);
-          trx.update(productRefs.get(line.productId)!, { stock: nextStock });
+          trx.update(productRefs.get(line.productId)!, { stock: nextStock, lastOutAt: occurredAt });
         }
+        writeAnalyticsDelta(trx, buildAnalyticsDelta({
+          afterTransactions: lines.map((line, index) => {
+            const productData = productDataById.get(line.productId)!;
+            return {
+              productId: line.productId,
+              type: 'out',
+              quantity: line.boxes * Number(productData.spec),
+              unitPrice: Number(productData.price ?? 0),
+              occurredAt: occurredAt.toDate()
+            };
+          })
+        }));
       });
 
       showToast(`批量出库完成，共 ${lines.length} 条`);
@@ -1476,19 +2208,29 @@ export default function App() {
             price: pPrice,
             stock: pStock,
             isActive: true,
-            createdAt
+            createdAt,
+            lastOutAt: null
+          });
+          trx.set(doc(db, 'orderCatalog', productRef.id), {
+            name: pName,
+            spec: pSpec,
+            price: pPrice
           });
 
           if (pStock > 0) {
-            trx.set(initTransactionRef, {
+            const initTransactionData = {
               productId: productRef.id,
               type: 'in',
               quantity: pStock,
               unitPrice: pPrice,
-              occurredAt: Timestamp.now(),
+              occurredAt: createdAt,
               operatorUid: auth.currentUser.uid,
               remark: '系统批量导入初始库存'
-            });
+            } as const;
+            trx.set(initTransactionRef, initTransactionData);
+            writeAnalyticsDelta(trx, buildAnalyticsDelta({
+              afterTransactions: [analyticsTransactionInput({ id: initTransactionRef.id, ...initTransactionData })]
+            }));
           }
         });
         successCount++;
@@ -1542,6 +2284,7 @@ export default function App() {
         const txSnap = await trx.get(transactionRef);
         if (!txSnap.exists()) throw new Error('流水不存在');
         const currentTx = mapTransactionDoc(txSnap.id, txSnap.data());
+        if (currentTx.sourceOrderSyncId) throw new Error('该流水来自客户订单，请在客户订单页面撤销同步');
 
         const oldProductSnap = await trx.get(oldProductRef);
         if (!oldProductSnap.exists()) throw new Error('原商品不存在');
@@ -1555,6 +2298,18 @@ export default function App() {
         const newUnitPrice = Number(newProductData.price ?? 0);
         const finalUnitPrice =
           currentTx.productId === newProductId ? Number(currentTx.unitPrice ?? newUnitPrice) : newUnitPrice;
+        const existingNewLastOutAt = newProductData.lastOutAt instanceof Timestamp ? newProductData.lastOutAt : null;
+        const nextLastOutAt = !existingNewLastOutAt || currentTx.occurredAt.toMillis() > existingNewLastOutAt.toMillis()
+          ? currentTx.occurredAt
+          : existingNewLastOutAt;
+        const nextTx: Transaction = {
+          ...currentTx,
+          productId: newProductId,
+          type: newType,
+          quantity: newQuantity,
+          unitPrice: finalUnitPrice,
+          remark: newRemark
+        };
 
         const revertedOldStock =
           currentTx.type === 'in'
@@ -1570,7 +2325,10 @@ export default function App() {
               : revertedOldStock - newQuantity;
           if (sameProductFinalStock < 0) throw new Error('修改后库存不足');
 
-          trx.update(oldProductRef, { stock: sameProductFinalStock });
+          trx.update(oldProductRef, {
+            stock: sameProductFinalStock,
+            ...(newType === 'out' ? { lastOutAt: nextLastOutAt } : {})
+          });
         } else {
           const newProductFinalStock =
             newType === 'in'
@@ -1579,7 +2337,10 @@ export default function App() {
           if (newProductFinalStock < 0) throw new Error('新商品库存不足');
 
           trx.update(oldProductRef, { stock: revertedOldStock });
-          trx.update(newProductRef, { stock: newProductFinalStock });
+          trx.update(newProductRef, {
+            stock: newProductFinalStock,
+            ...(newType === 'out' ? { lastOutAt: nextLastOutAt } : {})
+          });
         }
 
         trx.update(transactionRef, {
@@ -1589,7 +2350,14 @@ export default function App() {
           unitPrice: finalUnitPrice,
           remark: newRemark
         });
+        writeAnalyticsDelta(trx, buildAnalyticsDelta({
+          beforeTransactions: [analyticsTransactionInput(currentTx)],
+          afterTransactions: [analyticsTransactionInput(nextTx)]
+        }));
       });
+      if (t.type === 'out' && (newType !== 'out' || t.productId !== newProductId)) {
+        await refreshProductLastOutAt(t.productId);
+      }
 
       showToast('流水修改成功，库存已同步', 'success');
       setEditingTransaction(null);
@@ -1611,12 +2379,19 @@ export default function App() {
         showToast('登录状态异常，请重新登录', 'error');
         return false;
       }
-      await addDoc(collection(db, 'expenses'), {
+      const expenseRef = doc(collection(db, 'expenses'));
+      const expenseData = {
         occurredAt,
         operatorUid: auth.currentUser.uid,
         amount,
         category,
         remark
+      };
+      await runTransaction(db, async (trx) => {
+        trx.set(expenseRef, expenseData);
+        writeAnalyticsDelta(trx, buildAnalyticsDelta({
+          afterExpenses: [analyticsExpenseInput({ id: expenseRef.id, ...expenseData })]
+        }));
       });
       showToast('记账成功');
       return true;
@@ -1632,7 +2407,16 @@ export default function App() {
       return;
     }
     try {
-      await deleteDoc(doc(db, 'expenses', id));
+      const expenseRef = doc(db, 'expenses', id);
+      await runTransaction(db, async (trx) => {
+        const snapshot = await trx.get(expenseRef);
+        if (!snapshot.exists()) throw new Error('支出记录不存在');
+        const expense = mapExpenseDoc(snapshot.id, snapshot.data());
+        trx.delete(expenseRef);
+        writeAnalyticsDelta(trx, buildAnalyticsDelta({
+          beforeExpenses: [analyticsExpenseInput(expense)]
+        }));
+      });
       showToast('记录已删除');
       setConfirmDeleteExpenseId(null);
     } catch (error) {
@@ -1814,7 +2598,7 @@ export default function App() {
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
                   products={activeProducts}
-                  transactions={transactions}
+                  totalOutQuantityByProduct={totalOutQuantityByProduct}
                   formatStock={formatStock}
                   weeklySalesPeriods={weeklySalesPeriods}
                   monthlySalesPeriods={monthlySalesPeriods}
@@ -1830,7 +2614,7 @@ export default function App() {
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
                   products={activeProducts}
-                  transactions={transactions}
+                  totalOutQuantityByProduct={totalOutQuantityByProduct}
                   formatStock={formatStock}
                   weeklySalesPeriods={weeklySalesPeriods}
                   monthlySalesPeriods={monthlySalesPeriods}
@@ -1846,7 +2630,7 @@ export default function App() {
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
                   products={activeProducts}
-                  transactions={transactions}
+                  totalOutQuantityByProduct={totalOutQuantityByProduct}
                   formatStock={formatStock}
                   weeklySalesPeriods={weeklySalesPeriods}
                   monthlySalesPeriods={monthlySalesPeriods}
@@ -1862,7 +2646,7 @@ export default function App() {
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
                   products={activeProducts}
-                  transactions={transactions}
+                  totalOutQuantityByProduct={totalOutQuantityByProduct}
                   formatStock={formatStock}
                   weeklySalesPeriods={weeklySalesPeriods}
                   monthlySalesPeriods={monthlySalesPeriods}
@@ -1899,17 +2683,64 @@ export default function App() {
                   remark={stockRemark}
                   setRemark={setStockRemark}
                   formatDateTime={formatDateTimeLabel}
+                  onHistoryQueryChange={setStockHistoryRequest}
                 />
               )}
-              {user.role === 'order' && (
+              {user.role === 'order' && currentView === 'home' && (
+                <OrderPriceListView
+                  products={orderProducts}
+                  formatCurrency={formatCurrency}
+                />
+              )}
+              {user.role === 'order' && currentView === 'order-entry' && (
                 <OrderEntryView
                   products={orderProducts}
+                  savedOrders={customerOrders}
                   formatCurrency={formatCurrency}
                   formatStock={formatStock}
                   showToast={showToast}
+                  createCustomerOrder={createCustomerOrder}
+                  updateCustomerOrder={updateCustomerOrder}
+                  deleteCustomerOrder={deleteCustomerOrder}
+                  getToday={getTogoDate}
                   language="fr"
+                  onOrdersDateChange={setCustomerOrdersDate}
                 />
               )}
+              {user.role === 'order' && currentView === 'order-debts' && (
+                <OrderDebtsView
+                  orders={customerOrders}
+                  formatCurrency={formatCurrency}
+                  updateCustomerOrder={updateCustomerOrder}
+                />
+              )}
+              {user.role === 'order' && currentView === 'order-accounting' && (
+                <OrderAccountingView
+                  cashCounts={orderCashCounts}
+                  dailyExpenses={orderDailyExpenses}
+                  saveCashCount={saveOrderCashCount}
+                  deleteCashCount={deleteOrderCashCount}
+                  createDailyExpense={createOrderDailyExpense}
+                  updateDailyExpense={updateOrderDailyExpense}
+                  deleteDailyExpense={deleteOrderDailyExpense}
+                  formatCurrency={formatCurrency}
+                  onSelectedDateChange={setAccountingDate}
+                />
+              )}
+            {user.role === 'admin' && currentView === 'customer-orders' && (
+              <CustomerOrdersView
+                orders={customerOrders}
+                products={activeProducts}
+                formatCurrency={formatCurrency}
+                updateCustomerOrder={updateCustomerOrder}
+                deleteCustomerOrder={deleteCustomerOrder}
+                onSelectedDateChange={setCustomerOrdersDate}
+                selectedDate={customerOrdersDate}
+                inventorySync={customerOrderSync}
+                syncOrdersToInventory={syncCustomerOrdersToInventory}
+                undoInventorySync={undoCustomerOrdersInventorySync}
+              />
+            )}
             {user.role !== 'order' && currentView === 'products' && (
               <ProductsView 
                 user={user}
@@ -1945,20 +2776,28 @@ export default function App() {
             {user.role !== 'order' && currentView === 'expenses' && (
                 <ExpensesView 
                   expenses={expenses}
-                  transactions={transactions}
+                  monthlySalesTotal={analyticsMonths.find((item) => item.monthKey === expenseFilterMonth)?.outAmount ?? 0}
                   addExpense={addExpense}
                   deleteExpense={setConfirmDeleteExpenseId}
                   formatCurrency={formatCurrency}
                   user={user}
                   formatDateTime={formatDateTimeLabel}
+                  filterMonth={expenseFilterMonth}
+                  setFilterMonth={setExpenseFilterMonth}
+                  orderCashCount={orderCashCounts[0] ?? null}
+                  orderDailyExpenses={orderDailyExpenses}
+                  orderAccountingDate={adminOrderAccountingDate}
+                  setOrderAccountingDate={setAdminOrderAccountingDate}
                 />
               )}
             {user.role !== 'order' && currentView === 'debts' && (
               <DebtsView
                 debts={debts}
+                customerOrders={customerOrders}
                 addDebt={addDebt}
                 updateDebt={updateDebt}
                 settleDebt={settleDebt}
+                updateCustomerOrder={updateCustomerOrder}
                 formatCurrency={formatCurrency}
                 user={user}
               />

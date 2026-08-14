@@ -3,12 +3,15 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   BarChart3,
+  ClipboardList,
   HandCoins,
   Home,
   LogOut,
   Menu,
   Package,
+  ShoppingCart,
   Wallet,
+  WalletCards,
   X,
 } from 'lucide-react';
 import type { User, View } from '../types';
@@ -44,6 +47,19 @@ const managementNavigation: NavigationItem[] = [
   { label: '商品管理', view: 'products', icon: Package },
   { label: '记账管理', view: 'expenses', icon: Wallet },
   { label: '欠账管理', view: 'debts', icon: HandCoins },
+];
+
+const customerOrdersNavigation: NavigationItem = {
+  label: '客户订单',
+  view: 'customer-orders',
+  icon: ClipboardList,
+};
+
+const orderNavigation: NavigationItem[] = [
+  { label: 'Liste des prix', view: 'home', icon: Package },
+  { label: 'Saisie commande', view: 'order-entry', icon: ShoppingCart },
+  { label: 'Gestion comptable', view: 'order-accounting', icon: WalletCards },
+  { label: 'Gestion des dettes', view: 'order-debts', icon: HandCoins },
 ];
 
 function Brand({ compact = false }: { compact?: boolean }) {
@@ -107,21 +123,63 @@ export function AppShell({ user, currentView, onViewChange, onLogout, children }
     onViewChange(view);
     setMobileMenuOpen(false);
   };
+  const visibleManagementNavigation = user.role === 'admin'
+    ? [...managementNavigation, customerOrdersNavigation]
+    : managementNavigation;
 
   if (user.role === 'order') {
     return (
-      <div className="app-shell min-h-screen">
-        <header className="order-shell-header">
-          <Brand compact />
-          <div className="flex items-center gap-3">
-            <span className="hidden text-xs text-stone-500 sm:inline">{roleLabel} · {user.username}</span>
-            <button type="button" onClick={onLogout} className="button-secondary button-icon" title="Se déconnecter">
-              <LogOut size={18} />
+      <div className="app-shell min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)]">
+        <aside className="app-sidebar hidden md:flex">
+          <Brand />
+
+          <nav className="mt-10 flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="Navigation commandes">
+            <span className="shell-nav-label">COMMANDES</span>
+            <div className="space-y-1">
+              {orderNavigation.map((item) => (
+                <NavigationButton
+                  key={item.view}
+                  item={item}
+                  active={currentView === item.view}
+                  onClick={() => navigate(item.view)}
+                />
+              ))}
+            </div>
+          </nav>
+
+          <div className="sidebar-account">
+            <span className="account-status" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <strong className="block truncate text-sm font-semibold text-stone-100">{user.username}</strong>
+              <span className="block text-[11px] tracking-[0.08em] text-stone-500">{roleLabel}</span>
+            </span>
+            <button type="button" onClick={onLogout} className="sidebar-logout" title="Se déconnecter">
+              <LogOut size={17} />
               <span className="sr-only">Se déconnecter</span>
             </button>
           </div>
+        </aside>
+
+        <header className="mobile-shell-header md:hidden">
+          <Brand compact />
+          <button type="button" onClick={onLogout} className="button-secondary button-icon" title="Se déconnecter">
+            <LogOut size={18} />
+            <span className="sr-only">Se déconnecter</span>
+          </button>
         </header>
-        <main className="order-shell-content">{children}</main>
+
+        <main className="app-main min-w-0">{children}</main>
+
+        <nav className="mobile-navigation order-mobile-navigation md:hidden" aria-label="Navigation commandes mobile">
+          {orderNavigation.map((item) => (
+            <NavigationButton
+              key={item.view}
+              item={item}
+              active={currentView === item.view}
+              onClick={() => navigate(item.view)}
+            />
+          ))}
+        </nav>
       </div>
     );
   }
@@ -158,7 +216,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, children }
 
           <span className="shell-nav-label mt-7">经营</span>
           <div className="space-y-1">
-            {managementNavigation.map((item) => (
+            {visibleManagementNavigation.map((item) => (
               <NavigationButton
                 key={item.view}
                 item={item}
@@ -245,7 +303,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, children }
             <div className="mobile-menu-groups">
               <MobileMenuGroup label="概览" items={primaryNavigation} currentView={currentView} onNavigate={navigate} />
               <MobileMenuGroup label="库存" items={inventoryNavigation} currentView={currentView} onNavigate={navigate} />
-              <MobileMenuGroup label="经营" items={managementNavigation} currentView={currentView} onNavigate={navigate} />
+              <MobileMenuGroup label="经营" items={visibleManagementNavigation} currentView={currentView} onNavigate={navigate} />
             </div>
           </section>
         </div>

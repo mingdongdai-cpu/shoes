@@ -8,6 +8,25 @@ export interface Product {
   stock: number; // Total items
   isActive: boolean; // Whether product is on shelf
   createdAt?: Timestamp;
+  lastOutAt?: Timestamp | null;
+}
+
+export interface AnalyticsOverview {
+  inTotal: number;
+  outTotal: number;
+  balance: number;
+  transactionCount: number;
+  expenseCount: number;
+}
+
+export interface AnalyticsMonth {
+  monthKey: string;
+  year: number;
+  month: number;
+  inAmount: number;
+  outAmount: number;
+  expenseAmount: number;
+  outByProduct: Record<string, { quantity: number; amount: number }>;
 }
 
 export interface OrderProduct {
@@ -15,6 +34,73 @@ export interface OrderProduct {
   name: string;
   spec: number;
   price: number;
+}
+
+export interface CustomerOrderItem {
+  productId: string;
+  productName: string;
+  spec: number;
+  unitPrice: number;
+  boxes: number;
+  quantity: number;
+  subtotal: number;
+}
+
+export interface CustomerOrder {
+  id: string;
+  customerName: string;
+  orderDate: string;
+  isUnpaid: boolean;
+  paidAmount: number;
+  hasDebtHistory: boolean;
+  items: CustomerOrderItem[];
+  totalAmount: number;
+  operatorUid: string;
+  createdAt: Timestamp;
+  inventorySyncId?: string;
+}
+
+export interface CustomerOrderSyncLine {
+  transactionId: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  amount: number;
+  unitPrice: number;
+}
+
+export interface CustomerOrderSync {
+  id: string;
+  orderDate: string;
+  orderIds: string[];
+  transactionIds: string[];
+  lines: CustomerOrderSyncLine[];
+  operatorUid: string;
+  createdAt: Timestamp;
+}
+
+export type CashDenomination = 10000 | 5000 | 2000 | 1000 | 500 | 200 | 100 | 50;
+export type CashDenominationKey = `${CashDenomination}`;
+export type CashDenominationCounts = Record<CashDenominationKey, number>;
+
+export interface OrderCashCount {
+  id: string;
+  recordDate: string;
+  counts: CashDenominationCounts;
+  totalAmount: number;
+  operatorUid: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface OrderDailyExpense {
+  id: string;
+  expenseDate: string;
+  amount: number;
+  remark: string;
+  operatorUid: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface Transaction {
@@ -26,6 +112,7 @@ export interface Transaction {
   occurredAt: Timestamp;
   operatorUid: string;
   remark: string;
+  sourceOrderSyncId?: string;
 }
 
 export interface User {
@@ -61,6 +148,9 @@ export type View =
   | 'inventory-comparison'
   | 'stock'
   | 'order-entry'
+  | 'order-accounting'
+  | 'order-debts'
+  | 'customer-orders'
   | 'products'
   | 'expenses'
   | 'debts';

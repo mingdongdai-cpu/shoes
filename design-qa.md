@@ -1,48 +1,60 @@
-# TOP STAR SHOES Redesign QA
+# Design QA — order 记账管理
+
+- source visual truth path: `/var/folders/j4/79sh568x1gb_08cx0v8h9q5r0000gn/T/TemporaryItems/NSIRD_screencaptureui_fp0WTx/截屏2026-08-14 17.50.56.png`
+- implementation screenshots:
+  - `/Users/dave/.codex/visualizations/2026/08/14/shoes-accounting-qa/accounting-empty.png`
+  - `/Users/dave/.codex/visualizations/2026/08/14/shoes-accounting-qa/accounting-saved-expanded.png`
+  - `/Users/dave/.codex/visualizations/2026/08/14/shoes-accounting-qa/order-menu.png`
+  - `/Users/dave/.codex/visualizations/2026/08/14/shoes-accounting-qa/menu-comparison.png`
+- viewport: Codex in-app browser default desktop viewport, 1265 × 712 captured pixels, device scale factor 1
+- source pixels: 220 × 102
+- implementation menu crop: 220 × 160; comparison board displays both crops at 248 CSS px wide to compare item styling while retaining the added middle row
+- state: order role, `Gestion comptable` active; empty page and saved/expanded cash plus saved expense states
+
+## Full-view comparison evidence
+
+The new page reuses the existing order shell, typography, surfaces, palette, radii and icon library. The desktop page keeps all three core areas visible together: cash counting, daily expense entry and saved records. Empty and saved/expanded states were captured at the same viewport.
+
+## Focused region comparison evidence
+
+The combined menu comparison shows that the new `Gestion comptable` item is inserted exactly between `Saisie commande` and `Gestion des dettes`. Icon size, text weight, left alignment, active charcoal surface and brass active rail match the supplied sidebar reference.
+
+## Required fidelity surfaces
+
+- Fonts and typography: passed; existing global Songti display and SF Pro/PingFang body hierarchy retained.
+- Spacing and layout rhythm: passed after the denomination input fix; three panels align on the same top edge without horizontal overflow.
+- Colors and visual tokens: passed; existing charcoal, brass, oxblood, emerald and stone tokens used consistently.
+- Image quality and asset fidelity: passed; existing brand asset remains unchanged and UI icons use the existing Lucide library. No placeholder or custom drawn asset was introduced.
+- Copy and content: passed; order-facing text is French and contains the requested denominations, total, date, amount, remark, edit and delete actions.
+
+## Interaction evidence
+
+- Entered 2 × 10,000 and 1 × 5,000; live total changed to 25,000 XOF.
+- Saved the cash count; summary card appeared and expanded to show every denomination count.
+- Added a 3,500 XOF `Transport` expense, edited it to 4,200 XOF and `Transport taxi`.
+- Opened the delete confirmation and cancelled without deleting test data.
+- Changed the date filter to 2026-08-13; both cash and expense areas changed to their empty state.
+- Fresh-page console errors and warnings: none.
+
+## Comparison history
+
+1. Initial pass found a P2 layout issue: horizontal denomination rows overflowed inside the narrower cash column.
+2. Fixed by stacking the denomination label above a full-width numeric input and tightening the vertical rhythm.
+3. Post-fix desktop capture shows all denomination inputs readable, aligned and unclipped. No P0/P1/P2 findings remain.
+
+## Residual test gaps
+
+- The authenticated production account was not used during component interaction QA, so no real cash or expense record was created, edited or deleted.
+- Browser viewport override was unavailable for a distinct mobile capture; the existing responsive single-column layout and four-item mobile navigation were verified through code and type/build checks.
 
 final result: passed
 
-Reference: `option-2-luxury-retail.png` (approved light-luxury retail administration direction)
+## Cash card edit and delete verification
 
-Focused table-header source: `reference/table-header-misaligned-source.png`
-
-Implementation evidence:
-
-- Desktop home: `implementation/09-final-home-desktop.png`
-- Desktop dashboard: `implementation/12-final-dashboard-palette.png`
-- Mobile home: `implementation/13-final-mobile-home.png`
-- Mobile menu: `implementation/14-final-mobile-menu.png`
-- Login: `implementation/01-login-desktop.png`, `implementation/02-login-mobile.png`
-- Split inventory menu: `implementation/17-inventory-menu-split.png`
-- Centered table headers: `implementation/19-table-header-centered-crop.png`
-
-## Same-pass visual comparison
-
-1. **Layout — passed.** The reference's slim charcoal sidebar and wide warm-white workspace are reproduced. The implementation keeps the existing reporting content instead of adding the reference's invented filters or margin columns.
-2. **Typography — passed.** Editorial serif headings and tabular financial figures establish the same retail hierarchy; system sans-serif remains on controls and dense operational copy.
-3. **Color — passed.** Charcoal, warm white, antique brass, oxblood, forest green, amber, and red are used consistently. The former blue/purple dashboard accents were replaced with brass and oxblood.
-4. **Surfaces — passed.** Glass blur, decorative blobs, heavy shadows, large floating cards, and oversized radii were removed. Panels now use thin warm-gray rules, 8–12px radii, and restrained elevation.
-5. **Navigation — passed.** Compared directly with the supplied expanded-menu screenshot. The four desktop inventory destinations are permanently visible as independent full-size items, while the clickable “库存概况” parent, caret, indent guide, and expansion state are removed. Mobile navigation remains reduced to four primary items and the complete destination set appears in the “全部功能” sheet.
-6. **Responsive behavior — passed.** Verified at 1440×1000 and 390×844. Desktop/mobile shell switching works, the mobile menu is fully visible, tap targets are practical, and no horizontal page overflow was found (`scrollWidth === viewportWidth`).
-7. **States and accessibility — passed.** Active navigation, menu dialog semantics, Escape close handling, visible focus rings, form labels, disabled buttons, empty tables, error/success states, and reduced-motion handling remain present.
-8. **Content fidelity — passed with an intentional business-safe deviation.** Only real existing metrics and controls were retained. Product category/brand filters, margins, pagination, and export controls shown only in the generated reference were not added because they are not existing product capabilities.
-9. **Table-header alignment — passed.** Compared the supplied 474px crop with a browser-rendered 474px crop. All 43 table header cells now use symmetric vertical padding and `vertical-align: middle`; measured text gaps are 7px above and 8.5px below, removing the previous top-heavy appearance while preserving each column's horizontal alignment.
-
-### Focused table-header QA
-
-- Viewport and crop: 474×78 CSS px, device scale factor 1; source and implementation are both 474×78 px, so no density normalization was required.
-- State: first visible table-header row with one data row, matching the supplied screenshot's content and column alignment.
-- Earlier P2 finding: header labels sat against the top edge because several table headers used bottom-only padding.
-- Fix: replaced bottom-only header padding with symmetric vertical padding and set all `thead th` cells to middle vertical alignment.
-- Post-fix evidence: `implementation/19-table-header-centered-crop.png`; browser measurement found 7px above and 8.5px below the rendered text, with no horizontal overflow.
-- Typography, colors, images, and copy: font, weight, color tokens, content, and the absence of imagery match the existing product UI; only the requested vertical alignment changed.
-- Focused comparison was required because the defect is too small to judge reliably in the full-page captures.
-
-## Verification
-
-- `npm run lint` — passed
-- `npm test` — passed (3/3)
-- `npm run build` — passed
-- `git diff --check` — passed
-- Browser console warnings/errors on verified views — none
-- Firebase config, Firestore rules, collection names, data models, and database contents — unchanged
+- The cash-card pencil now opens a dedicated denomination editor instead of scrolling to the entry form.
+- Editing the 10,000 XOF count from 2 to 3 updated the card total from 37,600 XOF to 47,600 XOF.
+- The cash-card trash action opens a second confirmation showing the date, total and irreversible-action warning; the QA run cancelled before deletion.
+- Screenshots:
+  - `/Users/dave/.codex/visualizations/2026/08/14/shoes-cash-edit-qa/cash-edit-modal.png`
+  - `/Users/dave/.codex/visualizations/2026/08/14/shoes-cash-edit-qa/cash-delete-confirmation.png`
+- Fresh console warnings and errors: none.

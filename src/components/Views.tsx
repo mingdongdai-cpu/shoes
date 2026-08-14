@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 
   Package, 
   ArrowLeftRight, 
@@ -20,13 +20,19 @@ import {
   Eye,
   Save,
   Search,
+  LockKeyhole,
+  Banknote,
+  ReceiptText,
   X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
-import { DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, Debt, SalesPeriodData } from '../types';
+import { CustomerOrder, CustomerOrderItem, DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, Debt, SalesPeriodData, OrderCashCount, OrderDailyExpense } from '../types';
 import { formatDateInputValue, formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek, type ReportPeriod } from '../lib/timeWindow';
 import { findUniqueProductByName } from '../lib/productNames';
+import { buildCustomerOrderTotals, shouldShowCustomerOrderInDebtHistory } from '../lib/customerOrders';
+import { CustomerOrdersPanel } from './OrderViews';
+import { CASH_DENOMINATIONS } from '../lib/orderAccounting';
 
 // --- Components ---
 
@@ -934,7 +940,7 @@ interface InventoryOverviewViewProps {
   staleProducts: Product[];
   productRiskMetricsByProduct: Record<string, ProductRiskMetrics>;
   products: Product[];
-  transactions: Transaction[];
+  totalOutQuantityByProduct: Record<string, number>;
   formatStock: (total: number, spec: number) => string;
   weeklySalesPeriods: SalesPeriodData;
   monthlySalesPeriods: SalesPeriodData;
@@ -949,7 +955,7 @@ export const InventoryOverviewView = ({
   staleProducts,
   productRiskMetricsByProduct,
   products,
-  transactions,
+  totalOutQuantityByProduct,
   formatStock,
   weeklySalesPeriods,
   monthlySalesPeriods,
@@ -994,17 +1000,8 @@ export const InventoryOverviewView = ({
 
   const totalSoldByProduct = useMemo(() => {
     if (mode !== 'stock') return {} as Record<string, number>;
-    const soldMap: Record<string, number> = {};
-    for (const product of products) {
-      soldMap[product.id] = 0;
-    }
-    for (const transaction of transactions) {
-      if (transaction.type !== 'out') continue;
-      if (!(transaction.productId in soldMap)) continue;
-      soldMap[transaction.productId] += transaction.quantity;
-    }
-    return soldMap;
-  }, [mode, products, transactions]);
+    return totalOutQuantityByProduct;
+  }, [mode, totalOutQuantityByProduct]);
 
   const sortedProducts = useMemo(() => {
     if (mode !== 'stock') return [] as Product[];
@@ -1528,44 +1525,72 @@ interface StockViewProps {
   remark: string;
   setRemark: (value: string) => void;
   formatDateTime: (value: Transaction['occurredAt']) => string;
+  onHistoryQueryChange: (request: { startDate: string; endDate: string; productId: string; allTime: boolean }) => void;
 }
 
 interface OrderEntryItem {
   id: number;
   product: OrderProduct;
   boxes: number;
-  items: number;
 }
 
 interface OrderEntryViewProps {
   products: OrderProduct[];
+  savedOrders: CustomerOrder[];
   formatCurrency: (value: number) => string;
   formatStock: (total: number, spec: number) => string;
   showToast: (message: string, type?: 'success' | 'error') => void;
+  createCustomerOrder: (order: {
+    customerName: string;
+    orderDate: string;
+    isUnpaid: boolean;
+    items: CustomerOrderItem[];
+  }) => Promise<boolean>;
+  updateCustomerOrder: (orderId: string, customerName: string, items: CustomerOrderItem[], isUnpaid: boolean, paidAmount: number) => Promise<boolean>;
+  deleteCustomerOrder: (orderId: string) => Promise<boolean>;
+  getToday: () => string;
   language?: 'zh' | 'fr';
+  onOrdersDateChange?: (value: string) => void;
 }
 
 export const OrderEntryView = ({
   products,
+  savedOrders,
   formatCurrency,
   formatStock,
   showToast,
-  language = 'zh'
+  createCustomerOrder,
+  updateCustomerOrder,
+  deleteCustomerOrder,
+  getToday,
+  language = 'zh',
+  onOrdersDateChange
 }: OrderEntryViewProps) => {
+  const [customerName, setCustomerName] = useState('');
+  const [orderDate, setOrderDate] = useState(() => getToday());
   const [selectedId, setSelectedId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
-  const [boxes, setBoxes] = useState('1');
-  const [items, setItems] = useState('0');
+  const [boxes, setBoxes] = useState('');
   const [orderItems, setOrderItems] = useState<OrderEntryItem[]>([]);
+  const [isUnpaid, setIsUnpaid] = useState(false);
   const [editingOrderItemId, setEditingOrderItemId] = useState<number | null>(null);
   const [editProductId, setEditProductId] = useState('');
   const [editSearchTerm, setEditSearchTerm] = useState('');
   const [showEditDropdown, setShowEditDropdown] = useState(false);
   const [editBoxes, setEditBoxes] = useState('0');
-  const [editItems, setEditItems] = useState('0');
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const orderItemIdRef = useRef(0);
   const isFrench = language === 'fr';
+
+  useEffect(() => {
+    const refreshAutomaticDate = () => setOrderDate(getToday());
+
+    refreshAutomaticDate();
+    const intervalId = window.setInterval(refreshAutomaticDate, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, [getToday]);
+
   const copy = isFrench
     ? {
         selectProduct: 'Ajouter un produit',
@@ -1574,11 +1599,6 @@ export const OrderEntryView = ({
         packaging: 'Conditionnement',
         unitPrice: 'Prix unitaire',
         boxPrice: 'Prix par carton',
-        priceList: 'Liste des prix',
-        priceModel: 'Modèle',
-        priceSpec: 'Qté',
-        priceUnit: 'Prix unité',
-        priceBox: 'Prix carton',
         noProductFound: 'Aucun produit trouvé',
         boxes: 'Cartons',
         items: 'Paires',
@@ -1597,9 +1617,10 @@ export const OrderEntryView = ({
         cancel: 'Annuler',
         changesSaved: 'Modification enregistrée',
         orderTotal: 'Total',
+        unpaidOrder: 'Commande non payée',
         selectProductError: 'Sélectionnez un produit',
         negativeQuantityError: 'La quantité ne peut pas être négative',
-        emptyQuantityError: 'Saisissez le nombre de cartons ou de paires'
+        emptyQuantityError: 'Saisissez un nombre entier de cartons'
       }
     : {
         selectProduct: '选择商品',
@@ -1608,11 +1629,6 @@ export const OrderEntryView = ({
         packaging: '规格',
         unitPrice: '单价',
         boxPrice: '每箱价格',
-        priceList: '产品价格表',
-        priceModel: '型号',
-        priceSpec: '规格',
-        priceUnit: '单价',
-        priceBox: '箱价',
         noProductFound: '未找到匹配商品',
         boxes: '箱数',
         items: '散个',
@@ -1631,9 +1647,10 @@ export const OrderEntryView = ({
         cancel: '取消',
         changesSaved: '修改已保存',
         orderTotal: '订单总计',
+        unpaidOrder: '未付款订单',
         selectProductError: '请选择商品',
         negativeQuantityError: '数量不能为负数',
-        emptyQuantityError: '请输入箱数或散个'
+        emptyQuantityError: '请输入大于0的整数箱数'
       };
 
   const formatOrderStock = (total: number, spec: number) => {
@@ -1663,30 +1680,23 @@ export const OrderEntryView = ({
     if (!keyword) return products;
     return products.filter((product) => product.name.toLowerCase().includes(keyword));
   }, [editSearchTerm, products]);
-  const sortedPriceProducts = useMemo(() => {
-    return [...products].sort((first, second) => (
-      first.name.localeCompare(second.name, 'en', { sensitivity: 'base' })
-    ));
-  }, [products]);
-
-  const boxesValue = Number.parseInt(boxes, 10) || 0;
-  const itemsValue = Number.parseInt(items, 10) || 0;
-  const hasValidCurrentQuantity = boxesValue >= 0 && itemsValue >= 0;
-  const currentQuantity = enteredProduct && hasValidCurrentQuantity ? (boxesValue * enteredProduct.spec) + itemsValue : 0;
+  const boxesValue = Number(boxes) || 0;
+  const hasValidCurrentQuantity = Number.isInteger(boxesValue) && boxesValue >= 0;
+  const currentQuantity = enteredProduct && hasValidCurrentQuantity ? boxesValue * enteredProduct.spec : 0;
   const currentSubtotal = enteredProduct && currentQuantity > 0
     ? currentQuantity * enteredProduct.price
     : 0;
 
   const committedTotal = useMemo(() => {
     return orderItems.reduce((sum, item) => {
-      const quantity = (item.boxes * item.product.spec) + item.items;
+      const quantity = item.boxes * item.product.spec;
       return sum + quantity * item.product.price;
     }, 0);
   }, [orderItems]);
 
   const orderRows = useMemo(() => {
     return orderItems.map((item) => {
-      const quantity = (item.boxes * item.product.spec) + item.items;
+      const quantity = item.boxes * item.product.spec;
       return {
         item,
         quantity,
@@ -1698,8 +1708,7 @@ export const OrderEntryView = ({
   const resetCurrentLine = () => {
     setSelectedId('');
     setSearchTerm('');
-    setBoxes('1');
-    setItems('0');
+    setBoxes('');
     setShowDropdown(false);
   };
 
@@ -1708,7 +1717,7 @@ export const OrderEntryView = ({
       showToast(copy.selectProductError, 'error');
       return;
     }
-    if (boxesValue < 0 || itemsValue < 0) {
+    if (!Number.isInteger(boxesValue) || boxesValue < 0) {
       showToast(copy.negativeQuantityError, 'error');
       return;
     }
@@ -1718,15 +1727,23 @@ export const OrderEntryView = ({
     }
 
     orderItemIdRef.current += 1;
-    setOrderItems((prev) => [
-      ...prev,
-      {
-        id: orderItemIdRef.current,
-        product: enteredProduct,
-        boxes: boxesValue,
-        items: itemsValue
+    setOrderItems((prev) => {
+      const existingItem = prev.find((item) => item.product.id === enteredProduct.id);
+      if (existingItem) {
+        return prev.map((item) => item.id === existingItem.id
+          ? { ...item, boxes: item.boxes + boxesValue }
+          : item
+        );
       }
-    ]);
+      return [
+        ...prev,
+        {
+          id: orderItemIdRef.current,
+          product: enteredProduct,
+          boxes: boxesValue
+        }
+      ];
+    });
     resetCurrentLine();
   };
 
@@ -1741,7 +1758,6 @@ export const OrderEntryView = ({
     setEditSearchTerm('');
     setShowEditDropdown(false);
     setEditBoxes(item.boxes.toString());
-    setEditItems(item.items.toString());
   };
 
   const closeOrderItemEditor = () => {
@@ -1756,20 +1772,19 @@ export const OrderEntryView = ({
       return;
     }
 
-    const nextBoxes = Number.parseInt(editBoxes, 10) || 0;
-    const nextItems = Number.parseInt(editItems, 10) || 0;
-    if (nextBoxes < 0 || nextItems < 0) {
+    const nextBoxes = Number(editBoxes) || 0;
+    if (!Number.isInteger(nextBoxes) || nextBoxes < 0) {
       showToast(copy.negativeQuantityError, 'error');
       return;
     }
-    if ((nextBoxes * enteredEditProduct.spec) + nextItems <= 0) {
+    if (nextBoxes * enteredEditProduct.spec <= 0) {
       showToast(copy.emptyQuantityError, 'error');
       return;
     }
 
     setOrderItems((currentItems) => currentItems.map((item) => (
       item.id === editingOrderItemId
-        ? { ...item, product: enteredEditProduct, boxes: nextBoxes, items: nextItems }
+        ? { ...item, product: enteredEditProduct, boxes: nextBoxes }
         : item
     )));
     closeOrderItemEditor();
@@ -1782,11 +1797,53 @@ export const OrderEntryView = ({
 
   const handleClearOrder = () => {
     setOrderItems([]);
+    setIsUnpaid(false);
     resetCurrentLine();
+  };
+
+  const handleSubmitOrder = async () => {
+    if (!customerName.trim()) {
+      showToast(isFrench ? 'Saisissez le nom du client' : '请输入客户名称', 'error');
+      return;
+    }
+    if (!orderDate) {
+      showToast(isFrench ? 'Sélectionnez la date' : '请选择日期', 'error');
+      return;
+    }
+    if (orderItems.length === 0) {
+      showToast(isFrench ? 'Ajoutez au moins un produit' : '请至少添加一个商品', 'error');
+      return;
+    }
+
+    try {
+      const liveLines = orderItems.map((item) => {
+        const liveProduct = products.find((product) => product.id === item.product.id);
+        if (!liveProduct) throw new Error(isFrench ? `${item.product.name} n’est plus disponible` : `${item.product.name} 已下架`);
+        return { product: liveProduct, boxes: item.boxes };
+      });
+      const { items } = buildCustomerOrderTotals(liveLines);
+      setIsSubmittingOrder(true);
+      const saved = await createCustomerOrder({ customerName, orderDate, isUnpaid, items });
+      if (!saved) return;
+      setCustomerName('');
+      setOrderDate(getToday());
+      handleClearOrder();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Commande invalide', 'error');
+    } finally {
+      setIsSubmittingOrder(false);
+    }
   };
 
   return (
     <div className="space-y-5 sm:space-y-8">
+      <header className="page-heading-row">
+        <div>
+          <span className="eyebrow">NOUVELLE COMMANDE</span>
+          <h1 className="display-title mt-2 text-3xl sm:text-4xl">Saisie commande</h1>
+          <p className="mt-2 text-sm text-stone-500">Renseignez le client, la date et les cartons commandés.</p>
+        </div>
+      </header>
       <AnimatePresence>
         {editingOrderItemId !== null && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
@@ -1876,27 +1933,16 @@ export const OrderEntryView = ({
                   </AnimatePresence>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="mb-2 block text-sm font-bold text-slate-600">{copy.boxes}</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={editBoxes}
-                      onChange={(event) => setEditBoxes(event.target.value)}
-                      className="w-full rounded-xl border-slate-200 font-bold focus:border-indigo-500 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-bold text-slate-600">{copy.items}</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={editItems}
-                      onChange={(event) => setEditItems(event.target.value)}
-                      className="w-full rounded-xl border-slate-200 font-bold focus:border-indigo-500 focus:ring-indigo-500"
-                    />
-                  </div>
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-600">{copy.boxes}</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={editBoxes}
+                    onChange={(event) => setEditBoxes(event.target.value)}
+                    className="w-full rounded-xl border-slate-200 font-bold focus:border-indigo-500 focus:ring-indigo-500"
+                  />
                 </div>
 
                 <div className="flex gap-3 pt-2">
@@ -1919,10 +1965,34 @@ export const OrderEntryView = ({
           </div>
         )}
       </AnimatePresence>
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)] gap-8">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.06fr)_minmax(0,1fr)]">
         <div className="surface rounded-xl p-5 sm:p-7 shadow-sm border border-stone-200">
           <div className="mb-5 sm:mb-6">
             <h3 className="text-lg font-black text-slate-800">{copy.selectProduct}</h3>
+          </div>
+
+          <div className="mb-6 grid gap-4 border-b border-stone-200 pb-6 sm:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-bold uppercase tracking-widest text-slate-600">Client</label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(event) => setCustomerName(event.target.value)}
+                maxLength={100}
+                placeholder="Nom du client"
+                className="w-full rounded-xl border-stone-200 bg-white py-3 font-bold focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-bold uppercase tracking-widest text-slate-600">Date</label>
+              <input
+                type="date"
+                value={orderDate}
+                disabled
+                aria-label="Date automatique de la commande"
+                className="w-full cursor-not-allowed rounded-xl border-stone-200 bg-stone-100 py-3 font-bold text-stone-600 opacity-100"
+              />
+            </div>
           </div>
 
           <form onSubmit={handleAddSubmit} className="space-y-5">
@@ -1982,27 +2052,16 @@ export const OrderEntryView = ({
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">{copy.boxes}</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={boxes}
-                  onChange={(event) => setBoxes(event.target.value)}
-                  className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">{copy.items}</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={items}
-                  onChange={(event) => setItems(event.target.value)}
-                  className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-600 uppercase tracking-widest mb-2">{copy.boxes}</label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={boxes}
+                onChange={(event) => setBoxes(event.target.value)}
+                className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 py-3 font-bold"
+              />
             </div>
 
             <div className="rounded-xl bg-indigo-50/60 border border-indigo-100/70 p-3.5 sm:p-4">
@@ -2029,7 +2088,7 @@ export const OrderEntryView = ({
           <div className="mb-5 flex items-center justify-between gap-3 sm:mb-6">
             <div>
               <h3 className="text-lg font-black text-slate-800">
-                {orderItems.length > 0 ? copy.orderDetails : copy.priceList}
+                {copy.orderDetails}
               </h3>
             </div>
             {orderItems.length > 0 && (
@@ -2044,45 +2103,16 @@ export const OrderEntryView = ({
           </div>
 
           {orderItems.length === 0 ? (
-            <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-200/70 bg-white/75 custom-scrollbar">
-              <table className="w-full table-fixed text-left">
-                <colgroup>
-                  <col className="w-[25%]" />
-                  <col className="w-[13%]" />
-                  <col className="w-[27%]" />
-                  <col className="w-[35%]" />
-                </colgroup>
-                <thead className="sticky top-0 z-10 bg-slate-100/95">
-                  <tr className="border-b border-slate-200/80">
-                    <th className="px-2.5 py-3 text-[10px] font-black leading-tight text-slate-500 sm:px-4 sm:text-xs">{copy.priceModel}</th>
-                    <th className="px-1 py-3 text-center text-[10px] font-black leading-tight text-slate-500 sm:px-4 sm:text-xs">{copy.priceSpec}</th>
-                    <th className="px-2 py-3 text-right text-[10px] font-black leading-tight text-slate-500 sm:px-4 sm:text-xs">
-                      <span className="block">{copy.priceUnit}</span>
-                      <span className="mt-0.5 block text-[8px] font-bold text-slate-400 sm:text-[9px]">XOF</span>
-                    </th>
-                    <th className="px-2.5 py-3 text-right text-[10px] font-black leading-tight text-[#7c3037] sm:px-4 sm:text-xs">
-                      <span className="block">{copy.priceBox}</span>
-                      <span className="mt-0.5 block text-[8px] font-bold text-indigo-400 sm:text-[9px]">XOF</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {sortedPriceProducts.map((product) => (
-                    <tr key={product.id} className="odd:bg-white even:bg-slate-50/55 transition-colors hover:bg-indigo-50/45">
-                      <td className="truncate px-2.5 py-3.5 text-[11px] font-black text-slate-900 sm:px-4 sm:text-sm">{product.name}</td>
-                      <td className="px-1 py-3.5 text-center text-[11px] font-bold text-slate-500 sm:px-4 sm:text-sm">
-                        {formatPackaging(product.spec)}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-3.5 text-right text-[11px] font-bold tabular-nums text-slate-600 sm:px-4 sm:text-sm">
-                        {formatMobileAmount(product.price)}
-                      </td>
-                      <td className="whitespace-nowrap px-2.5 py-3.5 text-right text-[11px] font-black tabular-nums text-[#7c3037] sm:px-4 sm:text-sm">
-                        {formatMobileAmount(product.price * product.spec)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex min-h-[360px] flex-col items-center justify-center rounded-xl border border-dashed border-stone-300 bg-stone-50/55 px-6 text-center">
+              <span className="rounded-full bg-white p-4 text-stone-300 shadow-sm">
+                <Package size={30} />
+              </span>
+              <h4 className="mt-4 text-base font-black text-stone-600">
+                {isFrench ? 'Aucun produit ajouté' : '尚未添加商品'}
+              </h4>
+              <p className="mt-1 max-w-xs text-sm font-semibold leading-6 text-stone-400">
+                {isFrench ? 'Sélectionnez un modèle et ajoutez le nombre de cartons.' : '请在左侧选择商品并填写箱数。'}
+              </p>
             </div>
           ) : (
             <>
@@ -2144,27 +2174,34 @@ export const OrderEntryView = ({
           </div>
 
           <div className="hidden overflow-x-auto custom-scrollbar md:block">
-            <table className="w-full text-left">
+            <table className="w-full table-fixed text-left">
+              <colgroup>
+                <col className="w-[24%]" />
+                <col className="w-[17%]" />
+                <col className="w-[22%]" />
+                <col className="w-[23%]" />
+                <col className="w-[14%]" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-stone-200">
-                  <th className="py-2 text-xs font-black uppercase tracking-widest text-slate-400">{copy.product}</th>
-                  <th className="py-2 text-xs font-black uppercase tracking-widest text-slate-400">{copy.quantity}</th>
-                  <th className="py-2 text-xs font-black uppercase tracking-widest text-slate-400">{copy.boxPrice}</th>
-                  <th className="py-2 text-xs font-black uppercase tracking-widest text-slate-400">{copy.subtotal}</th>
-                  <th className="py-2 text-right text-xs font-black uppercase tracking-widest text-slate-400">{copy.action}</th>
+                  <th className="py-2 text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{copy.product}</th>
+                  <th className="py-2 text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{copy.quantity}</th>
+                  <th className="py-2 text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{isFrench ? 'Prix/carton' : copy.boxPrice}</th>
+                  <th className="py-2 text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{copy.subtotal}</th>
+                  <th className="py-2 text-right text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{copy.action}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/20">
                 {orderRows.map(({ item, quantity, subtotal }) => {
                   return (
                     <tr key={item.id} className="hover:bg-white transition-colors">
-                      <td className="py-4">
+                      <td className="py-4 pr-2">
                         <div className="font-black text-slate-900">{item.product.name}</div>
-                        <div className="text-xs font-bold text-slate-400">{copy.packaging}: {formatPackaging(item.product.spec)}</div>
+                        <div className="truncate text-[10px] font-bold text-slate-400">{isFrench ? `Cond. : ${item.product.spec}` : `${copy.packaging}: ${formatPackaging(item.product.spec)}`}</div>
                       </td>
-                      <td className="py-4 text-sm font-bold text-slate-600">{formatOrderStock(quantity, item.product.spec)}</td>
-                      <td className="py-4 text-sm font-bold text-slate-600">{formatCurrency(item.product.price * item.product.spec)}</td>
-                      <td className="py-4 text-sm font-black text-[#7c3037]">{formatCurrency(subtotal)}</td>
+                      <td className="py-4 pr-1 text-xs font-bold text-slate-600">{formatOrderStock(quantity, item.product.spec)}</td>
+                      <td className="whitespace-nowrap py-4 pr-1 text-xs font-bold text-slate-600">{formatCurrency(item.product.price * item.product.spec)}</td>
+                      <td className="whitespace-nowrap py-4 pr-1 text-xs font-black text-[#7c3037]">{formatCurrency(subtotal)}</td>
                       <td className="py-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
@@ -2191,12 +2228,47 @@ export const OrderEntryView = ({
               </tbody>
             </table>
           </div>
-          <div className="mt-5 flex items-center justify-between gap-3 rounded-xl bg-rose-50/55 px-4 py-4 sm:mt-6 sm:justify-end sm:bg-transparent sm:px-0 sm:py-0 sm:pt-5">
-            <span className="text-sm font-black text-slate-500">{copy.orderTotal}</span>
-            <span className="text-2xl font-black tracking-tight text-rose-600 sm:text-3xl">{formatCurrency(committedTotal)}</span>
+          <div className="mt-5 space-y-4 border-t border-stone-200 pt-5 sm:mt-6">
+            <div className="flex items-center justify-between gap-4 rounded-xl bg-rose-50/55 px-4 py-4 sm:bg-transparent sm:px-0 sm:py-0">
+              <label className="flex cursor-pointer items-center gap-2.5 text-sm font-bold text-stone-600">
+                <input
+                  type="checkbox"
+                  checked={isUnpaid}
+                  onChange={(event) => setIsUnpaid(event.target.checked)}
+                  className="h-4 w-4 rounded border-stone-300 accent-rose-600"
+                />
+                <span>{copy.unpaidOrder}</span>
+              </label>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-black text-slate-500">{copy.orderTotal}</span>
+                <span className="whitespace-nowrap text-2xl font-black tracking-tight text-rose-600 sm:text-3xl">{formatCurrency(committedTotal)}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleSubmitOrder}
+              disabled={isSubmittingOrder}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#7c3037] py-4 font-black text-white transition-all hover:bg-[#68272e] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Save size={19} />
+              {isSubmittingOrder ? 'Enregistrement...' : 'Enregistrer la commande'}
+            </button>
           </div>
             </>
           )}
+        </div>
+
+        <div className="xl:sticky xl:top-6 xl:self-start">
+          <CustomerOrdersPanel
+            orders={savedOrders}
+            products={products}
+            formatCurrency={formatCurrency}
+            updateCustomerOrder={updateCustomerOrder}
+            deleteCustomerOrder={deleteCustomerOrder}
+            language={language}
+            embedded
+            onSelectedDateChange={onOrdersDateChange}
+          />
         </div>
       </div>
     </div>
@@ -2209,7 +2281,8 @@ export const StockView = ({
   user, formatStock, showToast,
   type, setType, selectedId, setSelectedId, searchTerm, setSearchTerm, showDropdown, setShowDropdown,
   boxes, setBoxes, items, setItems, remark, setRemark,
-  formatDateTime
+  formatDateTime,
+  onHistoryQueryChange
 }: StockViewProps) => {
   const [editBoxes, setEditBoxes] = useState('');
   const [editItems, setEditItems] = useState('');
@@ -2262,6 +2335,27 @@ export const StockView = ({
     endDate: string;
     allTime: boolean;
   } | null>(null);
+
+  useEffect(() => {
+    if (activeHistoryQuery) {
+      onHistoryQueryChange({
+        startDate: activeHistoryQuery.startDate,
+        endDate: activeHistoryQuery.endDate,
+        productId: activeHistoryQuery.productId,
+        allTime: activeHistoryQuery.allTime
+      });
+      return;
+    }
+    if (historyFilterMode === 'day') {
+      onHistoryQueryChange({ startDate: historyFilterDate, endDate: historyFilterDate, productId: '', allTime: false });
+    } else if (historyFilterMode === 'month') {
+      const range = getRangeByMonth(historyFilterMonth);
+      onHistoryQueryChange({ startDate: toLocalDateInputValue(range.start), endDate: toLocalDateInputValue(range.end), productId: '', allTime: false });
+    } else {
+      const range = parseIsoWeek(historyFilterWeek);
+      onHistoryQueryChange({ startDate: toLocalDateInputValue(range.start), endDate: toLocalDateInputValue(range.end), productId: '', allTime: false });
+    }
+  }, [activeHistoryQuery, historyFilterDate, historyFilterMode, historyFilterMonth, historyFilterWeek, onHistoryQueryChange]);
 
   const filteredProducts = useMemo(() => {
     if (!searchTerm) return products;
@@ -3058,7 +3152,7 @@ export const StockView = ({
                     value={batchOutText}
                     onChange={(e) => setBatchOutText(e.target.value)}
                     placeholder="| 款式 | 箱数 | 双数 | 金额 |&#10;| --- | -: | --: | ---: |&#10;| 56-81 | 5 | 120 | 384,000 |"
-                    className="h-56 w-full rounded-xl border-stone-200 bg-white p-4 font-mono text-sm font-bold !text-left focus:border-indigo-500 focus:ring-indigo-500"
+                    className="h-56 w-full rounded-xl border-stone-200 bg-white p-4 text-sm font-bold !text-left focus:border-indigo-500 focus:ring-indigo-500"
                   />
                 </div>
                 <div>
@@ -3397,7 +3491,7 @@ export const StockView = ({
                           </td>
                           <td className="py-4 text-sm text-slate-400 font-medium">{t.remark || '-'}</td>
                           <td className="py-4 text-right">
-                            {user?.role === 'admin' && (
+                            {user?.role === 'admin' && !t.sourceOrderSyncId && (
                               <div className="flex items-center justify-end gap-1">
                                 <button
                                   type="button"
@@ -3417,6 +3511,7 @@ export const StockView = ({
                                 </button>
                               </div>
                             )}
+                            {t.sourceOrderSyncId && <span className="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-1 text-[10px] font-bold text-sky-700" title="请在客户订单中撤销同步"><LockKeyhole size={12} />订单同步</span>}
                           </td>
                         </tr>
                       );
@@ -3806,7 +3901,7 @@ export const ProductsView = ({
               value={batchText}
               onChange={(e) => setBatchText(e.target.value)}
               placeholder="在此粘贴 Excel 数据..."
-              className="w-full h-48 rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 p-4 font-mono text-sm font-bold"
+              className="w-full h-48 rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 p-4 text-sm font-bold"
             />
             <button
               onClick={handleBatchImport}
@@ -3988,16 +4083,23 @@ export const ProductsView = ({
 };
 
 export const ExpensesView = ({
-  expenses, transactions, addExpense, deleteExpense, formatCurrency, user,
-  formatDateTime
+  expenses, monthlySalesTotal, addExpense, deleteExpense, formatCurrency, user,
+  formatDateTime, filterMonth, setFilterMonth, orderCashCount, orderDailyExpenses,
+  orderAccountingDate, setOrderAccountingDate
 }: {
   expenses: Expense[],
-  transactions: Transaction[],
+  monthlySalesTotal: number,
   addExpense: (amount: number, category: string, remark: string, date: string) => Promise<boolean>,
   deleteExpense: (id: string | null) => void,
   formatCurrency: (val: number) => string,
   user: User | null,
-  formatDateTime: (value: Expense['occurredAt']) => string
+  formatDateTime: (value: Expense['occurredAt']) => string,
+  filterMonth: string,
+  setFilterMonth: (value: string) => void,
+  orderCashCount: OrderCashCount | null,
+  orderDailyExpenses: OrderDailyExpense[],
+  orderAccountingDate: string,
+  setOrderAccountingDate: (value: string) => void
 }) => {
   const expenseCategoryOptions = [
     { name: '物流运费', hint: '送货、搬运、托运、本地配送等运输费用' },
@@ -4016,10 +4118,10 @@ export const ExpensesView = ({
   const [category, setCategory] = useState('');
   const [remark, setRemark] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
   const [visibleExpenseCount, setVisibleExpenseCount] = useState(20);
   const dateLabel = date.replaceAll('-', '/');
   const filterMonthLabel = filterMonth.replace('-', '/');
+  const orderAccountingDateLabel = orderAccountingDate.replaceAll('-', '/');
   const selectedCategoryHint = expenseCategoryOptions.find((option) => option.name === category)?.hint;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -4051,25 +4153,17 @@ export const ExpensesView = ({
     return filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
   }, [filteredExpenses]);
 
-  const monthlySalesTotal = useMemo(() => {
-    const [year, month] = filterMonth.split('-');
-    const start = new Date(parseInt(year), parseInt(month) - 1, 1);
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date(parseInt(year), parseInt(month), 0);
-    end.setHours(23, 59, 59, 999);
-
-    return transactions
-      .filter(t => {
-        if (t.type !== 'out') return false;
-        return isWithinRange(t.occurredAt, { start, end });
-      })
-      .reduce((sum, t) => sum + t.quantity * t.unitPrice, 0);
-  }, [transactions, filterMonth]);
-
   const estimatedCommission = useMemo(() => {
     return monthlySalesTotal * 0.035 - monthlyTotal;
   }, [monthlySalesTotal, monthlyTotal]);
+
+  const selectedOrderCashCount = orderCashCount?.recordDate === orderAccountingDate ? orderCashCount : null;
+  const selectedOrderDailyExpenses = useMemo(() => (
+    orderDailyExpenses.filter((expense) => expense.expenseDate === orderAccountingDate)
+  ), [orderAccountingDate, orderDailyExpenses]);
+  const orderExpenseTotal = useMemo(() => (
+    selectedOrderDailyExpenses.reduce((total, expense) => total + expense.amount, 0)
+  ), [selectedOrderDailyExpenses]);
 
   const categoryBreakdown = useMemo(() => {
     const breakdown: Record<string, number> = {};
@@ -4269,6 +4363,95 @@ export const ExpensesView = ({
             </div>
           )}
 
+          {user?.role === 'admin' && (
+            <section className="space-y-4" aria-labelledby="order-accounting-summary-title">
+              <div className="flex flex-col gap-4 rounded-xl border border-stone-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 id="order-accounting-summary-title" className="text-lg font-black text-slate-800">order 当日记账</h2>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">独立按日期查看，不受本页月份筛选影响</p>
+                </div>
+                <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
+                  <Calendar size={18} className="text-[#7c3037]" />
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">选择 order 记账日期</span>
+                    <PickerChip
+                      type="date"
+                      value={orderAccountingDate}
+                      onChange={setOrderAccountingDate}
+                      displayValue={orderAccountingDateLabel}
+                      ariaLabel="选择 order 记账日期"
+                      className="border-0 bg-transparent px-0 py-0 text-base font-black shadow-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <article className="surface rounded-xl border border-stone-200 p-6 shadow-sm">
+                  <div className="flex items-start justify-between gap-4 border-b border-stone-200 pb-4">
+                    <div className="flex items-center gap-3">
+                      <span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><Banknote size={21} /></span>
+                      <div>
+                        <h3 className="font-black text-slate-800">现金盘点明细</h3>
+                        <p className="mt-0.5 text-xs font-semibold text-slate-400">{orderAccountingDateLabel}</p>
+                      </div>
+                    </div>
+                    <strong className="display-title text-xl tabular-nums text-emerald-700">{formatCurrency(selectedOrderCashCount?.totalAmount ?? 0)}</strong>
+                  </div>
+
+                  {selectedOrderCashCount ? (
+                    <div className="mt-4 grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
+                      {CASH_DENOMINATIONS.map((denomination) => {
+                        const key = String(denomination) as keyof OrderCashCount['counts'];
+                        const count = selectedOrderCashCount.counts[key];
+                        return (
+                          <div key={denomination} className="flex items-center justify-between border-b border-stone-100 py-2.5 text-sm">
+                            <span className="font-bold tabular-nums text-slate-600">{formatCurrency(denomination)}</span>
+                            <span className="font-black tabular-nums text-slate-900">× {count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex min-h-52 flex-col items-center justify-center text-center text-slate-400">
+                      <Banknote size={38} className="mb-3 opacity-20" />
+                      <p className="font-bold">该日期暂无现金盘点</p>
+                    </div>
+                  )}
+                </article>
+
+                <article className="surface rounded-xl border border-stone-200 p-6 shadow-sm">
+                  <div className="flex items-start justify-between gap-4 border-b border-stone-200 pb-4">
+                    <div className="flex items-center gap-3">
+                      <span className="rounded-xl bg-rose-50 p-2.5 text-rose-700"><ReceiptText size={21} /></span>
+                      <div>
+                        <h3 className="font-black text-slate-800">消费明细</h3>
+                        <p className="mt-0.5 text-xs font-semibold text-slate-400">{selectedOrderDailyExpenses.length} 笔 · {orderAccountingDateLabel}</p>
+                      </div>
+                    </div>
+                    <strong className="display-title text-xl tabular-nums text-rose-700">{formatCurrency(orderExpenseTotal)}</strong>
+                  </div>
+
+                  {selectedOrderDailyExpenses.length > 0 ? (
+                    <div className="mt-3 max-h-72 divide-y divide-stone-100 overflow-y-auto pr-1 custom-scrollbar">
+                      {selectedOrderDailyExpenses.map((expense) => (
+                        <div key={expense.id} className="flex items-start justify-between gap-4 py-3">
+                          <p className="min-w-0 break-words text-sm font-semibold leading-5 text-slate-600">{expense.remark}</p>
+                          <strong className="shrink-0 text-sm tabular-nums text-rose-700">{formatCurrency(expense.amount)}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex min-h-52 flex-col items-center justify-center text-center text-slate-400">
+                      <ReceiptText size={38} className="mb-3 opacity-20" />
+                      <p className="font-bold">该日期暂无消费记录</p>
+                    </div>
+                  )}
+                </article>
+              </div>
+            </section>
+          )}
+
           {/* Detailed List */}
           <div className="surface rounded-xl p-8 shadow-sm border-stone-200">
             <div className="flex items-center justify-between mb-8">
@@ -4349,15 +4532,31 @@ export const ExpensesView = ({
   );
 };
 
+type AdminDebtRow = {
+  key: string;
+  id: string;
+  source: 'manual' | 'customer-order';
+  customerName: string;
+  amount: number;
+  paidAmount: number;
+  date: string;
+  sortMillis: number;
+  debt?: Debt;
+  order?: CustomerOrder;
+};
+
 export const DebtsView = ({
   debts,
+  customerOrders,
   addDebt,
   updateDebt,
   settleDebt,
+  updateCustomerOrder,
   formatCurrency,
   user
 }: {
   debts: Debt[];
+  customerOrders: CustomerOrder[];
   addDebt: (customerName: string, amount: number, date: string) => Promise<boolean>;
   updateDebt: (
     debtId: string,
@@ -4367,6 +4566,7 @@ export const DebtsView = ({
     date: string
   ) => Promise<boolean>;
   settleDebt: (debtId: string) => Promise<boolean>;
+  updateCustomerOrder: (orderId: string, customerName: string, items: CustomerOrderItem[], isUnpaid: boolean, paidAmount: number) => Promise<boolean>;
   formatCurrency: (value: number) => string;
   user: User | null;
 }) => {
@@ -4374,7 +4574,7 @@ export const DebtsView = ({
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [editingDebt, setEditingDebt] = useState<Debt | null>(null);
+  const [editingDebt, setEditingDebt] = useState<AdminDebtRow | null>(null);
   const [editCustomerName, setEditCustomerName] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [editPaidAmount, setEditPaidAmount] = useState('');
@@ -4382,19 +4582,43 @@ export const DebtsView = ({
   const [isEditing, setIsEditing] = useState(false);
   const [settlingDebtId, setSettlingDebtId] = useState<string | null>(null);
   const dateLabel = date.replaceAll('-', '/');
+  const debtRows = useMemo<AdminDebtRow[]>(() => [
+    ...debts.map((debt) => ({
+      key: `manual-${debt.id}`,
+      id: debt.id,
+      source: 'manual' as const,
+      customerName: debt.customerName,
+      amount: debt.amount,
+      paidAmount: debt.paidAmount,
+      date: formatDateInputValue(debt.occurredAt),
+      sortMillis: debt.occurredAt.toMillis(),
+      debt
+    })),
+    ...customerOrders.filter(shouldShowCustomerOrderInDebtHistory).map((order) => ({
+      key: `customer-order-${order.id}`,
+      id: order.id,
+      source: 'customer-order' as const,
+      customerName: order.customerName,
+      amount: order.totalAmount,
+      paidAmount: order.paidAmount,
+      date: order.orderDate,
+      sortMillis: Date.parse(`${order.orderDate}T00:00:00Z`) || order.createdAt.toMillis(),
+      order
+    }))
+  ], [customerOrders, debts]);
   const totalOutstanding = useMemo(
-    () => debts.reduce((total, debt) => total + debt.amount - debt.paidAmount, 0),
-    [debts]
+    () => debtRows.reduce((total, debt) => total + Math.max(0, debt.amount - debt.paidAmount), 0),
+    [debtRows]
   );
   const sortedDebts = useMemo(
     () =>
-      debts.slice().sort((left, right) => {
-        const leftSettled = left.paidAmount === left.amount;
-        const rightSettled = right.paidAmount === right.amount;
+      debtRows.slice().sort((left, right) => {
+        const leftSettled = left.paidAmount >= left.amount;
+        const rightSettled = right.paidAmount >= right.amount;
         if (leftSettled !== rightSettled) return leftSettled ? 1 : -1;
-        return right.occurredAt.toMillis() - left.occurredAt.toMillis();
+        return right.sortMillis - left.sortMillis;
       }),
-    [debts]
+    [debtRows]
   );
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -4412,12 +4636,12 @@ export const DebtsView = ({
     }
   };
 
-  const openEditModal = (debt: Debt) => {
+  const openEditModal = (debt: AdminDebtRow) => {
     setEditingDebt(debt);
     setEditCustomerName(debt.customerName);
     setEditAmount(String(debt.amount));
     setEditPaidAmount(debt.paidAmount === 0 ? '' : String(debt.paidAmount));
-    setEditDate(formatDateInputValue(debt.occurredAt));
+    setEditDate(debt.date);
   };
 
   const closeEditModal = () => {
@@ -4445,20 +4669,32 @@ export const DebtsView = ({
     }
 
     setIsEditing(true);
-    const success = await updateDebt(
-      editingDebt.id,
-      normalizedCustomerName,
-      normalizedAmount,
-      normalizedPaidAmount,
-      editDate
-    );
+    const success = editingDebt.source === 'customer-order' && editingDebt.order
+      ? await updateCustomerOrder(
+          editingDebt.order.id,
+          normalizedCustomerName,
+          editingDebt.order.items,
+          normalizedPaidAmount === 0,
+          normalizedPaidAmount
+        )
+      : await updateDebt(
+          editingDebt.id,
+          normalizedCustomerName,
+          normalizedAmount,
+          normalizedPaidAmount,
+          editDate
+        );
     setIsEditing(false);
     if (success) setEditingDebt(null);
   };
 
-  const handleSettleDebt = async (debtId: string) => {
-    setSettlingDebtId(debtId);
-    await settleDebt(debtId);
+  const handleSettleDebt = async (debt: AdminDebtRow) => {
+    setSettlingDebtId(debt.key);
+    if (debt.source === 'customer-order' && debt.order) {
+      await updateCustomerOrder(debt.order.id, debt.order.customerName, debt.order.items, false, debt.order.totalAmount);
+    } else {
+      await settleDebt(debt.id);
+    }
     setSettlingDebtId(null);
   };
 
@@ -4547,7 +4783,7 @@ export const DebtsView = ({
             欠款明细
           </h2>
           <div className="rounded-full border border-stone-200 bg-white px-4 py-1.5 text-sm font-bold text-slate-400">
-            共 {debts.length} 笔记录
+            共 {debtRows.length} 笔记录
           </div>
         </div>
 
@@ -4574,10 +4810,15 @@ export const DebtsView = ({
             <tbody className="divide-y divide-white/10">
               {sortedDebts.map((debt) => {
                 const remainingAmount = debt.amount - debt.paidAmount;
-                const isSettled = remainingAmount === 0;
+                const isSettled = remainingAmount <= 0;
                 return (
-                  <tr key={debt.id} className="transition-colors hover:bg-white">
-                    <td className="py-4 text-sm font-bold text-slate-800">{debt.customerName}</td>
+                  <tr key={debt.key} className="transition-colors hover:bg-white">
+                    <td className="py-4 text-sm font-bold text-slate-800">
+                      <span className="block">{debt.customerName}</span>
+                      {debt.source === 'customer-order' && (
+                        <span className="mt-1 inline-flex rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-600">客户订单</span>
+                      )}
+                    </td>
                     <td className="py-4 text-sm font-black text-amber-600">{formatCurrency(debt.amount)}</td>
                     <td className="py-4 text-sm font-bold text-sky-600">{formatCurrency(debt.paidAmount)}</td>
                     <td className="py-4 text-sm font-black">
@@ -4591,7 +4832,7 @@ export const DebtsView = ({
                       )}
                     </td>
                     <td className="py-4 text-sm font-medium text-slate-500">
-                      {formatDateInputValue(debt.occurredAt)}
+                      {debt.date}
                     </td>
                     <td className="py-4 text-right">
                       <div className="inline-flex items-center gap-2">
@@ -4609,7 +4850,7 @@ export const DebtsView = ({
                           <button
                             type="button"
                             disabled={user?.role !== 'admin' || settlingDebtId !== null}
-                            onClick={() => handleSettleDebt(debt.id)}
+                            onClick={() => handleSettleDebt(debt)}
                             aria-label={`将 ${debt.customerName} 的欠款标记为已结清`}
                             title="标记已结清"
                             className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-md shadow-emerald-200/50 transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
@@ -4622,7 +4863,7 @@ export const DebtsView = ({
                   </tr>
                 );
               })}
-              {debts.length === 0 && (
+              {debtRows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="py-20 text-center">
                     <div className="flex flex-col items-center gap-2 text-slate-400">
@@ -4684,7 +4925,8 @@ export const DebtsView = ({
                       step="1"
                       value={editAmount}
                       onChange={(event) => setEditAmount(event.target.value)}
-                      className="w-full rounded-xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
+                      readOnly={editingDebt.source === 'customer-order'}
+                      className="w-full rounded-xl border-slate-200 py-3 font-bold read-only:bg-slate-100 read-only:text-slate-500 focus:border-sky-500 focus:ring-sky-500"
                     />
                   </div>
                   <div>
@@ -4706,12 +4948,18 @@ export const DebtsView = ({
                   <PickerChip
                     type="date"
                     value={editDate}
-                    onChange={setEditDate}
+                    onChange={editingDebt.source === 'customer-order' ? () => {} : setEditDate}
                     displayValue={editDate.replaceAll('-', '/')}
                     ariaLabel="修改欠款日期"
-                    className="w-full justify-between rounded-xl py-3"
+                    className={`w-full justify-between rounded-xl py-3 ${editingDebt.source === 'customer-order' ? 'pointer-events-none opacity-60' : ''}`}
                   />
                 </div>
+
+                {editingDebt.source === 'customer-order' && (
+                  <p className="rounded-xl bg-violet-50 px-4 py-3 text-xs font-semibold leading-5 text-violet-700">
+                    该记录来自客户订单。原欠款和日期随订单同步；在这里修改客户名或累计已还金额，会同步回 order 账户。
+                  </p>
+                )}
 
                 <div className="flex gap-3 pt-1">
                   <button

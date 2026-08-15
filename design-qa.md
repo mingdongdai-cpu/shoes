@@ -58,3 +58,39 @@ final result: passed
   - `/Users/dave/.codex/visualizations/2026/08/14/shoes-cash-edit-qa/cash-edit-modal.png`
   - `/Users/dave/.codex/visualizations/2026/08/14/shoes-cash-edit-qa/cash-delete-confirmation.png`
 - Fresh console warnings and errors: none.
+
+# Design QA — admin 当日订单对账
+
+- source visual truth path: `/var/folders/j4/79sh568x1gb_08cx0v8h9q5r0000gn/T/TemporaryItems/NSIRD_screencaptureui_BuRY4p/截屏2026-08-15 20.32.29.png`
+- implementation screenshots:
+  - `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/order-reconciliation-correct-2026-08-15.png`
+  - `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/order-reconciliation-difference-2026-08-15.png`
+  - `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/order-reconciliation-comparison-2026-08-15.png`
+- viewport: 1100 × 420 CSS pixels, device scale factor 1
+- source pixels: 1062 × 126
+- implementation pixels: 1265 × 712; header region normalized to the source width and height in the comparison board
+- states: `账目正确` and positive `差额 30,000 XOF`
+
+## Formula and data scope
+
+- Selected-day customer order total minus selected-day cash count total, order expense total and customer outstanding debt total.
+- All four inputs follow the independent ORDER accounting date picker and are not affected by the page month filter.
+- Outstanding debt uses the remaining unpaid balance of customer orders for the selected day.
+
+## Required fidelity surfaces
+
+- Fonts and typography: passed; existing admin dashboard typography retained.
+- Spacing and layout rhythm: passed; the reconciliation card occupies the requested center position without disturbing the title or date control.
+- Colors and visual tokens: passed; zero difference uses the existing emerald success treatment and nonzero difference uses the existing red warning treatment.
+- Icon and asset fidelity: passed; existing Lucide `CheckCircle2` and `AlertTriangle` icons used.
+- Copy and content: passed; the card exposes the result and the concise formula `订单 − 现金 − 消费 − 客户欠款`.
+
+## Interaction evidence
+
+- At 2026-08-15, 500,000 − 350,000 − 50,000 − 100,000 = 0 and the card displayed `账目正确`.
+- Switching the independent date to 2026-08-14 recalculated the card to `差额 30,000 XOF`.
+- The center card updates from the same date selection as the two order accounting detail cards.
+- Fresh-page console errors and warnings: none in both verified states.
+- No P0/P1/P2 findings remain.
+
+final result: passed

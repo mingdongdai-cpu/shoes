@@ -32,6 +32,15 @@ export function calculateCashTotal(counts: CashDenominationCounts): number {
   ), 0);
 }
 
+export function calculateAccountingDifference(
+  customerOrderTotal: number,
+  cashTotal: number,
+  expenseTotal: number,
+  customerDebtTotal: number
+): number {
+  return customerOrderTotal - cashTotal - expenseTotal - customerDebtTotal;
+}
+
 export function filterOrderExpensesByDate(expenses: readonly OrderDailyExpense[], selectedDate: string): OrderDailyExpense[] {
   return expenses.filter((expense) => expense.expenseDate === selectedDate);
 }

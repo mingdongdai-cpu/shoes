@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Timestamp } from 'firebase/firestore';
-import { calculateCashTotal, createEmptyCashCounts, filterOrderExpensesByDate, normalizeCashCounts } from './orderAccounting';
+import { calculateAccountingDifference, calculateCashTotal, createEmptyCashCounts, filterOrderExpensesByDate, normalizeCashCounts } from './orderAccounting';
 
 test('cash total multiplies every denomination by its note count', () => {
   const counts = createEmptyCashCounts();
@@ -33,4 +33,10 @@ test('daily expenses are filtered by the selected business date', () => {
     { id: 'past', expenseDate: '2026-08-13', amount: 2000, remark: 'Repas', operatorUid: 'u', createdAt: timestamp, updatedAt: timestamp }
   ];
   assert.deepEqual(filterOrderExpensesByDate(expenses, '2026-08-14').map((expense) => expense.id), ['today']);
+});
+
+test('accounting difference subtracts cash, expenses and customer debt from customer orders', () => {
+  assert.equal(calculateAccountingDifference(500000, 350000, 50000, 100000), 0);
+  assert.equal(calculateAccountingDifference(500000, 320000, 50000, 100000), 30000);
+  assert.equal(calculateAccountingDifference(500000, 370000, 50000, 100000), -20000);
 });

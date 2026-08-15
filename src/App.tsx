@@ -955,6 +955,10 @@ export default function App() {
         orderBy('occurredAt', 'desc')
       ), (snapshot) => setExpenses(snapshot.docs.map((itemDoc) => mapExpenseDoc(itemDoc.id, itemDoc.data()))),
       (error) => handleFirestoreError(error, OperationType.GET, 'expenses')));
+      listenCustomerOrders(query(
+        collection(db, 'customerOrders'),
+        where('orderDate', '==', adminOrderAccountingDate)
+      ));
     } else if (currentView === 'customer-orders' && user.role === 'admin') {
       listenCustomerOrders(query(collection(db, 'customerOrders'), where('orderDate', '==', customerOrdersDate)));
       unsubscribers.push(onSnapshot(doc(db, 'customerOrderSyncs', customerOrdersDate), (snapshot) => {
@@ -972,7 +976,7 @@ export default function App() {
     }
 
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
-  }, [user, currentView, currentReportRange, customerOrdersDate, expenseFilterMonth, stockHistoryRequest]);
+  }, [user, currentView, currentReportRange, customerOrdersDate, adminOrderAccountingDate, expenseFilterMonth, stockHistoryRequest]);
 
   useEffect(() => {
     setOrderCashCounts([]);
@@ -2786,6 +2790,7 @@ export default function App() {
                   setFilterMonth={setExpenseFilterMonth}
                   orderCashCount={orderCashCounts[0] ?? null}
                   orderDailyExpenses={orderDailyExpenses}
+                  customerOrders={customerOrders}
                   orderAccountingDate={adminOrderAccountingDate}
                   setOrderAccountingDate={setAdminOrderAccountingDate}
                 />

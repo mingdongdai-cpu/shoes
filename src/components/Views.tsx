@@ -30,9 +30,9 @@ import { Timestamp } from 'firebase/firestore';
 import { CustomerOrder, CustomerOrderItem, DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, Debt, SalesPeriodData, OrderCashCount, OrderDailyExpense } from '../types';
 import { formatDateInputValue, formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek, type ReportPeriod } from '../lib/timeWindow';
 import { findUniqueProductByName } from '../lib/productNames';
-import { buildCustomerOrderTotals, shouldShowCustomerOrderInDebtHistory } from '../lib/customerOrders';
+import { buildCustomerOrderTotals, getCustomerOrderOutstanding, shouldShowCustomerOrderInDebtHistory } from '../lib/customerOrders';
 import { CustomerOrdersPanel } from './OrderViews';
-import { CASH_DENOMINATIONS } from '../lib/orderAccounting';
+import { calculateAccountingDifference, CASH_DENOMINATIONS } from '../lib/orderAccounting';
 
 // --- Components ---
 
@@ -4085,7 +4085,7 @@ export const ProductsView = ({
 export const ExpensesView = ({
   expenses, monthlySalesTotal, addExpense, deleteExpense, formatCurrency, user,
   formatDateTime, filterMonth, setFilterMonth, orderCashCount, orderDailyExpenses,
-  orderAccountingDate, setOrderAccountingDate
+  customerOrders, orderAccountingDate, setOrderAccountingDate
 }: {
   expenses: Expense[],
   monthlySalesTotal: number,
@@ -4098,6 +4098,7 @@ export const ExpensesView = ({
   setFilterMonth: (value: string) => void,
   orderCashCount: OrderCashCount | null,
   orderDailyExpenses: OrderDailyExpense[],
+  customerOrders: CustomerOrder[],
   orderAccountingDate: string,
   setOrderAccountingDate: (value: string) => void
 }) => {
@@ -4164,6 +4165,22 @@ export const ExpensesView = ({
   const orderExpenseTotal = useMemo(() => (
     selectedOrderDailyExpenses.reduce((total, expense) => total + expense.amount, 0)
   ), [selectedOrderDailyExpenses]);
+  const selectedCustomerOrders = useMemo(() => (
+    customerOrders.filter((order) => order.orderDate === orderAccountingDate)
+  ), [customerOrders, orderAccountingDate]);
+  const customerOrderTotal = useMemo(() => (
+    selectedCustomerOrders.reduce((total, order) => total + order.totalAmount, 0)
+  ), [selectedCustomerOrders]);
+  const customerDebtTotal = useMemo(() => (
+    selectedCustomerOrders.reduce((total, order) => total + getCustomerOrderOutstanding(order), 0)
+  ), [selectedCustomerOrders]);
+  const accountingDifference = calculateAccountingDifference(
+    customerOrderTotal,
+    selectedOrderCashCount?.totalAmount ?? 0,
+    orderExpenseTotal,
+    customerDebtTotal
+  );
+  const isAccountingCorrect = accountingDifference === 0;
 
   const categoryBreakdown = useMemo(() => {
     const breakdown: Record<string, number> = {};
@@ -4365,10 +4382,29 @@ export const ExpensesView = ({
 
           {user?.role === 'admin' && (
             <section className="space-y-4" aria-labelledby="order-accounting-summary-title">
-              <div className="flex flex-col gap-4 rounded-xl border border-stone-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+              <div className="grid grid-cols-1 gap-4 rounded-xl border border-stone-200 bg-white px-5 py-4 shadow-sm lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
                 <div>
                   <h2 id="order-accounting-summary-title" className="text-lg font-black text-slate-800">order 当日记账</h2>
                   <p className="mt-1 text-xs font-semibold text-slate-400">独立按日期查看，不受本页月份筛选影响</p>
+                </div>
+                <div
+                  aria-live="polite"
+                  className={`min-w-56 rounded-xl border px-5 py-3 text-center ${
+                    isAccountingCorrect
+                      ? 'border-emerald-200/80 bg-emerald-50/70'
+                      : 'border-rose-200/80 bg-rose-50/70'
+                  }`}
+                >
+                  <p className={`text-[10px] font-black uppercase tracking-widest ${isAccountingCorrect ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    当日订单对账
+                  </p>
+                  <div className={`mt-1 flex items-center justify-center gap-2 ${isAccountingCorrect ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {isAccountingCorrect ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+                    <strong className="display-title text-xl tabular-nums">
+                      {isAccountingCorrect ? '账目正确' : `差额 ${formatCurrency(accountingDifference)}`}
+                    </strong>
+                  </div>
+                  <p className="mt-1 text-[10px] font-semibold text-slate-400">订单 − 现金 − 消费 − 客户欠款</p>
                 </div>
                 <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
                   <Calendar size={18} className="text-[#7c3037]" />

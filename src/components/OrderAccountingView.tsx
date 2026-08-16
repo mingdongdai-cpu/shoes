@@ -107,11 +107,11 @@ export function OrderAccountingView({
   }, [editCashDraft]);
 
   useEffect(() => {
-    setCashDraft(cashCountsToDraft(selectedCashCount?.counts ?? createEmptyCashCounts()));
+    setCashDraft(cashCountsToDraft(createEmptyCashCounts()));
     setCashError('');
     setCashExpanded(false);
     setExpenseDate(selectedDate);
-  }, [selectedCashCount, selectedDate]);
+  }, [selectedDate]);
 
   useEffect(() => {
     const refreshToday = () => {
@@ -130,7 +130,8 @@ export function OrderAccountingView({
       const counts = draftToCashCounts(cashDraft);
       setCashError('');
       setSavingCash(true);
-      await saveCashCount(selectedDate, counts);
+      const saved = await saveCashCount(selectedDate, counts);
+      if (saved) setCashDraft(cashCountsToDraft(createEmptyCashCounts()));
     } catch (error) {
       setCashError(error instanceof Error ? error.message : 'Impossible d’enregistrer la caisse.');
     } finally {
@@ -259,7 +260,7 @@ export function OrderAccountingView({
                     return (
                       <label key={denomination} className="block min-w-0 rounded-lg border border-stone-200 bg-stone-50/70 p-2">
                         <span className="mb-1 block text-xs font-bold tabular-nums text-stone-700">{denomination.toLocaleString('fr-FR')} XOF</span>
-                        <input type="number" inputMode="numeric" min="0" step="1" value={cashDraft[key]} onChange={(event) => setCashDraft((current) => ({ ...current, [key]: event.target.value }))} placeholder="0" className="w-full min-w-0 rounded-md border-stone-200 bg-white px-2.5 py-1.5 text-right font-bold tabular-nums focus:border-emerald-500 focus:ring-emerald-500" aria-label={`Nombre de billets de ${denomination}`} />
+                        <input type="number" inputMode="numeric" min="0" step="1" value={cashDraft[key]} onChange={(event) => setCashDraft((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-md border-stone-200 bg-white px-2.5 py-1.5 text-right font-bold tabular-nums focus:border-emerald-500 focus:ring-emerald-500" aria-label={`Nombre de billets de ${denomination}`} />
                       </label>
                     );
                   })}

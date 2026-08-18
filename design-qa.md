@@ -49,6 +49,84 @@ The combined menu comparison shows that the new `Gestion comptable` item is inse
 
 final result: passed
 
+# Design QA — 当日订单对账公式
+
+- Source visual truth: `/var/folders/j4/79sh568x1gb_08cx0v8h9q5r0000gn/T/TemporaryItems/NSIRD_screencaptureui_G4j300/截屏2026-08-18 19.35.06.png`
+- Browser-rendered implementation: `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/accounting-settled-debt-qa/full-page.png`
+- Focused implementation crop: `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/accounting-settled-debt-qa/implementation-card.png`
+- Comparison board: `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/accounting-settled-debt-qa/comparison.png`
+- Browser viewport: `1280 × 720` CSS px, device scale factor 1.
+- Source pixels: `327 × 127`; focused source card: `224 × 91`.
+- Implementation full-page pixels: `1265 × 1314`; focused card: `245 × 92`.
+- State: admin 记账管理，order 记账日期 `2026-08-18`，差额 `30,000 XOF`。
+
+## Full-view and focused comparison
+
+The surrounding order-accounting header, alert state, hierarchy, typography, red semantic color, border, radius and spacing remain consistent with the supplied screen. The focused comparison verifies the changed formula at readable size. No raster assets are present in this card; the existing Lucide warning icon is preserved.
+
+## Required fidelity surfaces
+
+- Fonts and typography: passed; the existing global display/body font system, weight hierarchy and tabular amount styling are unchanged.
+- Spacing and layout rhythm: passed; the longer formula fits within the existing reconciliation card without clipping or changing its height.
+- Colors and visual tokens: passed; the existing rose error state, neutral helper copy and white page background remain unchanged.
+- Image quality and asset fidelity: passed; no image assets were added or replaced.
+- Copy and content: passed; helper copy now reads `订单 − 现金 − 消费 − 欠款 ＋ 当天结清欠款`.
+
+## Interaction and runtime evidence
+
+- Flow under test: local admin accounting component → selected accounting date changes from `2026-08-18` to `2026-08-17` → reconciliation changes from `差额 30,000 XOF` to `账目正确`.
+- Page identity and meaningful DOM content passed.
+- No Vite/framework overlay appeared.
+- Browser console errors and warnings: none in the clean verification tab.
+
+## Findings and history
+
+- P0/P1/P2 findings: none.
+- No fix iteration was required after the focused source/implementation comparison.
+- P3 follow-up: none required for this scoped copy and calculation update.
+
+final result: passed
+
+# Design QA — 欠款结清日期与排序
+
+- source visual truth path: `/var/folders/j4/79sh568x1gb_08cx0v8h9q5r0000gn/T/TemporaryItems/NSIRD_screencaptureui_Od5Iml/截屏2026-08-18 19.06.12.png`
+- implementation screenshot: `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/debt-settlement-qa/settlement-date-sorting.png`
+- comparison board: `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/debt-settlement-qa/comparison.png`
+- viewport: 1191 × 785 CSS pixels, device scale factor 1
+- source pixels: 1191 × 785
+- implementation crop: 1128 × 560 pixels from the debt detail section
+- state: two unsettled records, three dated settled records and one historical settled record without a stored settlement date
+
+## Full-view comparison evidence
+
+The existing debt-detail surface, title, record count, table density, typography, amount colors, status iconography and action placement remain consistent with the supplied screenshot. The requested `还款结清日期` column is inserted between `欠款日期` and `操作` without clipping or horizontal overflow at the reference viewport.
+
+## Focused region comparison evidence
+
+The combined comparison board normalizes both debt-detail sections to the same 1128-pixel content width. The implementation preserves the original row rhythm while showing settlement dates as `YYYY-MM-DD`; unsettled and historical records without a stored date use a muted em dash.
+
+## Required fidelity surfaces
+
+- Fonts and typography: passed; the existing admin overview font hierarchy and tabular amount styling are unchanged.
+- Spacing and layout rhythm: passed; seven columns remain readable and aligned at the reference viewport.
+- Colors and visual tokens: passed; existing amber, sky, rose, emerald and slate semantic colors are preserved.
+- Image quality and asset fidelity: passed; no raster assets were added and existing Lucide icons remain unchanged.
+- Copy and content: passed; the new header is `还款结清日期` and dates use the same format as `欠款日期`.
+
+## Interaction and ordering evidence
+
+- Unsettled rows render first in debt-date order: 2026-08-18, then 2026-08-12.
+- Settled rows follow in settlement-date order: 2026-08-18, 2026-08-17, then 2026-08-16.
+- The historical settled record without `settledAt` renders last in the settled group with `—`.
+- The edit dialog opens and closes normally after the table change.
+- Fresh-page console errors and warnings: none.
+
+## Comparison history
+
+- First comparison found no actionable P0/P1/P2 visual or interaction mismatch. No visual correction loop was required.
+
+final result: passed
+
 ## Cash card edit and delete verification
 
 - The cash-card pencil now opens a dedicated denomination editor instead of scrolling to the entry form.

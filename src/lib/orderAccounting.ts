@@ -36,9 +36,10 @@ export function calculateAccountingDifference(
   customerOrderTotal: number,
   cashTotal: number,
   expenseTotal: number,
-  customerDebtTotal: number
+  customerDebtTotal: number,
+  settledDebtTotal: number
 ): number {
-  return customerOrderTotal - cashTotal - expenseTotal - customerDebtTotal;
+  return customerOrderTotal - cashTotal - expenseTotal - customerDebtTotal + settledDebtTotal;
 }
 
 export function filterOrderExpensesByDate(expenses: readonly OrderDailyExpense[], selectedDate: string): OrderDailyExpense[] {

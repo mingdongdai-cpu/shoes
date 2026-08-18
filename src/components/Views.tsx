@@ -33,6 +33,7 @@ import { findUniqueProductByName } from '../lib/productNames';
 import { buildCustomerOrderTotals, getCustomerOrderOutstanding, shouldShowCustomerOrderInDebtHistory } from '../lib/customerOrders';
 import { CustomerOrdersPanel } from './OrderViews';
 import { calculateAccountingDifference, CASH_DENOMINATIONS } from '../lib/orderAccounting';
+import { compareDebtRecords } from '../lib/debtRecords';
 
 // --- Components ---
 
@@ -4085,7 +4086,7 @@ export const ProductsView = ({
 export const ExpensesView = ({
   expenses, monthlySalesTotal, addExpense, deleteExpense, formatCurrency, user,
   formatDateTime, filterMonth, setFilterMonth, orderCashCount, orderDailyExpenses,
-  customerOrders, orderAccountingDate, setOrderAccountingDate
+  customerOrders, settledDebtTotal, orderAccountingDate, setOrderAccountingDate
 }: {
   expenses: Expense[],
   monthlySalesTotal: number,
@@ -4099,6 +4100,7 @@ export const ExpensesView = ({
   orderCashCount: OrderCashCount | null,
   orderDailyExpenses: OrderDailyExpense[],
   customerOrders: CustomerOrder[],
+  settledDebtTotal: number,
   orderAccountingDate: string,
   setOrderAccountingDate: (value: string) => void
 }) => {
@@ -4178,7 +4180,8 @@ export const ExpensesView = ({
     customerOrderTotal,
     selectedOrderCashCount?.totalAmount ?? 0,
     orderExpenseTotal,
-    customerDebtTotal
+    customerDebtTotal,
+    settledDebtTotal
   );
   const isAccountingCorrect = accountingDifference === 0;
 
@@ -4404,7 +4407,7 @@ export const ExpensesView = ({
                       {isAccountingCorrect ? '账目正确' : `差额 ${formatCurrency(accountingDifference)}`}
                     </strong>
                   </div>
-                  <p className="mt-1 text-[10px] font-semibold text-slate-400">订单 − 现金 − 消费 − 客户欠款</p>
+                  <p className="mt-1 text-[10px] font-semibold text-slate-400">订单 − 现金 − 消费 − 欠款 ＋ 当天结清欠款</p>
                 </div>
                 <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
                   <Calendar size={18} className="text-[#7c3037]" />
@@ -4576,7 +4579,9 @@ type AdminDebtRow = {
   amount: number;
   paidAmount: number;
   date: string;
-  sortMillis: number;
+  debtMillis: number;
+  settledDate: string | null;
+  settledMillis: number | null;
   debt?: Debt;
   order?: CustomerOrder;
 };
@@ -4627,7 +4632,9 @@ export const DebtsView = ({
       amount: debt.amount,
       paidAmount: debt.paidAmount,
       date: formatDateInputValue(debt.occurredAt),
-      sortMillis: debt.occurredAt.toMillis(),
+      debtMillis: debt.occurredAt.toMillis(),
+      settledDate: debt.settledAt ? formatDateInputValue(debt.settledAt) : null,
+      settledMillis: debt.settledAt?.toMillis() ?? null,
       debt
     })),
     ...customerOrders.filter(shouldShowCustomerOrderInDebtHistory).map((order) => ({
@@ -4638,7 +4645,9 @@ export const DebtsView = ({
       amount: order.totalAmount,
       paidAmount: order.paidAmount,
       date: order.orderDate,
-      sortMillis: Date.parse(`${order.orderDate}T00:00:00Z`) || order.createdAt.toMillis(),
+      debtMillis: Date.parse(`${order.orderDate}T00:00:00Z`) || order.createdAt.toMillis(),
+      settledDate: order.settledAt ? formatDateInputValue(order.settledAt) : null,
+      settledMillis: order.settledAt?.toMillis() ?? null,
       order
     }))
   ], [customerOrders, debts]);
@@ -4647,13 +4656,7 @@ export const DebtsView = ({
     [debtRows]
   );
   const sortedDebts = useMemo(
-    () =>
-      debtRows.slice().sort((left, right) => {
-        const leftSettled = left.paidAmount >= left.amount;
-        const rightSettled = right.paidAmount >= right.amount;
-        if (leftSettled !== rightSettled) return leftSettled ? 1 : -1;
-        return right.sortMillis - left.sortMillis;
-      }),
+    () => debtRows.slice().sort(compareDebtRecords),
     [debtRows]
   );
 
@@ -4824,14 +4827,15 @@ export const DebtsView = ({
         </div>
 
         <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full min-w-[42rem] table-fixed text-left xl:min-w-0">
+          <table className="w-full min-w-[50rem] table-fixed text-left xl:min-w-0">
             <colgroup>
-              <col className="w-[18%]" />
-              <col className="w-[15%]" />
-              <col className="w-[15%]" />
-              <col className="w-[18%]" />
-              <col className="w-[18%]" />
+              <col className="w-[17%]" />
+              <col className="w-[13%]" />
+              <col className="w-[13%]" />
               <col className="w-[16%]" />
+              <col className="w-[14%]" />
+              <col className="w-[14%]" />
+              <col className="w-[13%]" />
             </colgroup>
             <thead>
               <tr className="border-b border-stone-200">
@@ -4840,6 +4844,7 @@ export const DebtsView = ({
                 <th className="py-2 text-xs font-bold text-slate-500">已还金额</th>
                 <th className="py-2 text-xs font-bold text-slate-500">剩余金额</th>
                 <th className="py-2 text-xs font-bold text-slate-500">欠款日期</th>
+                <th className="py-2 text-xs font-bold text-slate-500">还款结清日期</th>
                 <th className="py-2 text-right text-xs font-bold text-slate-500">操作</th>
               </tr>
             </thead>
@@ -4869,6 +4874,11 @@ export const DebtsView = ({
                     </td>
                     <td className="py-4 text-sm font-medium text-slate-500">
                       {debt.date}
+                    </td>
+                    <td className="py-4 text-sm font-medium text-slate-500">
+                      {isSettled && debt.settledDate ? debt.settledDate : (
+                        <span title={isSettled ? '历史记录未保存结清日期' : undefined}>—</span>
+                      )}
                     </td>
                     <td className="py-4 text-right">
                       <div className="inline-flex items-center gap-2">
@@ -4901,7 +4911,7 @@ export const DebtsView = ({
               })}
               {debtRows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-20 text-center">
+                  <td colSpan={7} className="py-20 text-center">
                     <div className="flex flex-col items-center gap-2 text-slate-400">
                       <HandCoins size={48} className="mb-2 opacity-20" />
                       <div className="font-bold">暂无欠账记录</div>

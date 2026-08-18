@@ -49,6 +49,7 @@ import { isCustomerOrderDebt, isOrderDate, normalizeCustomerOrderDebtHistory, no
 import { calculateCashTotal, normalizeCashCounts } from './lib/orderAccounting';
 import { buildAnalyticsDelta, IN_TOTAL_BASELINE_VALUE, type AnalyticsDelta, type AnalyticsExpenseInput, type AnalyticsTransactionInput } from './lib/analytics';
 import { aggregateCustomerOrdersForInventory } from './lib/customerOrderSync';
+import { resolveSettlementValue } from './lib/debtRecords';
 
 
 // --- Error Handling ---
@@ -271,6 +272,7 @@ function mapDebtDoc(id: string, data: DocumentData): Debt {
     amount: data.amount as number,
     paidAmount: data.paidAmount as number,
     occurredAt: data.occurredAt as Timestamp,
+    settledAt: data.settledAt instanceof Timestamp ? data.settledAt : null,
     operatorUid: data.operatorUid as string
   };
 }
@@ -403,6 +405,7 @@ function mapCustomerOrderDoc(id: string, data: DocumentData): CustomerOrder {
     totalAmount,
     operatorUid: String(data.operatorUid ?? ''),
     createdAt: requireTimestamp(data.createdAt, 'customerOrders.createdAt'),
+    settledAt: data.settledAt instanceof Timestamp ? data.settledAt : null,
     inventorySyncId: typeof data.inventorySyncId === 'string' ? data.inventorySyncId : undefined
   };
 }
@@ -473,6 +476,8 @@ export default function App() {
   const [customerOrderSync, setCustomerOrderSync] = useState<CustomerOrderSync | null>(null);
   const [orderCashCounts, setOrderCashCounts] = useState<OrderCashCount[]>([]);
   const [orderDailyExpenses, setOrderDailyExpenses] = useState<OrderDailyExpense[]>([]);
+  const [settledManualDebtAmount, setSettledManualDebtAmount] = useState(0);
+  const [settledCustomerOrderDebtAmount, setSettledCustomerOrderDebtAmount] = useState(0);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
@@ -981,6 +986,8 @@ export default function App() {
   useEffect(() => {
     setOrderCashCounts([]);
     setOrderDailyExpenses([]);
+    setSettledManualDebtAmount(0);
+    setSettledCustomerOrderDebtAmount(0);
     if (!user || !auth.currentUser) return;
     const isOrderAccounting = user.role === 'order' && currentView === 'order-accounting';
     const isAdminAccounting = user.role === 'admin' && currentView === 'expenses';
@@ -997,9 +1004,33 @@ export default function App() {
         .sort((left, right) => right.createdAt.toMillis() - left.createdAt.toMillis())),
       (error) => handleFirestoreError(error, OperationType.GET, 'orderDailyExpenses')
     );
+    const settlementUnsubscribers: Array<() => void> = [];
+    if (isAdminAccounting) {
+      const settlementStart = Timestamp.fromDate(new Date(`${selectedAccountingDate}T00:00:00.000Z`));
+      const settlementEnd = Timestamp.fromDate(new Date(`${selectedAccountingDate}T23:59:59.999Z`));
+      settlementUnsubscribers.push(onSnapshot(query(
+        collection(db, 'debts'),
+        where('settledAt', '>=', settlementStart),
+        where('settledAt', '<=', settlementEnd)
+      ), (snapshot) => {
+        setSettledManualDebtAmount(snapshot.docs.reduce((total, itemDoc) => (
+          total + mapDebtDoc(itemDoc.id, itemDoc.data()).amount
+        ), 0));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'debts')));
+      settlementUnsubscribers.push(onSnapshot(query(
+        collection(db, 'customerOrders'),
+        where('settledAt', '>=', settlementStart),
+        where('settledAt', '<=', settlementEnd)
+      ), (snapshot) => {
+        setSettledCustomerOrderDebtAmount(snapshot.docs.reduce((total, itemDoc) => (
+          total + mapCustomerOrderDoc(itemDoc.id, itemDoc.data()).totalAmount
+        ), 0));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'customerOrders')));
+    }
     return () => {
       unsubscribeCash();
       unsubscribeExpenses();
+      settlementUnsubscribers.forEach((unsubscribe) => unsubscribe());
     };
   }, [user, currentView, accountingDate, adminOrderAccountingDate]);
 
@@ -1278,7 +1309,8 @@ export default function App() {
         items,
         totalAmount,
         operatorUid: auth.currentUser.uid,
-        createdAt: Timestamp.now()
+        createdAt: Timestamp.now(),
+        settledAt: null
       });
       showToast('Commande enregistrée');
       return true;
@@ -1342,6 +1374,16 @@ export default function App() {
         isCustomerOrderDebt(existingOrder) ||
         isUnpaid ||
         normalizedPaidAmount < totalAmount;
+      const wasSettled = existingOrder.hasDebtHistory &&
+        !existingOrder.isUnpaid &&
+        existingOrder.paidAmount >= existingOrder.totalAmount;
+      const isSettled = hasDebtHistory && !isUnpaid && normalizedPaidAmount >= totalAmount;
+      const settledAt = resolveSettlementValue(
+        existingOrder.settledAt,
+        wasSettled,
+        isSettled,
+        Timestamp.now()
+      );
 
       await updateDoc(orderRef, {
         customerName: normalizedCustomerName,
@@ -1349,7 +1391,8 @@ export default function App() {
         totalAmount,
         isUnpaid,
         paidAmount: normalizedPaidAmount,
-        hasDebtHistory
+        hasDebtHistory,
+        settledAt
       });
       showToast(user.role === 'order' ? 'Commande modifiée' : '订单已更新');
       return true;
@@ -2444,6 +2487,7 @@ export default function App() {
         amount,
         paidAmount: 0,
         occurredAt: timestampFromDateInput(date),
+        settledAt: null,
         operatorUid: auth.currentUser.uid
       });
       showToast('欠账登记成功');
@@ -2484,11 +2528,35 @@ export default function App() {
 
     try {
       const debtRef = doc(db, 'debts', debtId);
-      await updateDoc(debtRef, {
-        customerName,
-        amount,
-        paidAmount,
-        occurredAt: timestampFromDateInput(date)
+      await runTransaction(db, async (trx) => {
+        const debtSnapshot = await trx.get(debtRef);
+        if (!debtSnapshot.exists()) throw new Error('欠款记录不存在');
+
+        const debtData = debtSnapshot.data();
+        const currentAmount = debtData.amount;
+        const currentPaidAmount = debtData.paidAmount;
+        if (
+          typeof currentAmount !== 'number' ||
+          !Number.isFinite(currentAmount) ||
+          typeof currentPaidAmount !== 'number' ||
+          !Number.isFinite(currentPaidAmount)
+        ) {
+          throw new Error('欠款数据异常');
+        }
+
+        const settledAt = resolveSettlementValue(
+          debtData.settledAt instanceof Timestamp ? debtData.settledAt : null,
+          currentPaidAmount >= currentAmount,
+          paidAmount >= amount,
+          Timestamp.now()
+        );
+        trx.update(debtRef, {
+          customerName,
+          amount,
+          paidAmount,
+          occurredAt: timestampFromDateInput(date),
+          settledAt
+        });
       });
       showToast('欠账修改成功');
       return true;
@@ -2530,7 +2598,8 @@ export default function App() {
         if (currentPaidAmount >= originalAmount) throw new Error('该笔欠款已经结清');
 
         trx.update(debtRef, {
-          paidAmount: originalAmount
+          paidAmount: originalAmount,
+          settledAt: Timestamp.now()
         });
       });
       showToast('欠款已结清');
@@ -2791,6 +2860,7 @@ export default function App() {
                   orderCashCount={orderCashCounts[0] ?? null}
                   orderDailyExpenses={orderDailyExpenses}
                   customerOrders={customerOrders}
+                  settledDebtTotal={settledManualDebtAmount + settledCustomerOrderDebtAmount}
                   orderAccountingDate={adminOrderAccountingDate}
                   setOrderAccountingDate={setAdminOrderAccountingDate}
                 />

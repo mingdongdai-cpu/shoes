@@ -35,8 +35,9 @@ test('daily expenses are filtered by the selected business date', () => {
   assert.deepEqual(filterOrderExpensesByDate(expenses, '2026-08-14').map((expense) => expense.id), ['today']);
 });
 
-test('accounting difference subtracts cash, expenses and customer debt from customer orders', () => {
-  assert.equal(calculateAccountingDifference(500000, 350000, 50000, 100000), 0);
-  assert.equal(calculateAccountingDifference(500000, 320000, 50000, 100000), 30000);
-  assert.equal(calculateAccountingDifference(500000, 370000, 50000, 100000), -20000);
+test('accounting difference subtracts cash, expenses and debt, then adds debts settled that day', () => {
+  assert.equal(calculateAccountingDifference(500000, 350000, 50000, 100000, 0), 0);
+  assert.equal(calculateAccountingDifference(500000, 420000, 50000, 100000, 70000), 0);
+  assert.equal(calculateAccountingDifference(500000, 390000, 50000, 100000, 70000), 30000);
+  assert.equal(calculateAccountingDifference(500000, 440000, 50000, 100000, 70000), -20000);
 });

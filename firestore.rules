@@ -37,6 +37,7 @@
 //   - amount: number (required, positive) - Outstanding amount
 //   - paidAmount: number (required, starts at zero) - Repaid amount
 //   - occurredAt: timestamp (required) - Debt date
+//   - settledAt: timestamp|null (required) - Settlement time when fully paid
 //   - operatorUid: string (required) - Operator uid
 //
 // Collection: customerOrders
@@ -47,6 +48,7 @@
 //   - isUnpaid: boolean (required for new orders) - Payment status marker
 //   - paidAmount: number (required for new orders, non-negative) - Amount received
 //   - hasDebtHistory: boolean (required for new orders) - Whether the order ever entered debt management
+//   - settledAt: timestamp|null (required for new orders) - Settlement time for debt history
 //   - items: list (required) - Product snapshots and ordered boxes
 //   - totalAmount: number (required, non-negative) - Order total
 //   - operatorUid: string (required) - Order account uid
@@ -162,27 +164,30 @@ service cloud.firestore {
     }
 
     function isValidDebt(data) {
-      return hasOnlyAllowedFields(['customerName', 'amount', 'paidAmount', 'occurredAt', 'operatorUid']) &&
+      return hasOnlyAllowedFields(['customerName', 'amount', 'paidAmount', 'occurredAt', 'settledAt', 'operatorUid']) &&
              data.customerName is string && data.customerName.size() > 0 && data.customerName.size() < 100 &&
              data.amount is number && data.amount > 0 &&
              data.paidAmount is number && data.paidAmount == 0 &&
              data.occurredAt is timestamp &&
+             data.settledAt == null &&
              data.operatorUid is string &&
              data.operatorUid == request.auth.uid;
     }
 
     function isValidDebtUpdate(data) {
-      return hasOnlyAllowedFields(['customerName', 'amount', 'paidAmount', 'occurredAt', 'operatorUid']) &&
+      return hasOnlyAllowedFields(['customerName', 'amount', 'paidAmount', 'occurredAt', 'settledAt', 'operatorUid']) &&
              data.customerName is string && data.customerName.size() > 0 && data.customerName.size() < 100 &&
              data.amount is number && data.amount > 0 &&
              data.paidAmount is number && data.paidAmount >= 0 && data.paidAmount <= data.amount &&
              data.occurredAt is timestamp &&
+             ((data.paidAmount < data.amount && data.settledAt == null) ||
+              (data.paidAmount == data.amount && (data.settledAt == null || data.settledAt is timestamp))) &&
              data.operatorUid == resource.data.operatorUid &&
              data.operatorUid is string;
     }
 
     function isValidCustomerOrderShape(data) {
-      return hasOnlyAllowedFields(['customerName', 'orderDate', 'isUnpaid', 'paidAmount', 'hasDebtHistory', 'items', 'totalAmount', 'operatorUid', 'createdAt', 'inventorySyncId']) &&
+      return hasOnlyAllowedFields(['customerName', 'orderDate', 'isUnpaid', 'paidAmount', 'hasDebtHistory', 'items', 'totalAmount', 'operatorUid', 'createdAt', 'settledAt', 'inventorySyncId']) &&
              data.customerName is string && data.customerName.size() > 0 && data.customerName.size() <= 100 &&
              data.orderDate is string && data.orderDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
              (!('isUnpaid' in data) || data.isUnpaid is bool) &&
@@ -191,6 +196,7 @@ service cloud.firestore {
              data.items is list && data.items.size() > 0 && data.items.size() <= 100 &&
              data.totalAmount is number && data.totalAmount >= 0 &&
              data.operatorUid is string &&
+             (!('settledAt' in data) || data.settledAt == null || data.settledAt is timestamp) &&
              (!('inventorySyncId' in data) || (data.inventorySyncId is string && data.inventorySyncId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))) &&
              data.createdAt is timestamp;
     }
@@ -202,6 +208,7 @@ service cloud.firestore {
              data.hasDebtHistory is bool &&
              data.hasDebtHistory == (data.isUnpaid || data.paidAmount < data.totalAmount) &&
              (!data.isUnpaid || data.paidAmount == 0) &&
+             data.settledAt == null &&
              !('inventorySyncId' in data) &&
              !exists(/databases/$(database)/documents/customerOrderSyncs/$(data.orderDate)) &&
              data.operatorUid == request.auth.uid;
@@ -214,19 +221,21 @@ service cloud.firestore {
              data.hasDebtHistory is bool &&
              ((!data.isUnpaid && data.paidAmount >= data.totalAmount) || data.hasDebtHistory) &&
              (!('hasDebtHistory' in resource.data) || resource.data.hasDebtHistory != true || data.hasDebtHistory == true) &&
-             (!data.isUnpaid || data.paidAmount == 0);
+             (!data.isUnpaid || data.paidAmount == 0) &&
+             ((data.hasDebtHistory && !data.isUnpaid && data.paidAmount >= data.totalAmount) ||
+              !('settledAt' in data) || data.settledAt == null);
     }
 
     function isValidCustomerOrderBusinessUpdate(data) {
       return isValidCustomerOrderUpdate(data) &&
-             data.diff(resource.data).affectedKeys().hasOnly(['customerName', 'isUnpaid', 'paidAmount', 'hasDebtHistory', 'items', 'totalAmount']) &&
+             data.diff(resource.data).affectedKeys().hasOnly(['customerName', 'isUnpaid', 'paidAmount', 'hasDebtHistory', 'items', 'totalAmount', 'settledAt']) &&
              (
                (!('inventorySyncId' in resource.data) && !('inventorySyncId' in data)) ||
                (
                  'inventorySyncId' in resource.data &&
                  'inventorySyncId' in data &&
                  data.inventorySyncId == resource.data.inventorySyncId &&
-                 data.diff(resource.data).affectedKeys().hasOnly(['isUnpaid', 'paidAmount', 'hasDebtHistory'])
+                 data.diff(resource.data).affectedKeys().hasOnly(['isUnpaid', 'paidAmount', 'hasDebtHistory', 'settledAt'])
                )
              );
     }

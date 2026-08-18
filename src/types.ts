@@ -57,6 +57,7 @@ export interface CustomerOrder {
   totalAmount: number;
   operatorUid: string;
   createdAt: Timestamp;
+  settledAt?: Timestamp | null;
   inventorySyncId?: string;
 }
 
@@ -136,6 +137,7 @@ export interface Debt {
   amount: number;
   paidAmount: number;
   occurredAt: Timestamp;
+  settledAt?: Timestamp | null;
   operatorUid: string;
 }
 

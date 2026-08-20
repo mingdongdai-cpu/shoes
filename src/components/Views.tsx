@@ -23,6 +23,7 @@ import {
   LockKeyhole,
   Banknote,
   ReceiptText,
+  RotateCcw,
   X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -243,10 +244,13 @@ interface HomeViewProps {
     totalExpenses: number;
   };
   formatStock: (total: number, spec: number) => string;
+  remitCashBalance: (remainingAmount: number) => Promise<boolean>;
   homeMetrics: {
     selectedMonth: string;
     previousMonth: string;
-    estimatedCommission: number;
+    cashBalanceTotal: number;
+    currentInventoryTotal: number;
+    outstandingDebtTotal: number;
     warningCount: number;
     staleCount: number;
     salesMoM: number | null;
@@ -258,8 +262,12 @@ export const HomeView = ({
   stats, formatCurrency, reportPeriod, setReportPeriod, selectedDate, setSelectedDate, 
   selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth,
   reportStartDate, setReportStartDate, reportEndDate, setReportEndDate,
-  salesReport, formatStock, homeMetrics
+  salesReport, formatStock, remitCashBalance, homeMetrics
 }: HomeViewProps) => {
+  const [showRemittanceModal, setShowRemittanceModal] = useState(false);
+  const [remainingCashAmount, setRemainingCashAmount] = useState('');
+  const [remittanceError, setRemittanceError] = useState('');
+  const [savingRemittance, setSavingRemittance] = useState(false);
   const dateLabel = selectedDate.replaceAll('-', '/');
   const weekLabel = selectedWeek.replace('-W', ' / Week ');
   const monthLabel = selectedMonth.replace('-', '/');
@@ -282,6 +290,23 @@ export const HomeView = ({
     0
   );
 
+  const submitRemittance = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const amount = Number(remainingCashAmount);
+    if (!Number.isInteger(amount) || amount < 0) {
+      setRemittanceError('请输入大于或等于 0 的整数金额');
+      return;
+    }
+    setRemittanceError('');
+    setSavingRemittance(true);
+    const saved = await remitCashBalance(amount);
+    setSavingRemittance(false);
+    if (saved) {
+      setRemainingCashAmount('');
+      setShowRemittanceModal(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <header className="page-heading-row">
@@ -301,9 +326,14 @@ export const HomeView = ({
 
       <section aria-label="核心经营指标" className="metric-band metric-band-primary">
         <div className="metric-band-item">
-          <p className="metric-label">库存总成本</p>
-          <p className="metric-value">{formatCurrency(stats.inTotal)}</p>
-          <p className="metric-note">累计入库成本</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="metric-label">现金盘点总和</p>
+            <button type="button" onClick={() => { setRemittanceError(''); setShowRemittanceModal(true); }} className="inline-flex items-center gap-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-bold text-stone-600 transition-colors hover:border-amber-300 hover:text-amber-700">
+              <RotateCcw size={13} />回款
+            </button>
+          </div>
+          <p className="metric-value">{formatCurrency(homeMetrics.cashBalanceTotal)}</p>
+          <p className="metric-note">当前现金余额</p>
         </div>
         <div className="metric-band-item">
           <p className="metric-label">出库销售总额</p>
@@ -311,14 +341,14 @@ export const HomeView = ({
           <p className="metric-note">累计销售金额</p>
         </div>
         <div className="metric-band-item">
-          <p className="metric-label">结余金额</p>
-          <p className="metric-value">{formatCurrency(stats.balance)}</p>
-          <p className="metric-note">入库成本 - 出库销售</p>
+          <p className="metric-label">结余库存金额</p>
+          <p className="metric-value">{formatCurrency(homeMetrics.currentInventoryTotal)}</p>
+          <p className="metric-note">当前库存数量 × 商品单价</p>
         </div>
         <div className="metric-band-item">
-          <p className="metric-label">预计提成</p>
-          <p className="metric-value metric-positive">{formatCurrency(homeMetrics.estimatedCommission)}</p>
-          <p className="metric-note">{monthLabel}：销售额 × 3.5% - 开支</p>
+          <p className="metric-label">欠款总额</p>
+          <p className="metric-value metric-danger">{formatCurrency(homeMetrics.outstandingDebtTotal)}</p>
+          <p className="metric-note">当前未结清欠款合计</p>
         </div>
       </section>
 
@@ -449,6 +479,31 @@ export const HomeView = ({
           </table>
         </div>
       </section>
+
+      {showRemittanceModal && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="cash-remittance-title" className="w-full max-w-md rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="cash-remittance-title" className="display-title text-2xl">现金回款</h2>
+                <p className="mt-2 text-sm leading-6 text-stone-500">输入本次回款后实际剩余的现金。保存后，后续现金盘点将继续在此金额上累加。</p>
+              </div>
+              <button type="button" onClick={() => setShowRemittanceModal(false)} disabled={savingRemittance} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label="关闭回款弹窗"><X size={20} /></button>
+            </div>
+            <form onSubmit={submitRemittance} className="mt-6">
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-stone-600">剩余现金金额（XOF）</span>
+                <input type="number" inputMode="numeric" min="0" step="1" autoFocus value={remainingCashAmount} onChange={(event) => setRemainingCashAmount(event.target.value)} placeholder="0" className="w-full rounded-xl border-stone-200 bg-white px-4 py-3 text-right text-lg font-bold tabular-nums focus:border-amber-500 focus:ring-amber-500" aria-label="剩余现金金额" />
+              </label>
+              {remittanceError && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{remittanceError}</p>}
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button type="button" onClick={() => setShowRemittanceModal(false)} disabled={savingRemittance} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">取消</button>
+                <button type="submit" disabled={savingRemittance} className="flex items-center justify-center gap-2 rounded-lg bg-[#8b3038] px-5 py-3 font-bold text-white disabled:opacity-60"><Save size={17} />{savingRemittance ? '保存中...' : '确认回款'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

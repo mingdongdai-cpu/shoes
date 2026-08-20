@@ -37,7 +37,7 @@ import {
   type Transaction as FirestoreWriteTransaction,
   type DocumentData
 } from 'firebase/firestore';
-import { Product, OrderProduct, CustomerOrder, CustomerOrderItem, CustomerOrderSync, OrderCashCount, OrderDailyExpense, CashDenominationCounts, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, SalesPeriodData, DashboardMetrics, AnalyticsOverview, AnalyticsMonth } from './types';
+import { Product, OrderProduct, CustomerOrder, CustomerOrderItem, CustomerOrderSync, OrderCashCount, OrderDailyExpense, CashDenominationCounts, CashBalance, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, SalesPeriodData, DashboardMetrics, AnalyticsOverview, AnalyticsMonth } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
 import { CustomerOrdersView, OrderDebtsView, OrderPriceListView } from './components/OrderViews';
 import { OrderAccountingView } from './components/OrderAccountingView';
@@ -50,6 +50,7 @@ import { calculateCashTotal, normalizeCashCounts } from './lib/orderAccounting';
 import { buildAnalyticsDelta, IN_TOTAL_BASELINE_VALUE, type AnalyticsDelta, type AnalyticsExpenseInput, type AnalyticsTransactionInput } from './lib/analytics';
 import { aggregateCustomerOrdersForInventory } from './lib/customerOrderSync';
 import { resolveSettlementValue } from './lib/debtRecords';
+import { applyCashCountDelta, calculateCashContributionAfterCountChange, calculateCashCountTotal, calculateCurrentInventoryTotal, calculateOutstandingDebtTotal } from './lib/homeOverview';
 
 
 // --- Error Handling ---
@@ -442,6 +443,18 @@ function mapOrderCashCountDoc(id: string, data: DocumentData): OrderCashCount {
   };
 }
 
+function mapCashBalanceDoc(id: string, data: DocumentData): CashBalance {
+  return {
+    id,
+    amount: Number(data.amount ?? 0),
+    cycleId: String(data.cycleId ?? ''),
+    operatorUid: String(data.operatorUid ?? ''),
+    createdAt: requireTimestamp(data.createdAt, 'cashBalances.createdAt'),
+    updatedAt: requireTimestamp(data.updatedAt, 'cashBalances.updatedAt'),
+    lastRemittedAt: requireTimestamp(data.lastRemittedAt, 'cashBalances.lastRemittedAt')
+  };
+}
+
 function mapOrderDailyExpenseDoc(id: string, data: DocumentData): OrderDailyExpense {
   return {
     id,
@@ -483,6 +496,9 @@ export default function App() {
   const [debts, setDebts] = useState<Debt[]>([]);
   const [analyticsOverview, setAnalyticsOverview] = useState<AnalyticsOverview | null>(null);
   const [analyticsMonths, setAnalyticsMonths] = useState<AnalyticsMonth[]>([]);
+  const [homeCashBalanceTotal, setHomeCashBalanceTotal] = useState(0);
+  const [homeManualDebtTotal, setHomeManualDebtTotal] = useState(0);
+  const [homeCustomerOrderDebtTotal, setHomeCustomerOrderDebtTotal] = useState(0);
   const [currentView, setCurrentView] = useState<View>('home');
   const [inventoryComparisonMode, setInventoryComparisonMode] = useState<'week' | 'month'>('week');
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('day');
@@ -552,6 +568,9 @@ export default function App() {
       setDebts([]);
       setAnalyticsOverview(null);
       setAnalyticsMonths([]);
+      setHomeCashBalanceTotal(0);
+      setHomeManualDebtTotal(0);
+      setHomeCustomerOrderDebtTotal(0);
     };
 
     // Set persistence to session-based (requires re-login after closing browser)
@@ -662,6 +681,60 @@ export default function App() {
       unsubscribeMonths();
     };
   }, [user]);
+
+  useEffect(() => {
+    setHomeCashBalanceTotal(0);
+    if (!user || user.role !== 'admin' || currentView !== 'home') return;
+
+    let unsubscribeCashCounts: (() => void) | undefined;
+    const unsubscribeBalance = onSnapshot(doc(db, 'cashBalances', 'current'), (snapshot) => {
+      if (snapshot.exists()) {
+        unsubscribeCashCounts?.();
+        unsubscribeCashCounts = undefined;
+        setHomeCashBalanceTotal(mapCashBalanceDoc(snapshot.id, snapshot.data()).amount);
+        return;
+      }
+      if (unsubscribeCashCounts) return;
+      unsubscribeCashCounts = onSnapshot(collection(db, 'orderCashCounts'), (cashSnapshot) => {
+        setHomeCashBalanceTotal(calculateCashCountTotal(
+          cashSnapshot.docs.map((itemDoc) => mapOrderCashCountDoc(itemDoc.id, itemDoc.data()))
+        ));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'orderCashCounts'));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'cashBalances/current'));
+
+    return () => {
+      unsubscribeBalance();
+      unsubscribeCashCounts?.();
+    };
+  }, [user, currentView]);
+
+  useEffect(() => {
+    setHomeManualDebtTotal(0);
+    setHomeCustomerOrderDebtTotal(0);
+    if (!user || user.role !== 'admin' || currentView !== 'home') return;
+
+    const unsubscribeDebts = onSnapshot(collection(db, 'debts'), (snapshot) => {
+      setHomeManualDebtTotal(calculateOutstandingDebtTotal(
+        snapshot.docs.map((itemDoc) => mapDebtDoc(itemDoc.id, itemDoc.data())),
+        []
+      ));
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'debts'));
+    const unsubscribeCustomerOrders = onSnapshot(
+      query(collection(db, 'customerOrders'), where('hasDebtHistory', '==', true)),
+      (snapshot) => {
+        setHomeCustomerOrderDebtTotal(calculateOutstandingDebtTotal(
+          [],
+          snapshot.docs.map((itemDoc) => mapCustomerOrderDoc(itemDoc.id, itemDoc.data()))
+        ));
+      },
+      (error) => handleFirestoreError(error, OperationType.GET, 'customerOrders')
+    );
+
+    return () => {
+      unsubscribeDebts();
+      unsubscribeCustomerOrders();
+    };
+  }, [user, currentView]);
 
   // --- Toast Logic ---
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -1094,13 +1167,15 @@ export default function App() {
     return {
       selectedMonth,
       previousMonth,
-      estimatedCommission: currentMonthSales * 0.035 - currentMonthExpenses,
+      cashBalanceTotal: homeCashBalanceTotal,
+      currentInventoryTotal: calculateCurrentInventoryTotal(products),
+      outstandingDebtTotal: homeManualDebtTotal + homeCustomerOrderDebtTotal,
       warningCount: warnings.length,
       staleCount: staleProducts.length,
       salesMoM,
       expenseMoM
     };
-  }, [selectedMonth, analyticsMonths, warnings.length, staleProducts.length]);
+  }, [selectedMonth, analyticsMonths, products, homeCashBalanceTotal, homeManualDebtTotal, homeCustomerOrderDebtTotal, warnings.length, staleProducts.length]);
 
   const dashboardMetrics = useMemo<DashboardMetrics>(() => {
     const now = new Date();
@@ -1625,15 +1700,49 @@ export default function App() {
 
     try {
       const cashRef = doc(db, 'orderCashCounts', recordDate);
-      const existingCash = await getDoc(cashRef);
+      const balanceRef = doc(db, 'cashBalances', 'current');
+      const contributionRef = doc(db, 'cashBalances', 'current', 'contributions', recordDate);
       const now = Timestamp.now();
       const cashData = { recordDate, counts, totalAmount: calculateCashTotal(counts), updatedAt: now };
-      if (existingCash.exists()) {
-        await updateDoc(cashRef, cashData);
-      } else {
-        await setDoc(cashRef, { ...cashData, operatorUid: auth.currentUser.uid, createdAt: now });
-      }
-      showToast(existingCash.exists() ? 'Caisse modifiée' : 'Caisse enregistrée');
+      const wasExisting = await runTransaction(db, async (trx) => {
+        const [existingCash, balanceSnapshot] = await Promise.all([
+          trx.get(cashRef),
+          trx.get(balanceRef)
+        ]);
+        const previousTotal = existingCash.exists()
+          ? mapOrderCashCountDoc(existingCash.id, existingCash.data()).totalAmount
+          : 0;
+        let contributionSnapshot;
+        if (balanceSnapshot.exists()) contributionSnapshot = await trx.get(contributionRef);
+
+        if (balanceSnapshot.exists()) {
+          const balance = mapCashBalanceDoc(balanceSnapshot.id, balanceSnapshot.data());
+          const previousContribution = contributionSnapshot?.exists() && contributionSnapshot.data().cycleId === balance.cycleId
+            ? Number(contributionSnapshot.data().amount ?? 0)
+            : 0;
+          const nextBalance = applyCashCountDelta(balance.amount, previousTotal, cashData.totalAmount);
+          const nextContribution = calculateCashContributionAfterCountChange(
+            previousContribution,
+            previousTotal,
+            cashData.totalAmount
+          );
+          trx.update(balanceRef, { amount: nextBalance, updatedAt: now });
+          trx.set(contributionRef, {
+            cycleId: balance.cycleId,
+            amount: nextContribution,
+            operatorUid: auth.currentUser!.uid,
+            updatedAt: now
+          });
+        }
+
+        if (existingCash.exists()) {
+          trx.update(cashRef, cashData);
+        } else {
+          trx.set(cashRef, { ...cashData, operatorUid: auth.currentUser!.uid, createdAt: now });
+        }
+        return existingCash.exists();
+      });
+      showToast(wasExisting ? 'Caisse modifiée' : 'Caisse enregistrée');
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `orderCashCounts/${recordDate}`);
@@ -1653,12 +1762,78 @@ export default function App() {
     }
 
     try {
-      await deleteDoc(doc(db, 'orderCashCounts', recordDate));
+      const cashRef = doc(db, 'orderCashCounts', recordDate);
+      const balanceRef = doc(db, 'cashBalances', 'current');
+      const contributionRef = doc(db, 'cashBalances', 'current', 'contributions', recordDate);
+      await runTransaction(db, async (trx) => {
+        const [cashSnapshot, balanceSnapshot] = await Promise.all([
+          trx.get(cashRef),
+          trx.get(balanceRef)
+        ]);
+        if (!cashSnapshot.exists()) throw new Error('Cette caisse n’existe plus');
+        let contributionSnapshot;
+        if (balanceSnapshot.exists()) contributionSnapshot = await trx.get(contributionRef);
+
+        if (balanceSnapshot.exists() && contributionSnapshot?.exists()) {
+          const balance = mapCashBalanceDoc(balanceSnapshot.id, balanceSnapshot.data());
+          if (contributionSnapshot.data().cycleId === balance.cycleId) {
+            const contributionAmount = Number(contributionSnapshot.data().amount ?? 0);
+            const nextBalance = applyCashCountDelta(balance.amount, contributionAmount, 0);
+            trx.update(balanceRef, { amount: nextBalance, updatedAt: Timestamp.now() });
+          }
+          trx.delete(contributionRef);
+        }
+        trx.delete(cashRef);
+      });
       showToast('Caisse supprimée');
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `orderCashCounts/${recordDate}`);
       showToast('Échec de la suppression de la caisse', 'error');
+      return false;
+    }
+  };
+
+  const remitCashBalance = async (remainingAmount: number) => {
+    if (user?.role !== 'admin' || !auth.currentUser?.uid) {
+      showToast('仅管理员可以登记回款', 'error');
+      return false;
+    }
+    if (!Number.isInteger(remainingAmount) || remainingAmount < 0) {
+      showToast('请输入有效的剩余现金金额', 'error');
+      return false;
+    }
+
+    try {
+      const balanceRef = doc(db, 'cashBalances', 'current');
+      await runTransaction(db, async (trx) => {
+        const snapshot = await trx.get(balanceRef);
+        const now = Timestamp.now();
+        const cycleId = `${now.seconds}-${now.nanoseconds}`;
+        if (snapshot.exists()) {
+          trx.update(balanceRef, {
+            amount: remainingAmount,
+            cycleId,
+            operatorUid: auth.currentUser!.uid,
+            updatedAt: now,
+            lastRemittedAt: now
+          });
+        } else {
+          trx.set(balanceRef, {
+            amount: remainingAmount,
+            cycleId,
+            operatorUid: auth.currentUser!.uid,
+            createdAt: now,
+            updatedAt: now,
+            lastRemittedAt: now
+          });
+        }
+      });
+      showToast('回款已登记，现金余额已更新');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'cashBalances/current');
+      showToast('回款保存失败', 'error');
       return false;
     }
   };
@@ -2661,6 +2836,7 @@ export default function App() {
                   setReportEndDate={setReportEndDate}
                   salesReport={salesReport}
                   formatStock={formatStock}
+                  remitCashBalance={remitCashBalance}
                   homeMetrics={homeMetrics}
                 />
               )}

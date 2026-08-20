@@ -94,6 +94,16 @@ export interface OrderCashCount {
   updatedAt: Timestamp;
 }
 
+export interface CashBalance {
+  id: string;
+  amount: number;
+  cycleId: string;
+  operatorUid: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  lastRemittedAt: Timestamp;
+}
+
 export interface OrderDailyExpense {
   id: string;
   expenseDate: string;

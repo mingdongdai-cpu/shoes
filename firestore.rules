@@ -57,6 +57,9 @@
 // Collection: orderCashCounts
 // Document ID: YYYY-MM-DD
 // Fields: recordDate, counts, totalAmount, operatorUid, createdAt, updatedAt
+// Collection: cashBalances
+// Document ID: current
+// Fields: amount, cycleId, operatorUid, createdAt, updatedAt, lastRemittedAt
 //
 // Collection: orderDailyExpenses
 // Document ID: auto-generated
@@ -303,6 +306,24 @@ service cloud.firestore {
              data.updatedAt is timestamp;
     }
 
+    function isValidCashBalance(data) {
+      return data.keys().hasOnly(['amount', 'cycleId', 'operatorUid', 'createdAt', 'updatedAt', 'lastRemittedAt']) &&
+             data.amount is int && data.amount >= 0 &&
+             data.cycleId is string && data.cycleId.size() > 0 &&
+             data.operatorUid is string &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp &&
+             data.lastRemittedAt is timestamp;
+    }
+
+    function isValidCashBalanceContribution(data) {
+      return data.keys().hasOnly(['cycleId', 'amount', 'operatorUid', 'updatedAt']) &&
+             data.cycleId is string && data.cycleId.size() > 0 &&
+             data.amount is int &&
+             data.operatorUid is string &&
+             data.updatedAt is timestamp;
+    }
+
     function isValidOrderDailyExpense(data) {
       return data.keys().hasOnly(['expenseDate', 'amount', 'remark', 'operatorUid', 'createdAt', 'updatedAt']) &&
              data.expenseDate is string && data.expenseDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
@@ -405,6 +426,33 @@ service cloud.firestore {
         request.resource.data.operatorUid == resource.data.operatorUid &&
         request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if isOrderUser();
+    }
+
+    match /cashBalances/{balanceId} {
+      allow read: if balanceId == 'current' && (isOrderUser() || isAdmin());
+      allow create: if balanceId == 'current' && isAdmin() &&
+        isValidCashBalance(request.resource.data) &&
+        request.resource.data.operatorUid == request.auth.uid;
+      allow update: if balanceId == 'current' && isValidCashBalance(request.resource.data) && (
+        (isAdmin() &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.operatorUid == request.auth.uid &&
+          request.resource.data.updatedAt == request.resource.data.lastRemittedAt) ||
+        (isOrderUser() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['amount', 'updatedAt']))
+      );
+      allow delete: if false;
+
+      match /contributions/{recordDate} {
+        allow read: if balanceId == 'current' && (isOrderUser() || isAdmin());
+        allow create: if balanceId == 'current' && isOrderUser() &&
+          isValidCashBalanceContribution(request.resource.data) &&
+          request.resource.data.operatorUid == request.auth.uid;
+        allow update: if balanceId == 'current' && isOrderUser() &&
+          isValidCashBalanceContribution(request.resource.data) &&
+          request.resource.data.operatorUid == resource.data.operatorUid;
+        allow delete: if balanceId == 'current' && isOrderUser();
+      }
     }
 
     match /orderDailyExpenses/{expenseId} {

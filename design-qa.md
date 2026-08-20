@@ -49,6 +49,39 @@ The combined menu comparison shows that the new `Gestion comptable` item is inse
 
 final result: passed
 
+# Design QA — 首页经营指标调整
+
+- source visual truth path: `/var/folders/j4/79sh568x1gb_08cx0v8h9q5r0000gn/T/TemporaryItems/NSIRD_screencaptureui_ICNRP1/截屏2026-08-20 16.59.07.png`
+- implementation screenshot: `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/home-overview-qa/implementation.png`
+- comparison board: `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/home-overview-qa/comparison.png`
+- source pixels: 1660 × 280
+- implementation viewport: 1265 × 712 CSS pixels, device scale factor 1
+- verified states: 2026/08 and 2026/07
+
+## Metric behavior
+
+- `库存总成本` is replaced by `当月现金盘点总和`; it sums `orderCashCounts.totalAmount` records whose `recordDate` belongs to the selected month.
+- `出库销售总额` retains the existing cumulative analytics total.
+- `结余金额` is replaced by `结余现金`; its value is the live sum of current product stock multiplied by the current unit price.
+- `预计提成` is replaced by `欠款总额`; it combines remaining manual debt and remaining customer-order debt, excluding settled and overpaid balances.
+
+## Required fidelity surfaces
+
+- Fonts and typography: passed; the admin overview display font, metric hierarchy and tabular number styling are unchanged.
+- Spacing and layout rhythm: passed; the four equal metric columns and existing header/month-picker placement are preserved.
+- Colors and visual tokens: passed; sales remains emerald and outstanding debt uses the existing rose risk color.
+- Copy and content: passed; labels and helper lines state the new calculation scopes directly.
+
+## Interaction evidence
+
+- At 2026/08 the cash total rendered as `78,452,650 XOF`.
+- Switching the month state to 2026/07 changed the cash total to `61,906,300 XOF` and its helper label to `2026/07 现金盘点合计`.
+- During the same switch, `结余现金` remained `645,882,700 XOF` and `欠款总额` remained `6,425,900 XOF`.
+- Fresh-page console errors and warnings: none.
+- No P0/P1/P2 visual or interaction findings remain.
+
+final result: passed
+
 # Design QA — 当日订单对账公式
 
 - Source visual truth: `/var/folders/j4/79sh568x1gb_08cx0v8h9q5r0000gn/T/TemporaryItems/NSIRD_screencaptureui_G4j300/截屏2026-08-18 19.35.06.png`
@@ -170,5 +203,33 @@ final result: passed
 - The center card updates from the same date selection as the two order accounting detail cards.
 - Fresh-page console errors and warnings: none in both verified states.
 - No P0/P1/P2 findings remain.
+
+final result: passed
+
+# Design QA — 首页现金回款与库存金额命名
+
+- source visual truth path: `/var/folders/j4/79sh568x1gb_08cx0v8h9q5r0000gn/T/TemporaryItems/NSIRD_screencaptureui_7Au2lQ/截屏2026-08-20 17.36.00.png`
+- modal screenshot: `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/cash-remittance-qa/modal.png`
+- final state screenshot: `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/cash-remittance-qa/final.png`
+- comparison board: `/Users/dave/.codex/visualizations/2026/08/12/019ff631-7cf4-7220-85b9-5d1414b338ca/cash-remittance-qa/comparison.png`
+- implementation viewport: 1265 × 712 CSS pixels, device scale factor 1
+- verified states: initial balance, open remittance modal, first remittance, second remittance, later cash addition and month change
+
+## Required fidelity surfaces
+
+- Fonts and typography: passed; metric titles and amounts retain the admin overview typography.
+- Spacing and layout rhythm: passed; the compact `回款` action fits inside the first metric card without changing the four-column band.
+- Colors and visual tokens: passed; the dialog reuses the existing warm surface, stone border and burgundy primary action.
+- Copy and content: passed; `结余现金` is now `结余库存金额`, with the original inventory calculation note unchanged.
+
+## Interaction evidence
+
+- Opening `回款` displayed a modal with one numeric `剩余现金金额` input and explicit reset behavior.
+- First remittance changed the cash balance from `78,452,650 XOF` to `100,000 XOF`.
+- A second remittance changed it again to `50,000 XOF`, proving the action is repeatable.
+- Adding a later `20,000 XOF` cash contribution changed the balance to `70,000 XOF`.
+- Switching the overview month from 2026/08 to 2026/07 left the cash balance at `70,000 XOF`.
+- Fresh-page console errors and warnings: none.
+- No P0/P1/P2 visual or interaction findings remain.
 
 final result: passed

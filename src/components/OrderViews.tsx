@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, CheckCircle2, ChevronDown, ChevronUp, ClipboardList, HandCoins, LockKeyhole, Package, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Trash2, X } from 'lucide-react';
-import type { CustomerOrder, CustomerOrderItem, CustomerOrderSync, OrderProduct } from '../types';
+import type { CustomerOrder, CustomerOrderItem, CustomerOrderSync, DebtPayment, DebtPaymentTarget, OrderProduct } from '../types';
 import { buildCustomerOrderTotals, filterCustomerOrdersByDate, getCustomerOrderBalance, getCustomerOrderOutstanding, getCustomerOrderPaymentStatus, getTogoOrderDate, isCustomerOrderDebt } from '../lib/customerOrders';
+import { DebtPaymentDialog, DebtPaymentHistory } from './DebtPayments';
 
 interface OrderPriceListViewProps {
   products: OrderProduct[];
@@ -208,8 +209,10 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
         return { product, boxes: Number(line.boxes) };
       });
       const { items, totalAmount } = buildCustomerOrderTotals(draftLines);
-      const paidAmount = editor.isUnpaid
-        ? 0
+      const paidAmount = editor.order.hasDebtHistory
+        ? editor.order.paidAmount
+        : editor.isUnpaid
+          ? 0
         : editor.paidAmount.trim() === ''
           ? totalAmount
           : Number(editor.paidAmount);
@@ -359,10 +362,11 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
                 </label>
               </div>
 
-              <label className="mt-4 flex cursor-pointer items-center gap-2.5 rounded-lg border border-rose-100 bg-rose-50/55 px-4 py-3 text-sm font-bold text-rose-700">
+              <label className={`mt-4 flex items-center gap-2.5 rounded-lg border border-rose-100 bg-rose-50/55 px-4 py-3 text-sm font-bold text-rose-700 ${editor.order.hasDebtHistory ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                 <input
                   type="checkbox"
                   checked={editor.isUnpaid}
+                  disabled={editor.order.hasDebtHistory}
                   onChange={(event) => setEditor((current) => current ? { ...current, isUnpaid: event.target.checked, paidAmount: event.target.checked ? '' : current.paidAmount } : current)}
                   className="h-4 w-4 rounded border-rose-300 accent-rose-600"
                 />
@@ -403,13 +407,18 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
                     min="0"
                     step="1"
                     value={editor.paidAmount}
-                    disabled={editor.isUnpaid}
+                  disabled={editor.isUnpaid || editor.order.hasDebtHistory}
                     onChange={(event) => setEditor((current) => current ? { ...current, paidAmount: event.target.value } : current)}
-                    placeholder={editor.isUnpaid ? '0' : copy.paidHint}
+                    placeholder={editor.order.hasDebtHistory ? (isFrench ? 'Géré dans les dettes' : '请在欠款管理收款') : editor.isUnpaid ? '0' : copy.paidHint}
                     className="w-full rounded-lg border-stone-200 bg-white px-3 py-3 font-bold disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
                   />
                 </label>
               </div>
+              {editor.order.hasDebtHistory && (
+                <p className="mt-3 rounded-lg bg-violet-50 px-4 py-3 text-xs font-semibold leading-5 text-violet-700">
+                  {isFrench ? 'Le montant déjà payé est géré par les encaissements dans la gestion des dettes.' : '累计已付款由欠款管理中的逐笔收款记录维护，不能在订单编辑中直接修改。'}
+                </p>
+              )}
               {editorError && <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{editorError}</p>}
             </div>
 
@@ -530,15 +539,18 @@ interface OrderDebtsViewProps {
   orders: CustomerOrder[];
   formatCurrency: (value: number) => string;
   updateCustomerOrder: (orderId: string, customerName: string, items: CustomerOrderItem[], isUnpaid: boolean, paidAmount: number) => Promise<boolean>;
+  saveDebtPayment: (target: DebtPaymentTarget, amount: number, paymentDate: string, paymentId?: string) => Promise<boolean>;
+  deleteDebtPayment: (target: DebtPaymentTarget, payment: DebtPayment) => Promise<boolean>;
 }
 
-export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder }: OrderDebtsViewProps) {
+export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, saveDebtPayment, deleteDebtPayment }: OrderDebtsViewProps) {
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<CustomerOrder | null>(null);
   const [editCustomerName, setEditCustomerName] = useState('');
-  const [editPaidAmount, setEditPaidAmount] = useState('');
   const [editorError, setEditorError] = useState('');
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<DebtPaymentTarget | null>(null);
+  const [editingPayment, setEditingPayment] = useState<DebtPayment | null>(null);
 
   const debtOrders = useMemo(
     () => orders
@@ -558,21 +570,24 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder }: 
   const openEditor = (order: CustomerOrder) => {
     setEditingOrder(order);
     setEditCustomerName(order.customerName);
-    setEditPaidAmount(order.paidAmount === 0 ? '' : String(order.paidAmount));
     setEditorError('');
   };
 
-  const savePayment = async (event: React.FormEvent) => {
+  const paymentTargetFor = (order: CustomerOrder): DebtPaymentTarget => ({
+    debtSource: 'customer-order',
+    debtId: order.id,
+    customerName: order.customerName,
+    amount: order.totalAmount,
+    paidAmount: order.paidAmount,
+    debtDate: order.orderDate
+  });
+
+  const saveOrderDetails = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editingOrder) return;
     const customerName = editCustomerName.trim();
-    const paidAmount = editPaidAmount.trim() === '' ? editingOrder.totalAmount : Number(editPaidAmount);
     if (!customerName || customerName.length > 100) {
       setEditorError('Saisissez un nom de client valide.');
-      return;
-    }
-    if (!Number.isInteger(paidAmount) || paidAmount < 0) {
-      setEditorError('Saisissez un montant payé valide.');
       return;
     }
 
@@ -581,17 +596,11 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder }: 
       editingOrder.id,
       customerName,
       editingOrder.items,
-      paidAmount === 0,
-      paidAmount
+      editingOrder.isUnpaid,
+      editingOrder.paidAmount
     );
     setSavingOrderId(null);
     if (saved) setEditingOrder(null);
-  };
-
-  const settleOrder = async (order: CustomerOrder) => {
-    setSavingOrderId(order.id);
-    await updateCustomerOrder(order.id, order.customerName, order.items, false, order.totalAmount);
-    setSavingOrderId(null);
   };
 
   return (
@@ -654,8 +663,8 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder }: 
                           <strong className="customer-order-money shrink-0 text-base font-semibold text-rose-700">{formatCurrency(remainingAmount)}</strong>
                         </div>
                       </button>
-                      <button type="button" onClick={() => openEditor(order)} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-sky-600 hover:bg-white disabled:opacity-40" title="Modifier" aria-label={`Modifier la dette de ${order.customerName}`}><Pencil size={16} /></button>
-                      <button type="button" onClick={() => settleOrder(order)} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-emerald-600 hover:bg-white disabled:opacity-40" title="Marquer comme réglée" aria-label={`Régler la dette de ${order.customerName}`}><CheckCircle2 size={17} /></button>
+                      <button type="button" onClick={() => openEditor(order)} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-sky-600 hover:bg-white disabled:opacity-40" title="Modifier le client" aria-label={`Modifier la dette de ${order.customerName}`}><Pencil size={16} /></button>
+                      <button type="button" onClick={() => { setEditingPayment(null); setPaymentTarget(paymentTargetFor(order)); }} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-emerald-600 hover:bg-white disabled:opacity-40" title="Enregistrer un encaissement" aria-label={`Encaisser la dette de ${order.customerName}`}><HandCoins size={17} /></button>
                     </div>
 
                     {expanded && (
@@ -673,6 +682,14 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder }: 
                             </div>
                           ))}
                         </div>
+                        <DebtPaymentHistory
+                          target={paymentTargetFor(order)}
+                          formatCurrency={formatCurrency}
+                          language="fr"
+                          editable
+                          onEdit={(payment) => { setEditingPayment(payment); setPaymentTarget(paymentTargetFor(order)); }}
+                          onDelete={(payment) => deleteDebtPayment(paymentTargetFor(order), payment)}
+                        />
                       </div>
                     )}
                   </article>
@@ -694,7 +711,7 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder }: 
               <button type="button" onClick={() => setEditingOrder(null)} disabled={savingOrderId !== null} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label="Annuler"><X size={20} /></button>
             </div>
 
-            <form onSubmit={savePayment} className="mt-6 space-y-5">
+            <form onSubmit={saveOrderDetails} className="mt-6 space-y-5">
               <label className="block">
                 <span className="mb-2 block text-xs font-bold uppercase tracking-widest text-stone-500">Client</span>
                 <input type="text" value={editCustomerName} onChange={(event) => setEditCustomerName(event.target.value)} maxLength={100} className="w-full rounded-lg px-3 py-3 font-bold" />
@@ -703,11 +720,7 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder }: 
                 <span className="metric-label block">Total commande</span>
                 <strong className="customer-order-money mt-1 block text-xl text-[#7c3037]">{formatCurrency(editingOrder.totalAmount)}</strong>
               </div>
-              <label className="block">
-                <span className="mb-2 block text-xs font-bold uppercase tracking-widest text-stone-500">Montant déjà payé</span>
-                <input type="number" inputMode="numeric" min="0" step="1" value={editPaidAmount} onChange={(event) => setEditPaidAmount(event.target.value)} placeholder="Laisser vide = paiement intégral" className="w-full rounded-lg px-3 py-3 font-bold" />
-                <span className="mt-1.5 block text-xs font-semibold text-stone-400">Laisser vide pour marquer la commande comme entièrement payée.</span>
-              </label>
+              <p className="rounded-lg bg-violet-50 px-4 py-3 text-sm font-semibold leading-5 text-violet-700">Les encaissements sont enregistrés ligne par ligne avec le bouton vert. Le cumul déjà payé ne peut plus être modifié directement.</p>
               {editorError && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{editorError}</p>}
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => setEditingOrder(null)} disabled={savingOrderId !== null} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">Annuler</button>
@@ -716,6 +729,16 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder }: 
             </form>
           </div>
         </div>
+      )}
+      {paymentTarget && (
+        <DebtPaymentDialog
+          target={paymentTarget}
+          payment={editingPayment}
+          formatCurrency={formatCurrency}
+          language="fr"
+          onClose={() => { setPaymentTarget(null); setEditingPayment(null); }}
+          onSave={(amount, paymentDate, paymentId) => saveDebtPayment(paymentTarget, amount, paymentDate, paymentId)}
+        />
       )}
     </>
   );

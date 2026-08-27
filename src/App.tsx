@@ -37,7 +37,7 @@ import {
   type Transaction as FirestoreWriteTransaction,
   type DocumentData
 } from 'firebase/firestore';
-import { Product, OrderProduct, CustomerOrder, CustomerOrderItem, CustomerOrderSync, OrderCashCount, OrderDailyExpense, CashDenominationCounts, CashBalance, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, SalesPeriodData, DashboardMetrics, AnalyticsOverview, AnalyticsMonth } from './types';
+import { Product, OrderProduct, CustomerOrder, CustomerOrderItem, CustomerOrderSync, OrderCashCount, OrderDailyExpense, CashDenominationCounts, CashBalance, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, DebtPayment, DebtPaymentTarget, DebtSource, SalesPeriodData, DashboardMetrics, AnalyticsOverview, AnalyticsMonth } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
 import { CustomerOrdersView, OrderDebtsView, OrderPriceListView } from './components/OrderViews';
 import { OrderAccountingView } from './components/OrderAccountingView';
@@ -50,6 +50,7 @@ import { calculateCashTotal, normalizeCashCounts } from './lib/orderAccounting';
 import { buildAnalyticsDelta, IN_TOTAL_BASELINE_VALUE, type AnalyticsDelta, type AnalyticsExpenseInput, type AnalyticsTransactionInput } from './lib/analytics';
 import { aggregateCustomerOrdersForInventory } from './lib/customerOrderSync';
 import { resolveSettlementValue } from './lib/debtRecords';
+import { calculatePaidAmountAfterPaymentChange, getDebtPaymentKey } from './lib/debtPayments';
 import { applyCashCountDelta, calculateCashContributionAfterCountChange, calculateCashCountTotal, calculateCurrentInventoryTotal, calculateOutstandingDebtTotal } from './lib/homeOverview';
 
 
@@ -278,6 +279,21 @@ function mapDebtDoc(id: string, data: DocumentData): Debt {
   };
 }
 
+function mapDebtPaymentDoc(id: string, data: DocumentData): DebtPayment {
+  const createdAt = requireTimestamp(data.createdAt, 'debtPayments.createdAt');
+  return {
+    id,
+    debtSource: data.debtSource === 'manual' ? 'manual' : 'customer-order',
+    debtId: String(data.debtId ?? ''),
+    debtKey: String(data.debtKey ?? ''),
+    amount: Number(data.amount ?? 0),
+    paymentDate: String(data.paymentDate ?? ''),
+    operatorUid: String(data.operatorUid ?? ''),
+    createdAt,
+    updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : createdAt
+  };
+}
+
 function coerceProductCreatedAt(value: unknown): Timestamp {
   if (value instanceof Timestamp) return value;
   if (typeof value === 'string') {
@@ -489,8 +505,7 @@ export default function App() {
   const [customerOrderSync, setCustomerOrderSync] = useState<CustomerOrderSync | null>(null);
   const [orderCashCounts, setOrderCashCounts] = useState<OrderCashCount[]>([]);
   const [orderDailyExpenses, setOrderDailyExpenses] = useState<OrderDailyExpense[]>([]);
-  const [settledManualDebtAmount, setSettledManualDebtAmount] = useState(0);
-  const [settledCustomerOrderDebtAmount, setSettledCustomerOrderDebtAmount] = useState(0);
+  const [debtRepaymentTotal, setDebtRepaymentTotal] = useState(0);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
@@ -563,6 +578,7 @@ export default function App() {
       setCustomerOrderSync(null);
       setOrderCashCounts([]);
       setOrderDailyExpenses([]);
+      setDebtRepaymentTotal(0);
       setTransactions([]);
       setExpenses([]);
       setDebts([]);
@@ -1059,8 +1075,7 @@ export default function App() {
   useEffect(() => {
     setOrderCashCounts([]);
     setOrderDailyExpenses([]);
-    setSettledManualDebtAmount(0);
-    setSettledCustomerOrderDebtAmount(0);
+    setDebtRepaymentTotal(0);
     if (!user || !auth.currentUser) return;
     const isOrderAccounting = user.role === 'order' && currentView === 'order-accounting';
     const isAdminAccounting = user.role === 'admin' && currentView === 'expenses';
@@ -1077,33 +1092,24 @@ export default function App() {
         .sort((left, right) => right.createdAt.toMillis() - left.createdAt.toMillis())),
       (error) => handleFirestoreError(error, OperationType.GET, 'orderDailyExpenses')
     );
-    const settlementUnsubscribers: Array<() => void> = [];
     if (isAdminAccounting) {
-      const settlementStart = Timestamp.fromDate(new Date(`${selectedAccountingDate}T00:00:00.000Z`));
-      const settlementEnd = Timestamp.fromDate(new Date(`${selectedAccountingDate}T23:59:59.999Z`));
-      settlementUnsubscribers.push(onSnapshot(query(
-        collection(db, 'debts'),
-        where('settledAt', '>=', settlementStart),
-        where('settledAt', '<=', settlementEnd)
+      const unsubscribeDebtPayments = onSnapshot(query(
+        collection(db, 'debtPayments'),
+        where('paymentDate', '==', selectedAccountingDate)
       ), (snapshot) => {
-        setSettledManualDebtAmount(snapshot.docs.reduce((total, itemDoc) => (
-          total + mapDebtDoc(itemDoc.id, itemDoc.data()).amount
+        setDebtRepaymentTotal(snapshot.docs.reduce((total, itemDoc) => (
+          total + mapDebtPaymentDoc(itemDoc.id, itemDoc.data()).amount
         ), 0));
-      }, (error) => handleFirestoreError(error, OperationType.GET, 'debts')));
-      settlementUnsubscribers.push(onSnapshot(query(
-        collection(db, 'customerOrders'),
-        where('settledAt', '>=', settlementStart),
-        where('settledAt', '<=', settlementEnd)
-      ), (snapshot) => {
-        setSettledCustomerOrderDebtAmount(snapshot.docs.reduce((total, itemDoc) => (
-          total + mapCustomerOrderDoc(itemDoc.id, itemDoc.data()).totalAmount
-        ), 0));
-      }, (error) => handleFirestoreError(error, OperationType.GET, 'customerOrders')));
+      }, (error) => handleFirestoreError(error, OperationType.GET, 'debtPayments'));
+      return () => {
+        unsubscribeCash();
+        unsubscribeExpenses();
+        unsubscribeDebtPayments();
+      };
     }
     return () => {
       unsubscribeCash();
       unsubscribeExpenses();
-      settlementUnsubscribers.forEach((unsubscribe) => unsubscribe());
     };
   }, [user, currentView, accountingDate, adminOrderAccountingDate]);
 
@@ -2743,46 +2749,161 @@ export default function App() {
     }
   };
 
-  const settleDebt = async (debtId: string) => {
-    if (user?.role !== 'admin') {
+  const saveDebtPayment = async (
+    target: DebtPaymentTarget,
+    amount: number,
+    paymentDate: string,
+    paymentId?: string
+  ) => {
+    if (!auth.currentUser?.uid || !isOrderDate(paymentDate) || !Number.isInteger(amount) || amount <= 0) {
+      showToast('请输入正确的收款金额和日期', 'error');
+      return false;
+    }
+    if (target.debtSource === 'manual' && user?.role !== 'admin') {
       showToast('权限不足', 'error');
       return false;
     }
-    if (!auth.currentUser?.uid) {
-      showToast('登录状态异常，请重新登录', 'error');
+    if (target.debtSource === 'customer-order' && user?.role !== 'admin' && user?.role !== 'order') {
+      showToast('权限不足', 'error');
       return false;
     }
 
+    const currentUid = auth.currentUser.uid;
     try {
-      const debtRef = doc(db, 'debts', debtId);
+      const paymentRef = paymentId ? doc(db, 'debtPayments', paymentId) : doc(collection(db, 'debtPayments'));
       await runTransaction(db, async (trx) => {
-        const debtSnapshot = await trx.get(debtRef);
-        if (!debtSnapshot.exists()) throw new Error('欠款记录不存在');
+        let previousPaymentAmount = 0;
+        if (paymentId) {
+          const paymentSnapshot = await trx.get(paymentRef);
+          if (!paymentSnapshot.exists()) throw new Error('回款记录不存在');
+          const paymentData = paymentSnapshot.data();
+          if (paymentData.debtSource !== target.debtSource || paymentData.debtId !== target.debtId || typeof paymentData.amount !== 'number') {
+            throw new Error('回款记录与欠款不匹配');
+          }
+          previousPaymentAmount = paymentData.amount;
+        }
 
-        const debtData = debtSnapshot.data();
-        const originalAmount = debtData.amount;
-        const currentPaidAmount = debtData.paidAmount;
-        if (
-          typeof originalAmount !== 'number' ||
-          !Number.isFinite(originalAmount) ||
-          typeof currentPaidAmount !== 'number' ||
-          !Number.isFinite(currentPaidAmount)
-        ) {
+        const parentRef = target.debtSource === 'manual'
+          ? doc(db, 'debts', target.debtId)
+          : doc(db, 'customerOrders', target.debtId);
+        const parentSnapshot = await trx.get(parentRef);
+        if (!parentSnapshot.exists()) throw new Error('欠款记录不存在');
+        const parentData = parentSnapshot.data();
+        if (target.debtSource === 'customer-order' && user?.role === 'order' && parentData.operatorUid !== currentUid) {
+          throw new Error('只能处理自己录入订单的欠款');
+        }
+
+        const totalAmount = target.debtSource === 'manual' ? parentData.amount : parentData.totalAmount;
+        const currentPaidAmount = parentData.paidAmount;
+        if (!Number.isInteger(totalAmount) || totalAmount <= 0 || !Number.isInteger(currentPaidAmount) || currentPaidAmount < 0) {
           throw new Error('欠款数据异常');
         }
-        if (currentPaidAmount >= originalAmount) throw new Error('该笔欠款已经结清');
+        const nextPaidAmount = calculatePaidAmountAfterPaymentChange(totalAmount, currentPaidAmount, previousPaymentAmount, amount);
+        const settledAt = resolveSettlementValue(
+          parentData.settledAt instanceof Timestamp ? parentData.settledAt : null,
+          currentPaidAmount >= totalAmount,
+          nextPaidAmount >= totalAmount,
+          timestampFromDateInput(paymentDate)
+        );
 
-        trx.update(debtRef, {
-          paidAmount: originalAmount,
-          settledAt: Timestamp.now()
-        });
+        if (target.debtSource === 'manual') {
+          trx.update(parentRef, { paidAmount: nextPaidAmount, settledAt });
+        } else {
+          trx.update(parentRef, {
+            paidAmount: nextPaidAmount,
+            isUnpaid: nextPaidAmount === 0,
+            hasDebtHistory: true,
+            settledAt
+          });
+        }
+
+        const now = Timestamp.now();
+        if (paymentId) {
+          trx.update(paymentRef, { amount, paymentDate, updatedAt: now });
+        } else {
+          trx.set(paymentRef, {
+            debtSource: target.debtSource,
+            debtId: target.debtId,
+            debtKey: getDebtPaymentKey(target.debtSource, target.debtId),
+            amount,
+            paymentDate,
+            operatorUid: currentUid,
+            createdAt: now,
+            updatedAt: now
+          });
+        }
       });
-      showToast('欠款已结清');
+      showToast(paymentId ? '回款修改成功' : '收款已登记');
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : '结清失败';
+      const message = error instanceof Error ? error.message : '收款保存失败';
       showToast(message, 'error');
-      handleFirestoreError(error, OperationType.UPDATE, `debts/${debtId}`);
+      handleFirestoreError(error, OperationType.WRITE, paymentId ? `debtPayments/${paymentId}` : 'debtPayments');
+      return false;
+    }
+  };
+
+  const deleteDebtPayment = async (target: DebtPaymentTarget, payment: DebtPayment) => {
+    if (!auth.currentUser?.uid || payment.debtSource !== target.debtSource || payment.debtId !== target.debtId) {
+      showToast('回款记录无效', 'error');
+      return false;
+    }
+    if (target.debtSource === 'manual' && user?.role !== 'admin') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+    if (target.debtSource === 'customer-order' && user?.role !== 'admin' && user?.role !== 'order') {
+      showToast('权限不足', 'error');
+      return false;
+    }
+
+    const currentUid = auth.currentUser.uid;
+    try {
+      const paymentRef = doc(db, 'debtPayments', payment.id);
+      await runTransaction(db, async (trx) => {
+        const paymentSnapshot = await trx.get(paymentRef);
+        if (!paymentSnapshot.exists()) throw new Error('回款记录不存在');
+        const paymentData = paymentSnapshot.data();
+        if (paymentData.debtSource !== target.debtSource || paymentData.debtId !== target.debtId || !Number.isInteger(paymentData.amount)) {
+          throw new Error('回款记录与欠款不匹配');
+        }
+        const parentRef = target.debtSource === 'manual'
+          ? doc(db, 'debts', target.debtId)
+          : doc(db, 'customerOrders', target.debtId);
+        const parentSnapshot = await trx.get(parentRef);
+        if (!parentSnapshot.exists()) throw new Error('欠款记录不存在');
+        const parentData = parentSnapshot.data();
+        if (target.debtSource === 'customer-order' && user?.role === 'order' && parentData.operatorUid !== currentUid) {
+          throw new Error('只能处理自己录入订单的欠款');
+        }
+        const totalAmount = target.debtSource === 'manual' ? parentData.amount : parentData.totalAmount;
+        const currentPaidAmount = parentData.paidAmount;
+        if (!Number.isInteger(totalAmount) || !Number.isInteger(currentPaidAmount)) throw new Error('欠款数据异常');
+        const nextPaidAmount = calculatePaidAmountAfterPaymentChange(totalAmount, currentPaidAmount, paymentData.amount, 0);
+        const settledAt = resolveSettlementValue(
+          parentData.settledAt instanceof Timestamp ? parentData.settledAt : null,
+          currentPaidAmount >= totalAmount,
+          nextPaidAmount >= totalAmount,
+          Timestamp.now()
+        );
+        if (target.debtSource === 'manual') {
+          trx.update(parentRef, { paidAmount: nextPaidAmount, settledAt });
+        } else {
+          trx.update(parentRef, {
+            paidAmount: nextPaidAmount,
+            isUnpaid: nextPaidAmount === 0,
+            hasDebtHistory: true,
+            settledAt
+          });
+        }
+        trx.delete(paymentRef);
+      });
+      showToast('回款已删除，欠款已重算');
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '删除回款失败';
+      showToast(message, 'error');
+      handleFirestoreError(error, OperationType.DELETE, `debtPayments/${payment.id}`);
       return false;
     }
   };
@@ -2961,6 +3082,8 @@ export default function App() {
                   orders={customerOrders}
                   formatCurrency={formatCurrency}
                   updateCustomerOrder={updateCustomerOrder}
+                  saveDebtPayment={saveDebtPayment}
+                  deleteDebtPayment={deleteDebtPayment}
                 />
               )}
               {user.role === 'order' && currentView === 'order-accounting' && (
@@ -3036,7 +3159,7 @@ export default function App() {
                   orderCashCount={orderCashCounts[0] ?? null}
                   orderDailyExpenses={orderDailyExpenses}
                   customerOrders={customerOrders}
-                  settledDebtTotal={settledManualDebtAmount + settledCustomerOrderDebtAmount}
+                  receivedDebtTotal={debtRepaymentTotal}
                   orderAccountingDate={adminOrderAccountingDate}
                   setOrderAccountingDate={setAdminOrderAccountingDate}
                 />
@@ -3047,7 +3170,8 @@ export default function App() {
                 customerOrders={customerOrders}
                 addDebt={addDebt}
                 updateDebt={updateDebt}
-                settleDebt={settleDebt}
+                saveDebtPayment={saveDebtPayment}
+                deleteDebtPayment={deleteDebtPayment}
                 updateCustomerOrder={updateCustomerOrder}
                 formatCurrency={formatCurrency}
                 user={user}

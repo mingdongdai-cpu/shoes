@@ -28,13 +28,14 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
-import { CustomerOrder, CustomerOrderItem, DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, Debt, SalesPeriodData, OrderCashCount, OrderDailyExpense } from '../types';
+import { CustomerOrder, CustomerOrderItem, DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, Debt, DebtPayment, DebtPaymentTarget, SalesPeriodData, OrderCashCount, OrderDailyExpense } from '../types';
 import { formatDateInputValue, formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek, type ReportPeriod } from '../lib/timeWindow';
 import { findUniqueProductByName } from '../lib/productNames';
 import { buildCustomerOrderTotals, getCustomerOrderOutstanding, shouldShowCustomerOrderInDebtHistory } from '../lib/customerOrders';
 import { CustomerOrdersPanel } from './OrderViews';
 import { calculateAccountingDifference, CASH_DENOMINATIONS } from '../lib/orderAccounting';
 import { compareDebtRecords } from '../lib/debtRecords';
+import { DebtPaymentDialog, DebtPaymentHistory } from './DebtPayments';
 
 // --- Components ---
 
@@ -4141,7 +4142,7 @@ export const ProductsView = ({
 export const ExpensesView = ({
   expenses, monthlySalesTotal, addExpense, deleteExpense, formatCurrency, user,
   formatDateTime, filterMonth, setFilterMonth, orderCashCount, orderDailyExpenses,
-  customerOrders, settledDebtTotal, orderAccountingDate, setOrderAccountingDate
+  customerOrders, receivedDebtTotal, orderAccountingDate, setOrderAccountingDate
 }: {
   expenses: Expense[],
   monthlySalesTotal: number,
@@ -4155,7 +4156,7 @@ export const ExpensesView = ({
   orderCashCount: OrderCashCount | null,
   orderDailyExpenses: OrderDailyExpense[],
   customerOrders: CustomerOrder[],
-  settledDebtTotal: number,
+  receivedDebtTotal: number,
   orderAccountingDate: string,
   setOrderAccountingDate: (value: string) => void
 }) => {
@@ -4236,7 +4237,7 @@ export const ExpensesView = ({
     selectedOrderCashCount?.totalAmount ?? 0,
     orderExpenseTotal,
     customerDebtTotal,
-    settledDebtTotal
+    receivedDebtTotal
   );
   const isAccountingCorrect = accountingDifference === 0;
 
@@ -4462,7 +4463,7 @@ export const ExpensesView = ({
                       {isAccountingCorrect ? '账目正确' : `差额 ${formatCurrency(accountingDifference)}`}
                     </strong>
                   </div>
-                  <p className="mt-1 text-[10px] font-semibold text-slate-400">订单 − 现金 − 消费 − 欠款 ＋ 当天结清欠款</p>
+                  <p className="mt-1 text-[10px] font-semibold text-slate-400">订单 − 现金 − 消费 − 欠款 ＋ 当天实际回款</p>
                 </div>
                 <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
                   <Calendar size={18} className="text-[#7c3037]" />
@@ -4646,7 +4647,8 @@ export const DebtsView = ({
   customerOrders,
   addDebt,
   updateDebt,
-  settleDebt,
+  saveDebtPayment,
+  deleteDebtPayment,
   updateCustomerOrder,
   formatCurrency,
   user
@@ -4661,7 +4663,8 @@ export const DebtsView = ({
     paidAmount: number,
     date: string
   ) => Promise<boolean>;
-  settleDebt: (debtId: string) => Promise<boolean>;
+  saveDebtPayment: (target: DebtPaymentTarget, amount: number, paymentDate: string, paymentId?: string) => Promise<boolean>;
+  deleteDebtPayment: (target: DebtPaymentTarget, payment: DebtPayment) => Promise<boolean>;
   updateCustomerOrder: (orderId: string, customerName: string, items: CustomerOrderItem[], isUnpaid: boolean, paidAmount: number) => Promise<boolean>;
   formatCurrency: (value: number) => string;
   user: User | null;
@@ -4673,10 +4676,10 @@ export const DebtsView = ({
   const [editingDebt, setEditingDebt] = useState<AdminDebtRow | null>(null);
   const [editCustomerName, setEditCustomerName] = useState('');
   const [editAmount, setEditAmount] = useState('');
-  const [editPaidAmount, setEditPaidAmount] = useState('');
   const [editDate, setEditDate] = useState('');
   const [isEditing, setIsEditing] = useState(false);
-  const [settlingDebtId, setSettlingDebtId] = useState<string | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<DebtPaymentTarget | null>(null);
+  const [editingPayment, setEditingPayment] = useState<DebtPayment | null>(null);
   const dateLabel = date.replaceAll('-', '/');
   const debtRows = useMemo<AdminDebtRow[]>(() => [
     ...debts.map((debt) => ({
@@ -4734,9 +4737,17 @@ export const DebtsView = ({
     setEditingDebt(debt);
     setEditCustomerName(debt.customerName);
     setEditAmount(String(debt.amount));
-    setEditPaidAmount(debt.paidAmount === 0 ? '' : String(debt.paidAmount));
     setEditDate(debt.date);
   };
+
+  const paymentTargetFor = (debt: AdminDebtRow): DebtPaymentTarget => ({
+    debtSource: debt.source,
+    debtId: debt.id,
+    customerName: debt.customerName,
+    amount: debt.amount,
+    paidAmount: debt.paidAmount,
+    debtDate: debt.date
+  });
 
   const closeEditModal = () => {
     if (isEditing) return;
@@ -4749,7 +4760,7 @@ export const DebtsView = ({
 
     const normalizedCustomerName = editCustomerName.trim();
     const normalizedAmount = Number(editAmount);
-    const normalizedPaidAmount = editPaidAmount === '' ? 0 : Number(editPaidAmount);
+    const normalizedPaidAmount = editingDebt.paidAmount;
     if (
       !normalizedCustomerName ||
       !Number.isFinite(normalizedAmount) ||
@@ -4780,16 +4791,6 @@ export const DebtsView = ({
         );
     setIsEditing(false);
     if (success) setEditingDebt(null);
-  };
-
-  const handleSettleDebt = async (debt: AdminDebtRow) => {
-    setSettlingDebtId(debt.key);
-    if (debt.source === 'customer-order' && debt.order) {
-      await updateCustomerOrder(debt.order.id, debt.order.customerName, debt.order.items, false, debt.order.totalAmount);
-    } else {
-      await settleDebt(debt.id);
-    }
-    setSettlingDebtId(null);
   };
 
   return (
@@ -4939,7 +4940,7 @@ export const DebtsView = ({
                       <div className="inline-flex items-center gap-2">
                         <button
                           type="button"
-                          disabled={user?.role !== 'admin' || settlingDebtId !== null}
+                          disabled={user?.role !== 'admin'}
                           onClick={() => openEditModal(debt)}
                           aria-label={`编辑 ${debt.customerName} 的欠账`}
                           title="编辑欠账"
@@ -4950,13 +4951,13 @@ export const DebtsView = ({
                         {!isSettled && (
                           <button
                             type="button"
-                            disabled={user?.role !== 'admin' || settlingDebtId !== null}
-                            onClick={() => handleSettleDebt(debt)}
-                            aria-label={`将 ${debt.customerName} 的欠款标记为已结清`}
-                            title="标记已结清"
+                            disabled={user?.role !== 'admin'}
+                            onClick={() => { setEditingPayment(null); setPaymentTarget(paymentTargetFor(debt)); }}
+                            aria-label={`登记 ${debt.customerName} 的收款`}
+                            title="登记收款"
                             className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-md shadow-emerald-200/50 transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
                           >
-                            <CheckCircle2 size={17} />
+                            <HandCoins size={17} />
                           </button>
                         )}
                       </div>
@@ -5033,13 +5034,10 @@ export const DebtsView = ({
                   <div>
                     <label className="mb-2 block text-sm font-bold text-slate-600">累计已还 (XOF)</label>
                     <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      max={editAmount || undefined}
-                      value={editPaidAmount}
-                      onChange={(event) => setEditPaidAmount(event.target.value)}
-                      className="w-full rounded-xl border-slate-200 py-3 font-bold focus:border-sky-500 focus:ring-sky-500"
+                      type="text"
+                      value={formatCurrency(editingDebt.paidAmount)}
+                      readOnly
+                      className="w-full rounded-xl border-slate-200 bg-slate-100 py-3 font-bold text-slate-500"
                     />
                   </div>
                 </div>
@@ -5058,9 +5056,17 @@ export const DebtsView = ({
 
                 {editingDebt.source === 'customer-order' && (
                   <p className="rounded-xl bg-violet-50 px-4 py-3 text-xs font-semibold leading-5 text-violet-700">
-                    该记录来自客户订单。原欠款和日期随订单同步；在这里修改客户名或累计已还金额，会同步回 order 账户。
+                    该记录来自客户订单。原欠款和日期随订单同步；累计已还只能通过逐笔收款登记，会实时同步回 order 账户。
                   </p>
                 )}
+                <DebtPaymentHistory
+                  target={paymentTargetFor(editingDebt)}
+                  formatCurrency={formatCurrency}
+                  language="zh"
+                  editable={user?.role === 'admin'}
+                  onEdit={(payment) => { setEditingPayment(payment); setPaymentTarget(paymentTargetFor(editingDebt)); }}
+                  onDelete={(payment) => deleteDebtPayment(paymentTargetFor(editingDebt), payment)}
+                />
 
                 <div className="flex gap-3 pt-1">
                   <button
@@ -5085,6 +5091,16 @@ export const DebtsView = ({
           </div>
         )}
       </AnimatePresence>
+      {paymentTarget && (
+        <DebtPaymentDialog
+          target={paymentTarget}
+          payment={editingPayment}
+          formatCurrency={formatCurrency}
+          language="zh"
+          onClose={() => { setPaymentTarget(null); setEditingPayment(null); }}
+          onSave={(amount, paymentDate, paymentId) => saveDebtPayment(paymentTarget, amount, paymentDate, paymentId)}
+        />
+      )}
     </>
   );
 };

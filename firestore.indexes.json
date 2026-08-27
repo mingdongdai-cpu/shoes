@@ -16,6 +16,14 @@
         { "fieldPath": "productId", "order": "ASCENDING" },
         { "fieldPath": "occurredAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "debtPayments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "debtSource", "order": "ASCENDING" },
+        { "fieldPath": "debtKey", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

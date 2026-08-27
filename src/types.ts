@@ -151,6 +151,29 @@ export interface Debt {
   operatorUid: string;
 }
 
+export type DebtSource = 'manual' | 'customer-order';
+
+export interface DebtPayment {
+  id: string;
+  debtSource: DebtSource;
+  debtId: string;
+  debtKey: string;
+  amount: number;
+  paymentDate: string;
+  operatorUid: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface DebtPaymentTarget {
+  debtSource: DebtSource;
+  debtId: string;
+  customerName: string;
+  amount: number;
+  paidAmount: number;
+  debtDate: string;
+}
+
 export type View =
   | 'home'
   | 'dashboard'

@@ -85,42 +85,22 @@ function PickerChip({
   max?: string;
   className?: string;
 }) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  const openPicker = () => {
-    const input = inputRef.current;
-    if (!input) return;
-
-    if (typeof input.showPicker === 'function') {
-      input.showPicker();
-      return;
-    }
-
-    input.click();
-  };
-
   return (
-    <div className="relative">
+    <div
+      className={`button-secondary relative flex min-h-11 items-center gap-3 rounded-lg px-4 py-2 text-sm font-semibold focus-within:border-[#6b5ae7] focus-within:ring-2 focus-within:ring-[#6b5ae7]/20 ${className}`}
+    >
+      {/* The user taps the real native control, keeping iPhone Safari's picker gesture intact. */}
       <input
-        ref={inputRef}
         type={type}
         value={value}
         min={min}
         max={max}
         onChange={(e) => onChange(e.target.value)}
-        className="pointer-events-none absolute h-0 w-0 opacity-0"
-        tabIndex={-1}
-        aria-hidden="true"
-      />
-      <button
-        type="button"
-        onClick={openPicker}
         aria-label={ariaLabel}
-        className={`button-secondary flex min-h-11 items-center gap-3 rounded-lg px-4 py-2 text-sm font-semibold ${className}`}
-      >
-        <span>{displayValue}</span>
-        <Calendar size={16} className="text-slate-500" />
-      </button>
+        className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+      />
+      <span aria-hidden="true">{displayValue}</span>
+      <Calendar size={16} className="text-slate-500" aria-hidden="true" />
     </div>
   );
 }

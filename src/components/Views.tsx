@@ -3636,6 +3636,11 @@ export const ProductsView = ({
   const [editPrice, setEditPrice] = useState('0');
   const [editBoxes, setEditBoxes] = useState('0');
   const [editItems, setEditItems] = useState('0');
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const normalizedProductSearchTerm = normalizeModelKey(productSearchTerm);
+  const visibleProducts = normalizedProductSearchTerm
+    ? products.filter((product) => normalizeModelKey(product.name).includes(normalizedProductSearchTerm))
+    : products;
 
   const handleExportProductList = async () => {
     try {
@@ -4029,19 +4034,32 @@ export const ProductsView = ({
             <Package size={24} className="text-slate-600" />
             商品列表维护
           </h2>
-          <button
-            type="button"
-            onClick={handleExportProductList}
-            disabled={products.length === 0}
-            className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-black shadow-sm transition-all active:scale-95 ${
-              products.length === 0
-                ? 'cursor-not-allowed bg-slate-200/50 text-slate-400 shadow-none'
-                : 'bg-[#7c3037] text-white shadow-indigo-200/50 hover:bg-indigo-700'
-            }`}
-          >
-            <Download size={17} />
-            导出表格
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <label className="relative block sm:w-64">
+              <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                aria-label="搜索产品型号"
+                placeholder="搜索产品型号"
+                value={productSearchTerm}
+                onChange={(event) => setProductSearchTerm(event.target.value)}
+                className="w-full rounded-xl border-stone-200 bg-white py-3 pl-10 pr-3 text-sm font-semibold text-slate-700 focus:border-[#7c3037] focus:ring-[#7c3037]"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={handleExportProductList}
+              disabled={products.length === 0}
+              className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-black shadow-sm transition-all active:scale-95 ${
+                products.length === 0
+                  ? 'cursor-not-allowed bg-slate-200/50 text-slate-400 shadow-none'
+                  : 'bg-[#7c3037] text-white shadow-indigo-200/50 hover:bg-indigo-700'
+              }`}
+            >
+              <Download size={17} />
+              导出表格
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left">
@@ -4057,7 +4075,7 @@ export const ProductsView = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
-              {products.map((p: Product) => (
+              {visibleProducts.map((p: Product) => (
                 <tr key={p.id} className="hover:bg-white transition-colors">
                   <td className="py-4 text-sm font-bold text-slate-900">{p.name}</td>
                   <td className="py-4 text-sm text-slate-600 font-bold">{p.spec} 个/箱</td>
@@ -4129,6 +4147,11 @@ export const ProductsView = ({
               {products.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-slate-400 font-bold">暂无商品数据</td>
+                </tr>
+              )}
+              {products.length > 0 && visibleProducts.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-400 font-bold">未找到匹配的产品型号</td>
                 </tr>
               )}
             </tbody>

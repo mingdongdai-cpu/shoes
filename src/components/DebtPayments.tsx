@@ -5,8 +5,9 @@ import { db } from '../firebase';
 import type { DebtPayment, DebtPaymentTarget } from '../types';
 import { getDebtPaymentKey } from '../lib/debtPayments';
 import { getTogoOrderDate } from '../lib/customerOrders';
+import type { OrderLanguage } from '../lib/orderLanguage';
 
-type Language = 'zh' | 'fr';
+type Language = OrderLanguage;
 
 function mapDebtPayment(id: string, data: Record<string, unknown>): DebtPayment {
   const createdAt = data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.fromMillis(0);
@@ -40,9 +41,11 @@ export function DebtPaymentHistory({
 }) {
   const [payments, setPayments] = useState<DebtPayment[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const copy = language === 'fr'
-    ? { title: 'Historique des encaissements', empty: 'Aucun encaissement enregistré depuis cette amélioration.', edit: 'Modifier l’encaissement', remove: 'Supprimer l’encaissement', confirm: 'Supprimer cet encaissement ? Le total déjà payé sera recalculé.' }
-    : { title: '回款明细', empty: '暂无新录入的回款记录。', edit: '编辑回款', remove: '删除回款', confirm: '确定删除这笔回款吗？累计已还和结清状态会自动重算。' };
+  const copy = {
+    fr: { title: 'Historique des encaissements', empty: 'Aucun encaissement enregistré depuis cette amélioration.', edit: 'Modifier l’encaissement', remove: 'Supprimer l’encaissement', confirm: 'Supprimer cet encaissement ? Le total déjà payé sera recalculé.' },
+    zh: { title: '回款明细', empty: '暂无新录入的回款记录。', edit: '编辑回款', remove: '删除回款', confirm: '确定删除这笔回款吗？累计已还和结清状态会自动重算。' },
+    en: { title: 'Payment history', empty: 'No payments recorded since this feature was added.', edit: 'Edit payment', remove: 'Delete payment', confirm: 'Delete this payment? The amount paid will be recalculated.' },
+  }[language];
 
   useEffect(() => {
     const paymentQuery = query(
@@ -118,9 +121,11 @@ export function DebtPaymentDialog({
   const [saving, setSaving] = useState(false);
   const maxAmount = target.amount - target.paidAmount + (payment?.amount ?? 0);
   const remainingAmount = Math.max(0, target.amount - target.paidAmount);
-  const copy = language === 'fr'
-    ? { title: payment ? 'Modifier l’encaissement' : 'Enregistrer un encaissement', original: 'Dette initiale', paid: 'Déjà payé', remaining: 'Reste à recevoir', amount: 'Montant encaissé', date: 'Date d’encaissement', cancel: 'Annuler', save: payment ? 'Enregistrer les modifications' : 'Confirmer l’encaissement', error: 'Saisissez un montant entier supérieur à 0 et inférieur ou égal au reste.' }
-    : { title: payment ? '编辑回款' : '登记收款', original: '原欠款', paid: '历史累计已还', remaining: '当前剩余', amount: '本次收款金额', date: '收款日期', cancel: '取消', save: payment ? '保存修改' : '确认收款', error: '请输入大于 0 且不超过当前剩余金额的整数。' };
+  const copy = {
+    fr: { title: payment ? 'Modifier l’encaissement' : 'Enregistrer un encaissement', original: 'Dette initiale', paid: 'Déjà payé', remaining: 'Reste à recevoir', amount: 'Montant encaissé', date: 'Date d’encaissement', cancel: 'Annuler', save: payment ? 'Enregistrer les modifications' : 'Confirmer l’encaissement', error: 'Saisissez un montant entier supérieur à 0 et inférieur ou égal au reste.' },
+    zh: { title: payment ? '编辑回款' : '登记收款', original: '原欠款', paid: '历史累计已还', remaining: '当前剩余', amount: '本次收款金额', date: '收款日期', cancel: '取消', save: payment ? '保存修改' : '确认收款', error: '请输入大于 0 且不超过当前剩余金额的整数。' },
+    en: { title: payment ? 'Edit payment' : 'Record payment', original: 'Original debt', paid: 'Already paid', remaining: 'Remaining', amount: 'Payment amount', date: 'Payment date', cancel: 'Cancel', save: payment ? 'Save changes' : 'Confirm payment', error: 'Enter a whole amount greater than 0 and no more than the remaining balance.' },
+  }[language];
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

@@ -42,9 +42,10 @@ import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, O
 import { CustomerOrdersView, OrderDebtsView, OrderPriceListView } from './components/OrderViews';
 import { OrderAccountingView } from './components/OrderAccountingView';
 import { AppShell } from './components/AppShell';
+import { orderText, type OrderLanguage } from './lib/orderLanguage';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate, type ReportPeriod } from './lib/timeWindow';
 import { hasDuplicateProductName, normalizeProductName } from './lib/productNames';
-import { aggregateBatchOutLines, getStockAfterTransactionDeletion, type BatchOutLine } from './lib/inventoryOperations';
+import { aggregateBatchLines, getStockAfterBatchTransaction, getStockAfterTransactionDeletion, type BatchLine } from './lib/inventoryOperations';
 import { isCustomerOrderDebt, isOrderDate, normalizeCustomerOrderDebtHistory, normalizeCustomerOrderPaidAmount, normalizeCustomerOrderUnpaid } from './lib/customerOrders';
 import { calculateCashTotal, normalizeCashCounts } from './lib/orderAccounting';
 import { buildAnalyticsDelta, IN_TOTAL_BASELINE_VALUE, type AnalyticsDelta, type AnalyticsExpenseInput, type AnalyticsTransactionInput } from './lib/analytics';
@@ -499,6 +500,9 @@ function timestampFromDateInput(dateValue: string): Timestamp {
 export default function App() {
   // --- State ---
   const [user, setUser] = useState<User | null>(null);
+  const [orderLanguage, setOrderLanguage] = useState<OrderLanguage>('fr');
+  const orderMessage = (fr: string, zh: string, en: string) => orderText(orderLanguage, fr, zh, en);
+  const debtMessage = (fr: string, zh: string, en: string) => user?.role === 'order' ? orderMessage(fr, zh, en) : zh;
   const [products, setProducts] = useState<Product[]>([]);
   const [orderProducts, setOrderProducts] = useState<OrderProduct[]>([]);
   const [customerOrders, setCustomerOrders] = useState<CustomerOrder[]>([]);
@@ -515,6 +519,10 @@ export default function App() {
   const [homeManualDebtTotal, setHomeManualDebtTotal] = useState(0);
   const [homeCustomerOrderDebtTotal, setHomeCustomerOrderDebtTotal] = useState(0);
   const [currentView, setCurrentView] = useState<View>('home');
+
+  useEffect(() => {
+    document.documentElement.lang = user?.role === 'order' ? orderLanguage : 'zh';
+  }, [user?.role, orderLanguage]);
   const [inventoryComparisonMode, setInventoryComparisonMode] = useState<'week' | 'month'>('week');
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('day');
   
@@ -572,6 +580,7 @@ export default function App() {
     };
     const clearLocalSession = () => {
       setUser(null);
+      setOrderLanguage('fr');
       setProducts([]);
       setOrderProducts([]);
       setCustomerOrders([]);
@@ -1315,7 +1324,7 @@ export default function App() {
       };
       const email = emailAliasMap[normalized] ?? normalized;
       await signInWithEmailAndPassword(auth, email, pass);
-      showToast(email === 'order@topstar.com' ? 'Connexion réussie' : '登录成功');
+      showToast(email === 'order@topstar.com' ? orderMessage('Connexion réussie', '登录成功', 'Logged in') : '登录成功');
       return true;
     } catch (error: unknown) {
       const authErrorCode = typeof error === 'object' && error !== null && 'code' in error
@@ -1339,9 +1348,10 @@ export default function App() {
     const isOrderUser = user?.role === 'order';
     try {
       await signOut(auth);
-      showToast(isOrderUser ? 'Déconnexion réussie' : '已退出登录');
+      showToast(isOrderUser ? orderText(orderLanguage, 'Déconnexion réussie', '已退出登录', 'Logged out') : '已退出登录');
+      setOrderLanguage('fr');
     } catch (error) {
-      showToast(isOrderUser ? 'Échec de la déconnexion' : '退出失败', 'error');
+      showToast(isOrderUser ? orderText(orderLanguage, 'Échec de la déconnexion', '退出失败', 'Could not log out') : '退出失败', 'error');
     }
   };
 
@@ -1361,21 +1371,21 @@ export default function App() {
       return false;
     }
     if (!auth.currentUser?.uid) {
-      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      showToast(orderMessage('Session expirée, veuillez vous reconnecter', '登录已失效，请重新登录', 'Session expired. Please log in again.'), 'error');
       return false;
     }
 
     const normalizedCustomerName = customerName.trim();
     if (!normalizedCustomerName || normalizedCustomerName.length > 100) {
-      showToast('Saisissez un nom de client valide', 'error');
+      showToast(orderMessage('Saisissez un nom de client valide', '请输入有效的客户名称', 'Enter a valid customer name'), 'error');
       return false;
     }
     if (!isOrderDate(orderDate)) {
-      showToast('Sélectionnez une date valide', 'error');
+      showToast(orderMessage('Sélectionnez une date valide', '请选择有效日期', 'Select a valid date'), 'error');
       return false;
     }
     if (items.length === 0 || items.length > 100) {
-      showToast('Ajoutez au moins un produit', 'error');
+      showToast(orderMessage('Ajoutez au moins un produit', '请至少添加一个商品', 'Add at least one product'), 'error');
       return false;
     }
     const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
@@ -1393,11 +1403,11 @@ export default function App() {
         createdAt: Timestamp.now(),
         settledAt: null
       });
-      showToast('Commande enregistrée');
+      showToast(orderMessage('Commande enregistrée', '订单已保存', 'Order saved'));
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'customerOrders');
-      showToast('Échec de l’enregistrement de la commande', 'error');
+      showToast(orderMessage('Échec de l’enregistrement de la commande', '订单保存失败', 'Could not save the order'), 'error');
       return false;
     }
   };
@@ -1415,18 +1425,18 @@ export default function App() {
     }
     const currentUid = auth.currentUser?.uid;
     if (!currentUid) {
-      showToast(user.role === 'order' ? 'Session expirée, veuillez vous reconnecter' : '登录已失效，请重新登录', 'error');
+      showToast(user.role === 'order' ? orderMessage('Session expirée, veuillez vous reconnecter', '登录已失效，请重新登录', 'Session expired. Please log in again.') : '登录已失效，请重新登录', 'error');
       return false;
     }
 
     const normalizedCustomerName = customerName.trim();
     if (!normalizedCustomerName || normalizedCustomerName.length > 100 || items.length === 0 || items.length > 100) {
-      showToast(user.role === 'order' ? 'Commande invalide' : '订单内容不完整', 'error');
+      showToast(user.role === 'order' ? orderMessage('Commande invalide', '订单内容不完整', 'Invalid order') : '订单内容不完整', 'error');
       return false;
     }
     const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
     if (!Number.isFinite(totalAmount) || totalAmount < 0 || !Number.isFinite(paidAmount) || paidAmount < 0 || !Number.isInteger(paidAmount)) {
-      showToast(user.role === 'order' ? 'Commande invalide' : '订单金额无效', 'error');
+      showToast(user.role === 'order' ? orderMessage('Commande invalide', '订单金额无效', 'Invalid order amount') : '订单金额无效', 'error');
       return false;
     }
 
@@ -1434,19 +1444,19 @@ export default function App() {
       const orderRef = doc(db, 'customerOrders', orderId);
       const orderSnapshot = await getDoc(orderRef);
       if (!orderSnapshot.exists()) {
-        showToast(user.role === 'order' ? 'Commande introuvable' : '订单不存在', 'error');
+        showToast(user.role === 'order' ? orderMessage('Commande introuvable', '订单不存在', 'Order not found') : '订单不存在', 'error');
         return false;
       }
       const existingOrder = mapCustomerOrderDoc(orderSnapshot.id, orderSnapshot.data());
       if (user.role === 'order' && existingOrder.operatorUid !== currentUid) {
-        showToast('Vous ne pouvez modifier que vos commandes', 'error');
+        showToast(orderMessage('Vous ne pouvez modifier que vos commandes', '只能修改自己录入的订单', 'You can only edit your own orders'), 'error');
         return false;
       }
       const inventoryDetailsChanged = existingOrder.customerName !== normalizedCustomerName ||
         existingOrder.totalAmount !== totalAmount ||
         JSON.stringify(existingOrder.items) !== JSON.stringify(items);
       if (existingOrder.inventorySyncId && inventoryDetailsChanged) {
-        showToast(user.role === 'order' ? 'La synchronisation doit être annulée par l’administrateur avant modification' : '该订单已同步出库，请先撤销当天同步', 'error');
+        showToast(user.role === 'order' ? orderMessage('La synchronisation doit être annulée par l’administrateur avant modification', '该订单已同步出库，请联系管理员先撤销同步', 'An administrator must undo inventory sync before this order can be edited') : '该订单已同步出库，请先撤销当天同步', 'error');
         return false;
       }
 
@@ -1475,11 +1485,11 @@ export default function App() {
         hasDebtHistory,
         settledAt
       });
-      showToast(user.role === 'order' ? 'Commande modifiée' : '订单已更新');
+      showToast(user.role === 'order' ? orderMessage('Commande modifiée', '订单已更新', 'Order updated') : '订单已更新');
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `customerOrders/${orderId}`);
-      showToast(user.role === 'order' ? 'Échec de la modification' : '订单更新失败', 'error');
+      showToast(user.role === 'order' ? orderMessage('Échec de la modification', '订单更新失败', 'Could not update the order') : '订单更新失败', 'error');
       return false;
     }
   };
@@ -1491,27 +1501,27 @@ export default function App() {
     }
     const currentUid = auth.currentUser?.uid;
     if (!currentUid) {
-      showToast(user.role === 'order' ? 'Session expirée, veuillez vous reconnecter' : '登录已失效，请重新登录', 'error');
+      showToast(user.role === 'order' ? orderMessage('Session expirée, veuillez vous reconnecter', '登录已失效，请重新登录', 'Session expired. Please log in again.') : '登录已失效，请重新登录', 'error');
       return false;
     }
 
     const existingOrder = customerOrders.find((order) => order.id === orderId);
     if (user.role === 'order' && existingOrder?.operatorUid !== currentUid) {
-      showToast('Vous ne pouvez supprimer que vos commandes', 'error');
+      showToast(orderMessage('Vous ne pouvez supprimer que vos commandes', '只能删除自己录入的订单', 'You can only delete your own orders'), 'error');
       return false;
     }
     if (existingOrder?.inventorySyncId) {
-      showToast(user.role === 'order' ? 'La synchronisation doit être annulée par l’administrateur avant suppression' : '该订单已同步出库，请先撤销当天同步', 'error');
+      showToast(user.role === 'order' ? orderMessage('La synchronisation doit être annulée par l’administrateur avant suppression', '该订单已同步出库，请联系管理员先撤销同步', 'An administrator must undo inventory sync before this order can be deleted') : '该订单已同步出库，请先撤销当天同步', 'error');
       return false;
     }
 
     try {
       await deleteDoc(doc(db, 'customerOrders', orderId));
-      showToast(user.role === 'order' ? 'Commande supprimée' : '订单已删除');
+      showToast(user.role === 'order' ? orderMessage('Commande supprimée', '订单已删除', 'Order deleted') : '订单已删除');
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `customerOrders/${orderId}`);
-      showToast(user.role === 'order' ? 'Échec de la suppression' : '订单删除失败', 'error');
+      showToast(user.role === 'order' ? orderMessage('Échec de la suppression', '订单删除失败', 'Could not delete the order') : '订单删除失败', 'error');
       return false;
     }
   };
@@ -1695,12 +1705,12 @@ export default function App() {
 
   const saveOrderCashCount = async (recordDate: string, counts: CashDenominationCounts) => {
     if (user?.role !== 'order' || !auth.currentUser?.uid) {
-      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      showToast(orderMessage('Session expirée, veuillez vous reconnecter', '登录已失效，请重新登录', 'Session expired. Please log in again.'), 'error');
       return false;
     }
     const countValues = Object.values(counts);
     if (!isOrderDate(recordDate) || countValues.some((count) => !Number.isInteger(count) || count < 0)) {
-      showToast('Saisissez une caisse valide', 'error');
+      showToast(orderMessage('Saisissez une caisse valide', '请输入有效的现金盘点', 'Enter a valid cash count'), 'error');
       return false;
     }
 
@@ -1748,22 +1758,22 @@ export default function App() {
         }
         return existingCash.exists();
       });
-      showToast(wasExisting ? 'Caisse modifiée' : 'Caisse enregistrée');
+      showToast(wasExisting ? orderMessage('Caisse modifiée', '现金盘点已修改', 'Cash count updated') : orderMessage('Caisse enregistrée', '现金盘点已保存', 'Cash count saved'));
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `orderCashCounts/${recordDate}`);
-      showToast('Échec de l’enregistrement de la caisse', 'error');
+      showToast(orderMessage('Échec de l’enregistrement de la caisse', '现金盘点保存失败', 'Could not save the cash count'), 'error');
       return false;
     }
   };
 
   const deleteOrderCashCount = async (recordDate: string) => {
     if (user?.role !== 'order' || !auth.currentUser?.uid) {
-      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      showToast(orderMessage('Session expirée, veuillez vous reconnecter', '登录已失效，请重新登录', 'Session expired. Please log in again.'), 'error');
       return false;
     }
     if (!isOrderDate(recordDate)) {
-      showToast('Date de caisse invalide', 'error');
+      showToast(orderMessage('Date de caisse invalide', '现金盘点日期无效', 'Invalid cash count date'), 'error');
       return false;
     }
 
@@ -1791,11 +1801,11 @@ export default function App() {
         }
         trx.delete(cashRef);
       });
-      showToast('Caisse supprimée');
+      showToast(orderMessage('Caisse supprimée', '现金盘点已删除', 'Cash count deleted'));
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `orderCashCounts/${recordDate}`);
-      showToast('Échec de la suppression de la caisse', 'error');
+      showToast(orderMessage('Échec de la suppression de la caisse', '现金盘点删除失败', 'Could not delete the cash count'), 'error');
       return false;
     }
   };
@@ -1846,12 +1856,12 @@ export default function App() {
 
   const createOrderDailyExpense = async (expenseDate: string, amount: number, remark: string) => {
     if (user?.role !== 'order' || !auth.currentUser?.uid) {
-      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      showToast(orderMessage('Session expirée, veuillez vous reconnecter', '登录已失效，请重新登录', 'Session expired. Please log in again.'), 'error');
       return false;
     }
     const normalizedRemark = remark.trim();
     if (!isOrderDate(expenseDate) || !Number.isInteger(amount) || amount <= 0 || !normalizedRemark || normalizedRemark.length > 500) {
-      showToast('Saisissez une dépense valide', 'error');
+      showToast(orderMessage('Saisissez une dépense valide', '请输入有效的消费记录', 'Enter a valid expense'), 'error');
       return false;
     }
 
@@ -1865,23 +1875,23 @@ export default function App() {
         createdAt: now,
         updatedAt: now
       });
-      showToast('Dépense enregistrée');
+      showToast(orderMessage('Dépense enregistrée', '消费已保存', 'Expense saved'));
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'orderDailyExpenses');
-      showToast('Échec de l’enregistrement de la dépense', 'error');
+      showToast(orderMessage('Échec de l’enregistrement de la dépense', '消费保存失败', 'Could not save the expense'), 'error');
       return false;
     }
   };
 
   const updateOrderDailyExpense = async (expenseId: string, expenseDate: string, amount: number, remark: string) => {
     if (user?.role !== 'order' || !auth.currentUser?.uid) {
-      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      showToast(orderMessage('Session expirée, veuillez vous reconnecter', '登录已失效，请重新登录', 'Session expired. Please log in again.'), 'error');
       return false;
     }
     const normalizedRemark = remark.trim();
     if (!isOrderDate(expenseDate) || !Number.isInteger(amount) || amount <= 0 || !normalizedRemark || normalizedRemark.length > 500) {
-      showToast('Saisissez une dépense valide', 'error');
+      showToast(orderMessage('Saisissez une dépense valide', '请输入有效的消费记录', 'Enter a valid expense'), 'error');
       return false;
     }
 
@@ -1892,27 +1902,27 @@ export default function App() {
         remark: normalizedRemark,
         updatedAt: Timestamp.now()
       });
-      showToast('Dépense modifiée');
+      showToast(orderMessage('Dépense modifiée', '消费已修改', 'Expense updated'));
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `orderDailyExpenses/${expenseId}`);
-      showToast('Échec de la modification de la dépense', 'error');
+      showToast(orderMessage('Échec de la modification de la dépense', '消费修改失败', 'Could not update the expense'), 'error');
       return false;
     }
   };
 
   const deleteOrderDailyExpense = async (expenseId: string) => {
     if (user?.role !== 'order' || !auth.currentUser?.uid) {
-      showToast('Session expirée, veuillez vous reconnecter', 'error');
+      showToast(orderMessage('Session expirée, veuillez vous reconnecter', '登录已失效，请重新登录', 'Session expired. Please log in again.'), 'error');
       return false;
     }
     try {
       await deleteDoc(doc(db, 'orderDailyExpenses', expenseId));
-      showToast('Dépense supprimée');
+      showToast(orderMessage('Dépense supprimée', '消费已删除', 'Expense deleted'));
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `orderDailyExpenses/${expenseId}`);
-      showToast('Échec de la suppression de la dépense', 'error');
+      showToast(orderMessage('Échec de la suppression de la dépense', '消费删除失败', 'Could not delete the expense'), 'error');
       return false;
     }
   };
@@ -2277,7 +2287,7 @@ export default function App() {
     }
   };
 
-  const handleBatchOut = async (lines: BatchOutLine[], remark: string) => {
+  const handleBatchTransaction = async (type: 'in' | 'out', lines: BatchLine[], remark: string) => {
     if (user?.role !== 'admin') {
       showToast('权限不足', 'error');
       return false;
@@ -2287,22 +2297,23 @@ export default function App() {
       return false;
     }
     if (lines.length === 0) {
-      showToast('没有可出库数据', 'error');
+      showToast(`没有可${type === 'in' ? '入库' : '出库'}数据`, 'error');
       return false;
     }
-    if (lines.some((line) => !line.productId || !Number.isInteger(line.boxes) || line.boxes <= 0)) {
-      showToast('批量出库包含无效商品或箱数', 'error');
+    if (lines.some((line) => !line.productId || !Number.isSafeInteger(line.boxes) || line.boxes <= 0)) {
+      showToast(`批量${type === 'in' ? '入库' : '出库'}包含无效商品或箱数`, 'error');
       return false;
     }
 
-    const aggregatedLines = aggregateBatchOutLines(lines);
+    const aggregatedLines = aggregateBatchLines(lines);
     const productRefs = new Map(
       aggregatedLines.map((line) => [line.productId, doc(db, 'products', line.productId)])
     );
     const transactionRefs = lines.map(() => doc(collection(db, 'transactions')));
     const operatorUid = auth.currentUser.uid;
     const occurredAt = Timestamp.now();
-    const normalizedRemark = remark.trim() || '批量出库';
+    const actionLabel = type === 'in' ? '批量入库' : '批量出库';
+    const normalizedRemark = remark.trim() || actionLabel;
     if (normalizedRemark.length >= 500) {
       showToast('备注不能超过 499 个字符', 'error');
       return false;
@@ -2317,7 +2328,7 @@ export default function App() {
 
         productSnapshots.forEach((snapshot, index) => {
           const productId = aggregatedLines[index].productId;
-          if (!snapshot.exists()) throw new Error('批量出库包含已删除的商品');
+          if (!snapshot.exists()) throw new Error(`${actionLabel}包含已删除的商品`);
           productDataById.set(productId, snapshot.data() as Product);
         });
 
@@ -2325,11 +2336,12 @@ export default function App() {
           const productData = productDataById.get(line.productId)!;
           const spec = Number(productData.spec ?? 0);
           const currentStock = Number(productData.stock ?? 0);
-          if (spec <= 0) throw new Error('批量出库包含规格错误的商品');
-          if (productData.isActive === false) throw new Error('批量出库包含已下架的商品');
+          if (spec <= 0) throw new Error(`${actionLabel}包含规格错误的商品`);
+          if (productData.isActive === false) throw new Error(`${actionLabel}包含已下架的商品`);
 
           const totalQuantity = line.boxes * spec;
-          if (totalQuantity > currentStock) {
+          if (!Number.isSafeInteger(totalQuantity)) throw new Error(`${actionLabel}箱数过大`);
+          if (type === 'out' && totalQuantity > currentStock) {
             throw new Error(`商品“${String(productData.name ?? line.productId)}”库存不足`);
           }
         }
@@ -2339,7 +2351,7 @@ export default function App() {
           const spec = Number(productData.spec);
           trx.set(transactionRefs[index], {
             productId: line.productId,
-            type: 'out',
+            type,
             quantity: line.boxes * spec,
             unitPrice: Number(productData.price ?? 0),
             occurredAt,
@@ -2350,15 +2362,20 @@ export default function App() {
 
         for (const line of aggregatedLines) {
           const productData = productDataById.get(line.productId)!;
-          const nextStock = Number(productData.stock) - line.boxes * Number(productData.spec);
-          trx.update(productRefs.get(line.productId)!, { stock: nextStock, lastOutAt: occurredAt });
+          const quantity = line.boxes * Number(productData.spec);
+          const nextStock = getStockAfterBatchTransaction(Number(productData.stock), type, quantity);
+          if (!Number.isSafeInteger(nextStock)) throw new Error(`${actionLabel}库存数值超出范围`);
+          trx.update(productRefs.get(line.productId)!, {
+            stock: nextStock,
+            ...(type === 'out' ? { lastOutAt: occurredAt } : {})
+          });
         }
         writeAnalyticsDelta(trx, buildAnalyticsDelta({
           afterTransactions: lines.map((line, index) => {
             const productData = productDataById.get(line.productId)!;
             return {
               productId: line.productId,
-              type: 'out',
+              type,
               quantity: line.boxes * Number(productData.spec),
               unitPrice: Number(productData.price ?? 0),
               occurredAt: occurredAt.toDate()
@@ -2367,11 +2384,11 @@ export default function App() {
         }));
       });
 
-      showToast(`批量出库完成，共 ${lines.length} 条`);
+      showToast(`${actionLabel}完成，共 ${lines.length} 条`);
       return true;
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'transactions/batch-out');
-      showToast(error instanceof Error ? error.message : '批量出库失败，未写入任何数据', 'error');
+      handleFirestoreError(error, OperationType.WRITE, `transactions/batch-${type}`);
+      showToast(error instanceof Error ? error.message : `${type === 'in' ? '批量入库' : '批量出库'}失败，未写入任何数据`, 'error');
       return false;
     }
   };
@@ -2756,7 +2773,7 @@ export default function App() {
     paymentId?: string
   ) => {
     if (!auth.currentUser?.uid || !isOrderDate(paymentDate) || !Number.isInteger(amount) || amount <= 0) {
-      showToast('请输入正确的收款金额和日期', 'error');
+      showToast(debtMessage('Saisissez un montant et une date valides', '请输入正确的收款金额和日期', 'Enter a valid payment amount and date'), 'error');
       return false;
     }
     if (target.debtSource === 'manual' && user?.role !== 'admin') {
@@ -2833,10 +2850,12 @@ export default function App() {
           });
         }
       });
-      showToast(paymentId ? '回款修改成功' : '收款已登记');
+      showToast(paymentId ? debtMessage('Encaissement modifié', '回款修改成功', 'Payment updated') : debtMessage('Encaissement enregistré', '收款已登记', 'Payment recorded'));
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : '收款保存失败';
+      const message = user?.role === 'order'
+        ? orderMessage('Échec de l’enregistrement de l’encaissement', '收款保存失败', 'Could not save the payment')
+        : error instanceof Error ? error.message : '收款保存失败';
       showToast(message, 'error');
       handleFirestoreError(error, OperationType.WRITE, paymentId ? `debtPayments/${paymentId}` : 'debtPayments');
       return false;
@@ -2845,7 +2864,7 @@ export default function App() {
 
   const deleteDebtPayment = async (target: DebtPaymentTarget, payment: DebtPayment) => {
     if (!auth.currentUser?.uid || payment.debtSource !== target.debtSource || payment.debtId !== target.debtId) {
-      showToast('回款记录无效', 'error');
+      showToast(debtMessage('Encaissement invalide', '回款记录无效', 'Invalid payment'), 'error');
       return false;
     }
     if (target.debtSource === 'manual' && user?.role !== 'admin') {
@@ -2898,10 +2917,12 @@ export default function App() {
         }
         trx.delete(paymentRef);
       });
-      showToast('回款已删除，欠款已重算');
+      showToast(debtMessage('Encaissement supprimé et dette recalculée', '回款已删除，欠款已重算', 'Payment deleted and debt recalculated'));
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : '删除回款失败';
+      const message = user?.role === 'order'
+        ? orderMessage('Échec de la suppression de l’encaissement', '删除回款失败', 'Could not delete the payment')
+        : error instanceof Error ? error.message : '删除回款失败';
       showToast(message, 'error');
       handleFirestoreError(error, OperationType.DELETE, `debtPayments/${payment.id}`);
       return false;
@@ -2927,6 +2948,8 @@ export default function App() {
         currentView={currentView}
         onViewChange={handleViewChange}
         onLogout={handleLogout}
+        orderLanguage={orderLanguage}
+        onOrderLanguageChange={setOrderLanguage}
       >
       <div className="contents">
       {/* Main Content */}
@@ -3030,7 +3053,7 @@ export default function App() {
                   products={activeProducts}
                 transactions={transactions}
                 handleTransaction={handleTransaction}
-                handleBatchOut={handleBatchOut}
+                handleBatchTransaction={handleBatchTransaction}
                 deleteTransaction={setConfirmDeleteId}
                 updateTransaction={updateTransaction}
                 editingTransaction={editingTransaction}
@@ -3060,6 +3083,7 @@ export default function App() {
                 <OrderPriceListView
                   products={orderProducts}
                   formatCurrency={formatCurrency}
+                  language={orderLanguage}
                 />
               )}
               {user.role === 'order' && currentView === 'order-entry' && (
@@ -3073,7 +3097,7 @@ export default function App() {
                   updateCustomerOrder={updateCustomerOrder}
                   deleteCustomerOrder={deleteCustomerOrder}
                   getToday={getTogoDate}
-                  language="fr"
+                  language={orderLanguage}
                   onOrdersDateChange={setCustomerOrdersDate}
                 />
               )}
@@ -3084,6 +3108,7 @@ export default function App() {
                   updateCustomerOrder={updateCustomerOrder}
                   saveDebtPayment={saveDebtPayment}
                   deleteDebtPayment={deleteDebtPayment}
+                  language={orderLanguage}
                 />
               )}
               {user.role === 'order' && currentView === 'order-accounting' && (
@@ -3097,6 +3122,7 @@ export default function App() {
                   deleteDailyExpense={deleteOrderDailyExpense}
                   formatCurrency={formatCurrency}
                   onSelectedDateChange={setAccountingDate}
+                  language={orderLanguage}
                 />
               )}
             {user.role === 'admin' && currentView === 'customer-orders' && (

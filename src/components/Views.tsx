@@ -36,6 +36,7 @@ import { CustomerOrdersPanel } from './OrderViews';
 import { calculateAccountingDifference, CASH_DENOMINATIONS } from '../lib/orderAccounting';
 import { compareDebtRecords } from '../lib/debtRecords';
 import { DebtPaymentDialog, DebtPaymentHistory } from './DebtPayments';
+import type { OrderLanguage } from '../lib/orderLanguage';
 
 // --- Components ---
 
@@ -1553,7 +1554,7 @@ interface StockViewProps {
   products: Product[];
   transactions: Transaction[];
   handleTransaction: (productId: string, type: 'in' | 'out', boxes: number, items: number, remark: string) => Promise<boolean | undefined>;
-  handleBatchOut: (lines: Array<{ productId: string; boxes: number }>, remark: string) => Promise<boolean>;
+  handleBatchTransaction: (type: 'in' | 'out', lines: Array<{ productId: string; boxes: number }>, remark: string) => Promise<boolean>;
   deleteTransaction: (id: string | null) => void;
   updateTransaction: (
     transactionId: string,
@@ -1606,7 +1607,7 @@ interface OrderEntryViewProps {
   updateCustomerOrder: (orderId: string, customerName: string, items: CustomerOrderItem[], isUnpaid: boolean, paidAmount: number) => Promise<boolean>;
   deleteCustomerOrder: (orderId: string) => Promise<boolean>;
   getToday: () => string;
-  language?: 'zh' | 'fr';
+  language?: OrderLanguage;
   onOrdersDateChange?: (value: string) => void;
 }
 
@@ -1638,7 +1639,6 @@ export const OrderEntryView = ({
   const [editBoxes, setEditBoxes] = useState('0');
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const orderItemIdRef = useRef(0);
-  const isFrench = language === 'fr';
 
   useEffect(() => {
     const refreshAutomaticDate = () => setOrderDate(getToday());
@@ -1648,8 +1648,8 @@ export const OrderEntryView = ({
     return () => window.clearInterval(intervalId);
   }, [getToday]);
 
-  const copy = isFrench
-    ? {
+  const copy = {
+    fr: {
         selectProduct: 'Ajouter un produit',
         model: 'Modèle',
         searchPlaceholder: 'Rechercher...',
@@ -1677,9 +1677,9 @@ export const OrderEntryView = ({
         unpaidOrder: 'Commande non payée',
         selectProductError: 'Sélectionnez un produit',
         negativeQuantityError: 'La quantité ne peut pas être négative',
-        emptyQuantityError: 'Saisissez un nombre entier de cartons'
-      }
-    : {
+        emptyQuantityError: 'Saisissez un nombre entier de cartons', eyebrow: 'NOUVELLE COMMANDE', title: 'Saisie commande', subtitle: 'Renseignez le client, la date et les cartons commandés.', customer: 'Client', customerPlaceholder: 'Nom du client', date: 'Date', autoDate: 'Date automatique de la commande', emptyTitle: 'Aucun produit ajouté', emptyBody: 'Sélectionnez un modèle et ajoutez le nombre de cartons.', mobileBoxPrice: 'Prix/carton', mobileTotal: 'Total', shortPackaging: 'Cond.', saving: 'Enregistrement...', submitOrder: 'Enregistrer la commande', customerRequired: 'Saisissez le nom du client', dateRequired: 'Sélectionnez la date', itemRequired: 'Ajoutez au moins un produit', unavailable: 'n’est plus disponible', invalidOrder: 'Commande invalide'
+      },
+    zh: {
         selectProduct: '选择商品',
         model: '商品型号',
         searchPlaceholder: '输入商品名称搜索...',
@@ -1707,19 +1707,23 @@ export const OrderEntryView = ({
         unpaidOrder: '未付款订单',
         selectProductError: '请选择商品',
         negativeQuantityError: '数量不能为负数',
-        emptyQuantityError: '请输入大于0的整数箱数'
-      };
+        emptyQuantityError: '请输入大于0的整数箱数', eyebrow: '新订单', title: '录入订单', subtitle: '填写客户名称、日期和订购箱数。', customer: '客户', customerPlaceholder: '客户名称', date: '日期', autoDate: '订单自动日期', emptyTitle: '尚未添加商品', emptyBody: '请在左侧选择商品并填写箱数。', mobileBoxPrice: '箱单价', mobileTotal: '总计', shortPackaging: '规格', saving: '保存中...', submitOrder: '保存订单', customerRequired: '请输入客户名称', dateRequired: '请选择日期', itemRequired: '请至少添加一个商品', unavailable: '已下架', invalidOrder: '订单内容无效'
+      },
+    en: {
+        selectProduct: 'Add a product', model: 'Model', searchPlaceholder: 'Search...', packaging: 'Pack size', unitPrice: 'Unit price', boxPrice: 'Price per carton', noProductFound: 'No products found', boxes: 'Cartons', items: 'Pairs', currentSubtotal: 'Subtotal', addToOrder: 'Add', orderDetails: 'Order', clearOrder: 'Clear', product: 'Product', quantity: 'Quantity', subtotal: 'Subtotal', action: 'Action', remove: 'Remove', edit: 'Edit', editItem: 'Edit product', saveChanges: 'Save', cancel: 'Cancel', changesSaved: 'Changes saved', orderTotal: 'Total', unpaidOrder: 'Unpaid order', selectProductError: 'Select a product', negativeQuantityError: 'Quantity cannot be negative', emptyQuantityError: 'Enter a whole number of cartons greater than 0', eyebrow: 'NEW ORDER', title: 'Create order', subtitle: 'Enter the customer, date, and number of cartons.', customer: 'Customer', customerPlaceholder: 'Customer name', date: 'Date', autoDate: 'Automatic order date', emptyTitle: 'No products added', emptyBody: 'Select a model and enter the number of cartons.', mobileBoxPrice: 'Price/carton', mobileTotal: 'Total', shortPackaging: 'Pack', saving: 'Saving...', submitOrder: 'Save order', customerRequired: 'Enter a customer name', dateRequired: 'Select a date', itemRequired: 'Add at least one product', unavailable: 'is no longer available', invalidOrder: 'Invalid order'
+      },
+  }[language];
 
   const formatOrderStock = (total: number, spec: number) => {
-    if (!isFrench) return formatStock(total, spec);
+    if (language === 'zh') return formatStock(total, spec);
     const boxesCount = spec > 0 ? Math.floor(total / spec) : 0;
     const remainingItems = spec > 0 ? total % spec : total;
-    const formatPairs = (value: number) => `${value} paire${value > 1 ? 's' : ''}`;
+    const formatPairs = (value: number) => language === 'fr' ? `${value} paire${value > 1 ? 's' : ''}` : `${value} pair${value === 1 ? '' : 's'}`;
     if (boxesCount === 0) return formatPairs(remainingItems);
-    const formattedBoxes = `${boxesCount} carton${boxesCount > 1 ? 's' : ''}`;
+    const formattedBoxes = `${boxesCount} carton${boxesCount === 1 ? '' : 's'}`;
     return remainingItems > 0 ? `${formattedBoxes} + ${formatPairs(remainingItems)}` : formattedBoxes;
   };
-  const formatPackaging = (spec: number) => isFrench ? `${spec}` : `${spec} 个/箱`;
+  const formatPackaging = (spec: number) => language === 'zh' ? `${spec} 个/箱` : `${spec}`;
 
   const formatMobileAmount = (value: number) => formatCurrency(value).replace(/\s*XOF$/, '');
 
@@ -1860,22 +1864,23 @@ export const OrderEntryView = ({
 
   const handleSubmitOrder = async () => {
     if (!customerName.trim()) {
-      showToast(isFrench ? 'Saisissez le nom du client' : '请输入客户名称', 'error');
+      showToast(copy.customerRequired, 'error');
       return;
     }
     if (!orderDate) {
-      showToast(isFrench ? 'Sélectionnez la date' : '请选择日期', 'error');
+      showToast(copy.dateRequired, 'error');
       return;
     }
     if (orderItems.length === 0) {
-      showToast(isFrench ? 'Ajoutez au moins un produit' : '请至少添加一个商品', 'error');
+      showToast(copy.itemRequired, 'error');
       return;
     }
 
     try {
       const liveLines = orderItems.map((item) => {
         const liveProduct = products.find((product) => product.id === item.product.id);
-        if (!liveProduct) throw new Error(isFrench ? `${item.product.name} n’est plus disponible` : `${item.product.name} 已下架`);
+        if (!liveProduct) throw new Error(`${item.product.name} ${copy.unavailable}`);
+        if (!Number.isInteger(item.boxes) || item.boxes <= 0) throw new Error(copy.emptyQuantityError);
         return { product: liveProduct, boxes: item.boxes };
       });
       const { items } = buildCustomerOrderTotals(liveLines);
@@ -1886,7 +1891,7 @@ export const OrderEntryView = ({
       setOrderDate(getToday());
       handleClearOrder();
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Commande invalide', 'error');
+      showToast(error instanceof Error ? error.message : copy.invalidOrder, 'error');
     } finally {
       setIsSubmittingOrder(false);
     }
@@ -1896,9 +1901,9 @@ export const OrderEntryView = ({
     <div className="space-y-5 sm:space-y-8">
       <header className="page-heading-row">
         <div>
-          <span className="eyebrow">NOUVELLE COMMANDE</span>
-          <h1 className="display-title mt-2 text-3xl sm:text-4xl">Saisie commande</h1>
-          <p className="mt-2 text-sm text-stone-500">Renseignez le client, la date et les cartons commandés.</p>
+          <span className="eyebrow">{copy.eyebrow}</span>
+          <h1 className="display-title mt-2 text-3xl sm:text-4xl">{copy.title}</h1>
+          <p className="mt-2 text-sm text-stone-500">{copy.subtitle}</p>
         </div>
       </header>
       <AnimatePresence>
@@ -2030,23 +2035,23 @@ export const OrderEntryView = ({
 
           <div className="mb-6 grid gap-4 border-b border-stone-200 pb-6 sm:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-bold uppercase tracking-widest text-slate-600">Client</label>
+              <label className="mb-2 block text-sm font-bold uppercase tracking-widest text-slate-600">{copy.customer}</label>
               <input
                 type="text"
                 value={customerName}
                 onChange={(event) => setCustomerName(event.target.value)}
                 maxLength={100}
-                placeholder="Nom du client"
+                placeholder={copy.customerPlaceholder}
                 className="w-full rounded-xl border-stone-200 bg-white py-3 font-bold focus:border-indigo-500 focus:ring-indigo-500"
               />
             </div>
             <div>
-              <label className="mb-2 block text-sm font-bold uppercase tracking-widest text-slate-600">Date</label>
+              <label className="mb-2 block text-sm font-bold uppercase tracking-widest text-slate-600">{copy.date}</label>
               <input
                 type="date"
                 value={orderDate}
                 disabled
-                aria-label="Date automatique de la commande"
+                aria-label={copy.autoDate}
                 className="w-full cursor-not-allowed rounded-xl border-stone-200 bg-stone-100 py-3 font-bold text-stone-600 opacity-100"
               />
             </div>
@@ -2165,10 +2170,10 @@ export const OrderEntryView = ({
                 <Package size={30} />
               </span>
               <h4 className="mt-4 text-base font-black text-stone-600">
-                {isFrench ? 'Aucun produit ajouté' : '尚未添加商品'}
+                {copy.emptyTitle}
               </h4>
               <p className="mt-1 max-w-xs text-sm font-semibold leading-6 text-stone-400">
-                {isFrench ? 'Sélectionnez un modèle et ajoutez le nombre de cartons.' : '请在左侧选择商品并填写箱数。'}
+                {copy.emptyBody}
               </p>
             </div>
           ) : (
@@ -2184,10 +2189,10 @@ export const OrderEntryView = ({
               </colgroup>
               <thead className="bg-slate-50/70">
                 <tr>
-                  <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wide text-slate-400">{isFrench ? 'Modèle' : '型号'}</th>
+                  <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wide text-slate-400">{copy.model}</th>
                   <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wide text-slate-400">{copy.quantity}</th>
-                  <th className="px-2 py-3 text-[9px] font-black uppercase leading-tight tracking-wide text-slate-400">{isFrench ? 'Prix/carton' : '箱单价'}</th>
-                  <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wide text-slate-400">{isFrench ? 'Total' : '总计'}</th>
+                  <th className="px-2 py-3 text-[9px] font-black uppercase leading-tight tracking-wide text-slate-400">{copy.mobileBoxPrice}</th>
+                  <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wide text-slate-400">{copy.mobileTotal}</th>
                   <th className="px-1 py-3"><span className="sr-only">{copy.action}</span></th>
                 </tr>
               </thead>
@@ -2243,7 +2248,7 @@ export const OrderEntryView = ({
                 <tr className="border-b border-stone-200">
                   <th className="py-2 text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{copy.product}</th>
                   <th className="py-2 text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{copy.quantity}</th>
-                  <th className="py-2 text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{isFrench ? 'Prix/carton' : copy.boxPrice}</th>
+                  <th className="py-2 text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{copy.mobileBoxPrice}</th>
                   <th className="py-2 text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{copy.subtotal}</th>
                   <th className="py-2 text-right text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{copy.action}</th>
                 </tr>
@@ -2254,7 +2259,7 @@ export const OrderEntryView = ({
                     <tr key={item.id} className="hover:bg-white transition-colors">
                       <td className="py-4 pr-2">
                         <div className="font-black text-slate-900">{item.product.name}</div>
-                        <div className="truncate text-[10px] font-bold text-slate-400">{isFrench ? `Cond. : ${item.product.spec}` : `${copy.packaging}: ${formatPackaging(item.product.spec)}`}</div>
+                        <div className="truncate text-[10px] font-bold text-slate-400">{copy.shortPackaging}: {formatPackaging(item.product.spec)}</div>
                       </td>
                       <td className="py-4 pr-1 text-xs font-bold text-slate-600">{formatOrderStock(quantity, item.product.spec)}</td>
                       <td className="whitespace-nowrap py-4 pr-1 text-xs font-bold text-slate-600">{formatCurrency(item.product.price * item.product.spec)}</td>
@@ -2308,7 +2313,7 @@ export const OrderEntryView = ({
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#7c3037] py-4 font-black text-white transition-all hover:bg-[#68272e] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Save size={19} />
-              {isSubmittingOrder ? 'Enregistrement...' : 'Enregistrer la commande'}
+              {isSubmittingOrder ? copy.saving : copy.submitOrder}
             </button>
           </div>
             </>
@@ -2333,7 +2338,7 @@ export const OrderEntryView = ({
 };
 
 export const StockView = ({
-  products, transactions, handleTransaction, handleBatchOut, deleteTransaction,
+  products, transactions, handleTransaction, handleBatchTransaction, deleteTransaction,
   updateTransaction, editingTransaction, setEditingTransaction,
   user, formatStock, showToast,
   type, setType, selectedId, setSelectedId, searchTerm, setSearchTerm, showDropdown, setShowDropdown,
@@ -2350,10 +2355,10 @@ export const StockView = ({
   const [showEditDropdown, setShowEditDropdown] = useState(false);
   const [visibleTransactionCount, setVisibleTransactionCount] = useState(20);
   const [historyFilterMode, setHistoryFilterMode] = useState<'day' | 'week' | 'month'>('day');
-  const [isBatchOutMode, setIsBatchOutMode] = useState(false);
-  const [batchOutText, setBatchOutText] = useState('');
-  const [isBatchOutSubmitting, setIsBatchOutSubmitting] = useState(false);
-  const [batchOutResult, setBatchOutResult] = useState<{ successCount: number; issues: string[] } | null>(null);
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [batchText, setBatchText] = useState('');
+  const [isBatchSubmitting, setIsBatchSubmitting] = useState(false);
+  const [batchResult, setBatchResult] = useState<{ type: 'in' | 'out'; successCount: number; issues: string[] } | null>(null);
 
   const toLocalDateInputValue = (date: Date) => {
     const year = date.getFullYear();
@@ -2439,19 +2444,19 @@ export const StockView = ({
   const historyQueryProduct = products.find((product) => product.id === historyQueryProductId);
   const activeHistoryQueryProduct = products.find((product) => product.id === activeHistoryQuery?.productId);
 
-  interface ParsedBatchOutRow {
+  interface ParsedBatchRow {
     lineNumber: number;
     productName: string;
     boxes: number;
   }
 
-  interface BatchOutTarget {
+  interface BatchTarget {
     product: Product;
     boxes: number;
   }
 
-  const parseBatchOutMarkdown = (source: string): { rows: ParsedBatchOutRow[]; errors: string[] } => {
-    const rows: ParsedBatchOutRow[] = [];
+  const parseBatchMarkdown = (source: string): { rows: ParsedBatchRow[]; errors: string[] } => {
+    const rows: ParsedBatchRow[] = [];
     const errors: string[] = [];
     const lines = source.split('\n');
 
@@ -2480,12 +2485,15 @@ export const StockView = ({
       if (normalizeModelKey(cells[0]) === normalizeModelKey('款式')) return;
 
       const productName = cells[0];
-      const boxesValue = Number.parseInt(cells[1].replace(/[^\d-]/g, ''), 10);
+      const boxesText = cells[1].replace(/\s/g, '');
+      const boxesValue = /^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(boxesText)
+        ? Number(boxesText.replace(/,/g, ''))
+        : NaN;
       if (!productName) {
         errors.push(`第 ${lineNumber} 行款式为空`);
         return;
       }
-      if (!Number.isInteger(boxesValue) || boxesValue <= 0) {
+      if (!Number.isSafeInteger(boxesValue) || boxesValue <= 0) {
         errors.push(`第 ${lineNumber} 行箱数无效`);
         return;
       }
@@ -2631,20 +2639,20 @@ export const StockView = ({
     }
   };
 
-  const handleBatchOutSubmit = async () => {
+  const handleBatchSubmit = async () => {
     if (user?.role !== 'admin') {
       showToast('权限不足', 'error');
       return;
     }
-    if (!batchOutText.trim()) {
-      showToast('请粘贴批量出库 Markdown 表格', 'error');
+    if (!batchText.trim()) {
+      showToast(`请粘贴批量${type === 'in' ? '入库' : '出库'} Markdown 表格`, 'error');
       return;
     }
 
-    const { rows, errors } = parseBatchOutMarkdown(batchOutText);
+    const { rows, errors } = parseBatchMarkdown(batchText);
     if (rows.length === 0) {
-      setBatchOutResult({ successCount: 0, issues: errors.length > 0 ? errors : ['未读取到可出库数据'] });
-      showToast('未读取到可出库数据', 'error');
+      setBatchResult({ type, successCount: 0, issues: errors.length > 0 ? errors : [`未读取到可${type === 'in' ? '入库' : '出库'}数据`] });
+      showToast(`未读取到可${type === 'in' ? '入库' : '出库'}数据`, 'error');
       return;
     }
     const issues = [...errors];
@@ -2653,7 +2661,7 @@ export const StockView = ({
     const duplicateNames = new Set<string>();
     const remainingStockByProductId: Record<string, number> = {};
     for (const product of products) {
-      remainingStockByProductId[product.id] = product.stock;
+      if (type === 'out') remainingStockByProductId[product.id] = product.stock;
       const key = normalizeModelKey(product.name);
       if (productByName.has(key)) {
         duplicateNames.add(key);
@@ -2662,7 +2670,7 @@ export const StockView = ({
       }
     }
 
-    const targets: BatchOutTarget[] = [];
+    const targets: BatchTarget[] = [];
     for (const row of rows) {
       const key = normalizeModelKey(row.productName);
       if (duplicateNames.has(key)) {
@@ -2680,42 +2688,46 @@ export const StockView = ({
         continue;
       }
 
-      const quantity = row.boxes * product.spec;
-      const remainingStock = remainingStockByProductId[product.id] ?? 0;
-      if (quantity > remainingStock) {
-        issues.push(`第 ${row.lineNumber} 行库存不足：${product.name}，需要 ${formatStock(quantity, product.spec)}，剩余 ${formatStock(remainingStock, product.spec)}`);
-        continue;
+      if (type === 'out') {
+        const quantity = row.boxes * product.spec;
+        const remainingStock = remainingStockByProductId[product.id] ?? 0;
+        if (quantity > remainingStock) {
+          issues.push(`第 ${row.lineNumber} 行库存不足：${product.name}，需要 ${formatStock(quantity, product.spec)}，剩余 ${formatStock(remainingStock, product.spec)}`);
+          continue;
+        }
+        remainingStockByProductId[product.id] = remainingStock - quantity;
       }
 
-      remainingStockByProductId[product.id] = remainingStock - quantity;
       targets.push({ product, boxes: row.boxes });
     }
 
     if (targets.length === 0) {
-      setBatchOutResult({ successCount: 0, issues });
-      showToast('没有可出库数据', 'error');
+      setBatchResult({ type, successCount: 0, issues });
+      showToast(`没有可${type === 'in' ? '入库' : '出库'}数据`, 'error');
       return;
     }
 
-    setIsBatchOutSubmitting(true);
+    setIsBatchSubmitting(true);
     try {
-      const success = await handleBatchOut(
+      const success = await handleBatchTransaction(
+        type,
         targets.map((target) => ({ productId: target.product.id, boxes: target.boxes })),
         remark
       );
       if (success) {
-        setBatchOutResult({ successCount: targets.length, issues });
-        setBatchOutText('');
+        setBatchResult({ type, successCount: targets.length, issues });
+        setBatchText('');
         setRemark('');
-        setIsBatchOutMode(false);
+        setIsBatchMode(false);
       } else {
-        setBatchOutResult({
+        setBatchResult({
+          type,
           successCount: 0,
-          issues: [...issues, '批量出库未执行，所有数据均未写入']
+          issues: [...issues, `批量${type === 'in' ? '入库' : '出库'}未执行，所有数据均未写入`]
         });
       }
     } finally {
-      setIsBatchOutSubmitting(false);
+      setIsBatchSubmitting(false);
     }
   };
 
@@ -3092,7 +3104,7 @@ export const StockView = ({
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {batchOutResult && (
+        {batchResult && (
           <div className="fixed inset-0 bg-black/35 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ scale: 0.92, opacity: 0 }}
@@ -3102,25 +3114,25 @@ export const StockView = ({
             >
               <div className="flex items-start justify-between gap-4 mb-5">
                 <div>
-                  <h3 className="text-xl font-black text-slate-800">批量出库结果</h3>
+                  <h3 className="text-xl font-black text-slate-800">批量{batchResult.type === 'in' ? '入库' : '出库'}结果</h3>
                   <p className="mt-1 text-sm font-bold text-slate-500">
-                    成功出库 {batchOutResult.successCount} 条，失败 {batchOutResult.issues.length} 条
+                    成功{batchResult.type === 'in' ? '入库' : '出库'} {batchResult.successCount} 条，失败 {batchResult.issues.length} 条
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setBatchOutResult(null)}
+                  onClick={() => setBatchResult(null)}
                   className="p-2 rounded-full hover:bg-white transition-all text-slate-500"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              {batchOutResult.issues.length > 0 ? (
+              {batchResult.issues.length > 0 ? (
                 <div className="max-h-72 overflow-y-auto custom-scrollbar rounded-xl border border-rose-100/70 bg-rose-50/45 p-4">
                   <div className="mb-3 text-sm font-black text-rose-700">以下行未录入：</div>
                   <ul className="space-y-2">
-                    {batchOutResult.issues.map((issue, index) => (
+                    {batchResult.issues.map((issue, index) => (
                       <li key={`${issue}-${index}`} className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-rose-700">
                         {issue}
                       </li>
@@ -3129,13 +3141,13 @@ export const StockView = ({
                 </div>
               ) : (
                 <div className="rounded-xl border border-emerald-100/70 bg-emerald-50/55 px-4 py-5 text-sm font-black text-emerald-700">
-                  所有批量出库记录都已成功录入。
+                  所有批量{batchResult.type === 'in' ? '入库' : '出库'}记录都已成功录入。
                 </div>
               )}
 
               <button
                 type="button"
-                onClick={() => setBatchOutResult(null)}
+                onClick={() => setBatchResult(null)}
                 className="mt-5 w-full rounded-xl bg-[#7c3037] py-3 font-black text-white shadow-sm shadow-indigo-200/50 transition-all hover:bg-indigo-700"
               >
                 我知道了
@@ -3159,7 +3171,7 @@ export const StockView = ({
                   type="button"
                   onClick={() => {
                     setType('in');
-                    setIsBatchOutMode(false);
+                    setIsBatchMode(false);
                   }}
                   className={`py-2 rounded-xl border-2 transition-all flex items-center justify-center gap-2 font-bold ${
                     type === 'in' 
@@ -3171,7 +3183,10 @@ export const StockView = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setType('out')}
+                  onClick={() => {
+                    setType('out');
+                    setIsBatchMode(false);
+                  }}
                   className={`py-2 rounded-xl border-2 transition-all flex items-center justify-center gap-2 font-bold ${
                     type === 'out' 
                       ? 'border-rose-500 bg-rose-50/50 text-rose-700'
@@ -3183,31 +3198,31 @@ export const StockView = ({
               </div>
             </div>
 
-            {type === 'out' && (
-              <button
-                type="button"
-                onClick={() => setIsBatchOutMode((prev) => !prev)}
-                className={`w-full rounded-xl border px-4 py-2.5 text-sm font-black transition-all ${
-                  isBatchOutMode
-                    ? 'border-rose-200 bg-rose-50/70 text-rose-600 shadow-sm'
-                    : 'border-stone-200 bg-white text-slate-600 hover:bg-white'
-                }`}
-              >
-                {isBatchOutMode ? '切换为单个出库' : '切换为批量出库'}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setIsBatchMode((prev) => !prev)}
+              className={`w-full rounded-xl border px-4 py-2.5 text-sm font-black transition-all ${
+                isBatchMode
+                  ? (type === 'in'
+                    ? 'border-emerald-200 bg-emerald-50/70 text-emerald-700 shadow-sm'
+                    : 'border-rose-200 bg-rose-50/70 text-rose-600 shadow-sm')
+                  : 'border-stone-200 bg-white text-slate-600 hover:bg-white'
+              }`}
+            >
+              {isBatchMode ? `切换为单个${type === 'in' ? '入库' : '出库'}` : `切换为批量${type === 'in' ? '入库' : '出库'}`}
+            </button>
 
-            {isBatchOutMode ? (
+            {isBatchMode ? (
               <>
-                <div className="rounded-xl border border-rose-100/70 bg-rose-50/35 p-4 text-xs font-bold leading-5 text-rose-700">
+                <div className={`rounded-xl border p-4 text-xs font-bold leading-5 ${type === 'in' ? 'border-emerald-100/70 bg-emerald-50/35 text-emerald-700' : 'border-rose-100/70 bg-rose-50/35 text-rose-700'}`}>
                   <div>粘贴 Markdown 表格后，系统只读取“款式”和“箱数”两列。</div>
                   <div>商品名必须和系统商品名一致；双数、金额等列会被忽略。</div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">批量出库 Markdown 表格</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">批量{type === 'in' ? '入库' : '出库'} Markdown 表格</label>
                   <textarea
-                    value={batchOutText}
-                    onChange={(e) => setBatchOutText(e.target.value)}
+                    value={batchText}
+                    onChange={(e) => setBatchText(e.target.value)}
                     placeholder="| 款式 | 箱数 | 双数 | 金额 |&#10;| --- | -: | --: | ---: |&#10;| 56-81 | 5 | 120 | 384,000 |"
                     className="h-56 w-full rounded-xl border-stone-200 bg-white p-4 text-sm font-bold !text-left focus:border-indigo-500 focus:ring-indigo-500"
                   />
@@ -3226,23 +3241,23 @@ export const StockView = ({
                   <textarea
                     value={remark}
                     onChange={(e) => setRemark(e.target.value)}
-                    placeholder="选填，默认：批量出库"
+                    placeholder={`选填，默认：批量${type === 'in' ? '入库' : '出库'}`}
                     className="w-full rounded-xl border-stone-200 bg-white focus:ring-indigo-500 focus:border-indigo-500 h-20 font-bold"
                   />
                 </div>
                 <button
                   type="button"
-                  onClick={handleBatchOutSubmit}
-                  disabled={user?.role !== 'admin' || isBatchOutSubmitting}
+                  onClick={handleBatchSubmit}
+                  disabled={user?.role !== 'admin' || isBatchSubmitting}
                   className={`w-full py-3 rounded-xl font-bold text-white shadow-sm transition-all active:scale-95 ${
-                    user?.role !== 'admin' || isBatchOutSubmitting
+                    user?.role !== 'admin' || isBatchSubmitting
                       ? 'bg-slate-300/50 cursor-not-allowed shadow-none'
-                      : 'bg-rose-500/90 hover:bg-rose-600'
+                      : (type === 'in' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-500/90 hover:bg-rose-600')
                   }`}
                 >
                   {user?.role !== 'admin'
                     ? '无操作权限'
-                    : (isBatchOutSubmitting ? '正在批量出库...' : '确认批量出库')}
+                    : (isBatchSubmitting ? `正在批量${type === 'in' ? '入库' : '出库'}...` : `确认批量${type === 'in' ? '入库' : '出库'}`)}
                 </button>
               </>
             ) : (

@@ -3,14 +3,21 @@ import { CalendarDays, CheckCircle2, ChevronDown, ChevronUp, ClipboardList, Hand
 import type { CustomerOrder, CustomerOrderItem, CustomerOrderSync, DebtPayment, DebtPaymentTarget, OrderProduct } from '../types';
 import { buildCustomerOrderTotals, filterCustomerOrdersByDate, getCustomerOrderBalance, getCustomerOrderOutstanding, getCustomerOrderPaymentStatus, getTogoOrderDate, isCustomerOrderDebt } from '../lib/customerOrders';
 import { DebtPaymentDialog, DebtPaymentHistory } from './DebtPayments';
+import type { OrderLanguage } from '../lib/orderLanguage';
 
 interface OrderPriceListViewProps {
   products: OrderProduct[];
   formatCurrency: (value: number) => string;
+  language?: OrderLanguage;
 }
 
-export function OrderPriceListView({ products, formatCurrency }: OrderPriceListViewProps) {
+export function OrderPriceListView({ products, formatCurrency, language = 'fr' }: OrderPriceListViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  const copy = {
+    fr: { eyebrow: 'CATALOGUE', title: 'Liste des prix', subtitle: 'Les prix sont synchronisés en temps réel avec la gestion des produits.', active: 'produits actifs', card: 'Tarifs produits', cardSubtitle: 'Prix unitaire et prix par carton', search: 'Rechercher un modèle...', model: 'Modèle', spec: 'Paires/carton', unit: 'Prix unitaire', carton: 'Prix carton', empty: 'Aucun produit trouvé' },
+    zh: { eyebrow: '商品目录', title: '价格表', subtitle: '价格与商品管理实时同步。', active: '个在售商品', card: '商品价格', cardSubtitle: '单价与箱价', search: '搜索商品型号...', model: '型号', spec: '每箱双数', unit: '单价', carton: '箱价', empty: '未找到商品' },
+    en: { eyebrow: 'CATALOG', title: 'Price list', subtitle: 'Prices update in real time from product management.', active: 'active products', card: 'Product prices', cardSubtitle: 'Unit and carton prices', search: 'Search models...', model: 'Model', spec: 'Pairs/carton', unit: 'Unit price', carton: 'Carton price', empty: 'No products found' },
+  }[language];
   const visibleProducts = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
     return [...products]
@@ -22,12 +29,12 @@ export function OrderPriceListView({ products, formatCurrency }: OrderPriceListV
     <div className="space-y-6">
       <header className="page-heading-row">
         <div>
-          <span className="eyebrow">CATALOGUE</span>
-          <h1 className="display-title mt-2 text-3xl sm:text-4xl">Liste des prix</h1>
-          <p className="mt-2 text-sm text-stone-500">Les prix sont synchronisés en temps réel avec la gestion des produits.</p>
+          <span className="eyebrow">{copy.eyebrow}</span>
+          <h1 className="display-title mt-2 text-3xl sm:text-4xl">{copy.title}</h1>
+          <p className="mt-2 text-sm text-stone-500">{copy.subtitle}</p>
         </div>
         <div className="rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm font-semibold text-stone-600">
-          {products.length} produits actifs
+          {products.length} {copy.active}
         </div>
       </header>
 
@@ -36,13 +43,13 @@ export function OrderPriceListView({ products, formatCurrency }: OrderPriceListV
           <div className="flex items-center gap-3">
             <span className="rounded-lg bg-amber-50 p-2 text-amber-700"><Package size={20} /></span>
             <div>
-              <h2 className="text-lg font-bold text-stone-900">Tarifs produits</h2>
-              <p className="text-xs text-stone-500">Prix unitaire et prix par carton</p>
+              <h2 className="text-lg font-bold text-stone-900">{copy.card}</h2>
+              <p className="text-xs text-stone-500">{copy.cardSubtitle}</p>
             </div>
           </div>
           <label className="relative w-full sm:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={17} />
-            <input type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Rechercher un modèle..." className="w-full rounded-lg border-stone-200 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold focus:border-amber-500 focus:ring-amber-500" />
+            <input type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder={copy.search} className="w-full rounded-lg border-stone-200 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold focus:border-amber-500 focus:ring-amber-500" />
           </label>
         </div>
 
@@ -50,10 +57,10 @@ export function OrderPriceListView({ products, formatCurrency }: OrderPriceListV
           <table className="w-full text-left">
             <thead className="bg-stone-50/80">
               <tr>
-                <th className="px-4 py-3">Modèle</th>
-                <th className="px-4 py-3 text-center">Paires/carton</th>
-                <th className="px-4 py-3 text-right">Prix unitaire</th>
-                <th className="px-4 py-3 text-right">Prix carton</th>
+                <th className="px-4 py-3">{copy.model}</th>
+                <th className="px-4 py-3 text-center">{copy.spec}</th>
+                <th className="px-4 py-3 text-right">{copy.unit}</th>
+                <th className="px-4 py-3 text-right">{copy.carton}</th>
               </tr>
             </thead>
             <tbody>
@@ -67,7 +74,7 @@ export function OrderPriceListView({ products, formatCurrency }: OrderPriceListV
               ))}
             </tbody>
           </table>
-          {visibleProducts.length === 0 && <div className="px-5 py-16 text-center text-sm font-semibold text-stone-400">Aucun produit trouvé</div>}
+          {visibleProducts.length === 0 && <div className="px-5 py-16 text-center text-sm font-semibold text-stone-400">{copy.empty}</div>}
         </div>
       </section>
     </div>
@@ -95,7 +102,7 @@ export interface CustomerOrdersPanelProps {
   formatCurrency: (value: number) => string;
   updateCustomerOrder: (orderId: string, customerName: string, items: CustomerOrderItem[], isUnpaid: boolean, paidAmount: number) => Promise<boolean>;
   deleteCustomerOrder: (orderId: string) => Promise<boolean>;
-  language?: 'zh' | 'fr';
+  language?: OrderLanguage;
   embedded?: boolean;
   searchTerm?: string;
   onSelectedDateChange?: (value: string) => void;
@@ -110,9 +117,8 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
   const [isDeleting, setIsDeleting] = useState(false);
   const [today, setToday] = useState(() => getTogoOrderDate());
   const [selectedDate, setSelectedDate] = useState(() => getTogoOrderDate());
-  const isFrench = language === 'fr';
-  const copy = isFrench
-    ? {
+  const copy = {
+    fr: {
         title: 'Commandes clients', subtitle: 'Enregistrées en temps réel', emptyTitle: 'Aucune commande enregistrée',
         emptyBody: 'Aucune commande pour cette date.', products: 'produits', boxes: 'cartons', edit: 'Modifier',
         editTitle: 'Modifier la commande', customer: 'Client', date: 'Date', product: 'Produit', addLine: 'Ajouter un produit',
@@ -121,9 +127,9 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
         underpaid: 'Manque', overpaid: 'Trop-perçu',
         todayTotal: 'Total du jour', selectedDateTotal: 'Total de la date', dateFilter: 'Filtrer par date', deleteOrder: 'Supprimer la commande', deleteTitle: 'Supprimer cette commande ?',
         deleteBody: 'Cette action est définitive. La commande ne pourra pas être récupérée.', confirmDelete: 'Supprimer', deleting: 'Suppression...',
-        customerError: 'Saisissez un nom de client valide.', lineError: 'Ajoutez au moins un produit.', productError: 'Sélectionnez un produit pour chaque ligne.', paymentError: 'Saisissez un montant payé valide.', synced: 'Synchronisée'
-      }
-    : {
+        customerError: 'Saisissez un nom de client valide.', lineError: 'Ajoutez au moins un produit.', productError: 'Sélectionnez un produit pour chaque ligne.', paymentError: 'Saisissez un montant payé valide.', boxesError: 'Saisissez un nombre entier de cartons supérieur à 0.', synced: 'Synchronisée', carton: 'carton', debtManaged: 'Géré dans les dettes', debtNotice: 'Le montant déjà payé est géré par les encaissements dans la gestion des dettes.'
+      },
+    zh: {
         title: '客户订单', subtitle: '订单实时同步显示', emptyTitle: '该日期暂无客户订单', emptyBody: '请选择其他日期查看历史订单。',
         products: '个商品', boxes: '箱', edit: '编辑', editTitle: '编辑客户订单', customer: '客户名称', date: '日期', product: '商品',
         addLine: '添加商品', remove: '移除', cancel: '取消', save: '保存修改', saving: '保存中...', customerError: '请输入有效的客户名称。',
@@ -131,8 +137,16 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
         underpaid: '少收', overpaid: '多收',
         todayTotal: '今日总额', selectedDateTotal: '所选日期总额', dateFilter: '按日期筛选', deleteOrder: '删除订单', deleteTitle: '确认删除这张订单？',
         deleteBody: '删除后无法恢复，请确认这张订单确实录入有误。', confirmDelete: '确认删除', deleting: '删除中...',
-        lineError: '订单至少需要一个商品。', productError: '请为每一行选择商品。', paymentError: '请输入有效的已付款金额。', synced: '已同步出库'
-      };
+        lineError: '订单至少需要一个商品。', productError: '请为每一行选择商品。', paymentError: '请输入有效的已付款金额。', boxesError: '箱数必须是大于 0 的整数。', synced: '已同步出库', carton: '箱', debtManaged: '请在欠款管理收款', debtNotice: '累计已付款由欠款管理中的逐笔收款记录维护，不能在订单编辑中直接修改。'
+      },
+    en: {
+        title: 'Customer orders', subtitle: 'Updated in real time', emptyTitle: 'No orders for this date', emptyBody: 'Choose another date to view previous orders.',
+        products: 'products', boxes: 'cartons', edit: 'Edit', editTitle: 'Edit order', customer: 'Customer', date: 'Date', product: 'Product', addLine: 'Add product',
+        remove: 'Remove', cancel: 'Cancel', save: 'Save changes', saving: 'Saving...', unpaid: 'Unpaid', unpaidOrder: 'Unpaid order', paidAmount: 'Amount paid', paidHint: 'Leave blank for full payment',
+        underpaid: 'Short by', overpaid: 'Overpaid by', todayTotal: "Today's total", selectedDateTotal: 'Total for date', dateFilter: 'Filter by date', deleteOrder: 'Delete order', deleteTitle: 'Delete this order?',
+        deleteBody: 'This action cannot be undone.', confirmDelete: 'Delete', deleting: 'Deleting...', customerError: 'Enter a valid customer name.', lineError: 'Add at least one product.', productError: 'Select a product for every line.', paymentError: 'Enter a valid amount paid.', boxesError: 'Enter a whole number of cartons greater than 0.', synced: 'Synced', carton: 'carton', debtManaged: 'Managed in debts', debtNotice: 'Payments are recorded in debt management and cannot be changed directly here.'
+      },
+  }[language];
 
   useEffect(() => {
     const refreshToday = () => {
@@ -206,7 +220,9 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
       const draftLines = editor.lines.map((line) => {
         const product = products.find((item) => item.id === line.productId) ?? (line.snapshot.id === line.productId ? line.snapshot : null);
         if (!product) throw new Error(copy.productError);
-        return { product, boxes: Number(line.boxes) };
+        const boxes = Number(line.boxes);
+        if (!Number.isInteger(boxes) || boxes <= 0) throw new Error(copy.boxesError);
+        return { product, boxes };
       });
       const { items, totalAmount } = buildCustomerOrderTotals(draftLines);
       const paidAmount = editor.order.hasDebtHistory
@@ -323,7 +339,7 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <strong className="block truncate text-sm text-stone-800">{item.productName}</strong>
-                                <span className="mt-1 block text-xs font-semibold text-stone-500">{item.boxes} {copy.boxes} · {item.spec}/{isFrench ? 'carton' : '箱'}</span>
+                                <span className="mt-1 block text-xs font-semibold text-stone-500">{item.boxes} {copy.boxes} · {item.spec}/{copy.carton}</span>
                               </div>
                               <strong className="customer-order-money shrink-0 text-sm font-semibold tabular-nums text-stone-700">{formatCurrency(item.subtotal)}</strong>
                             </div>
@@ -409,14 +425,14 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
                     value={editor.paidAmount}
                   disabled={editor.isUnpaid || editor.order.hasDebtHistory}
                     onChange={(event) => setEditor((current) => current ? { ...current, paidAmount: event.target.value } : current)}
-                    placeholder={editor.order.hasDebtHistory ? (isFrench ? 'Géré dans les dettes' : '请在欠款管理收款') : editor.isUnpaid ? '0' : copy.paidHint}
+                    placeholder={editor.order.hasDebtHistory ? copy.debtManaged : editor.isUnpaid ? '0' : copy.paidHint}
                     className="w-full rounded-lg border-stone-200 bg-white px-3 py-3 font-bold disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
                   />
                 </label>
               </div>
               {editor.order.hasDebtHistory && (
                 <p className="mt-3 rounded-lg bg-violet-50 px-4 py-3 text-xs font-semibold leading-5 text-violet-700">
-                  {isFrench ? 'Le montant déjà payé est géré par les encaissements dans la gestion des dettes.' : '累计已付款由欠款管理中的逐笔收款记录维护，不能在订单编辑中直接修改。'}
+                  {copy.debtNotice}
                 </p>
               )}
               {editorError && <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{editorError}</p>}
@@ -541,9 +557,10 @@ interface OrderDebtsViewProps {
   updateCustomerOrder: (orderId: string, customerName: string, items: CustomerOrderItem[], isUnpaid: boolean, paidAmount: number) => Promise<boolean>;
   saveDebtPayment: (target: DebtPaymentTarget, amount: number, paymentDate: string, paymentId?: string) => Promise<boolean>;
   deleteDebtPayment: (target: DebtPaymentTarget, payment: DebtPayment) => Promise<boolean>;
+  language?: OrderLanguage;
 }
 
-export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, saveDebtPayment, deleteDebtPayment }: OrderDebtsViewProps) {
+export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, saveDebtPayment, deleteDebtPayment, language = 'fr' }: OrderDebtsViewProps) {
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<CustomerOrder | null>(null);
   const [editCustomerName, setEditCustomerName] = useState('');
@@ -551,6 +568,11 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<DebtPaymentTarget | null>(null);
   const [editingPayment, setEditingPayment] = useState<DebtPayment | null>(null);
+  const copy = {
+    fr: { eyebrow: 'PAIEMENTS CLIENTS', title: 'Gestion des dettes', subtitle: 'Les commandes non payées ou partiellement payées apparaissent automatiquement ici.', outstanding: 'Reste à recevoir', card: 'Commandes à encaisser', pending: 'en attente', none: 'Aucune dette en cours', noneBody: 'Toutes les commandes sont intégralement payées.', unpaid: 'Non payée', short: 'Manque', editCustomer: 'Modifier le client', editDebt: 'Modifier la dette de', receive: 'Enregistrer un encaissement', receiveDebt: 'Encaisser la dette de', total: 'Total commande', paid: 'Déjà payé', remaining: 'Reste', cartons: 'cartons', editTitle: 'Modifier le paiement', cancel: 'Annuler', customer: 'Client', paymentNotice: 'Les encaissements sont enregistrés ligne par ligne avec le bouton vert. Le cumul déjà payé ne peut plus être modifié directement.', saving: 'Enregistrement...', save: 'Enregistrer', customerError: 'Saisissez un nom de client valide.' },
+    zh: { eyebrow: '客户收款', title: '欠款管理', subtitle: '未付款或部分付款的客户订单自动显示在这里。', outstanding: '待收金额', card: '待收订单', pending: '笔待收', none: '暂无欠款', noneBody: '所有订单均已付清。', unpaid: '未付款', short: '少收', editCustomer: '编辑客户', editDebt: '编辑欠款：', receive: '登记收款', receiveDebt: '收取欠款：', total: '订单总额', paid: '累计已还', remaining: '剩余欠款', cartons: '箱', editTitle: '编辑客户', cancel: '取消', customer: '客户', paymentNotice: '请使用绿色收款按钮逐笔登记回款，不能直接修改累计已还。', saving: '保存中...', save: '保存', customerError: '请输入有效的客户名称。' },
+    en: { eyebrow: 'CUSTOMER PAYMENTS', title: 'Debt management', subtitle: 'Unpaid and partly paid orders appear here automatically.', outstanding: 'Amount due', card: 'Orders to collect', pending: 'pending', none: 'No outstanding debts', noneBody: 'All orders are fully paid.', unpaid: 'Unpaid', short: 'Short by', editCustomer: 'Edit customer', editDebt: 'Edit debt for', receive: 'Record payment', receiveDebt: 'Collect debt from', total: 'Order total', paid: 'Already paid', remaining: 'Remaining', cartons: 'cartons', editTitle: 'Edit customer', cancel: 'Cancel', customer: 'Customer', paymentNotice: 'Record each payment with the green button. The amount already paid cannot be edited directly.', saving: 'Saving...', save: 'Save', customerError: 'Enter a valid customer name.' },
+  }[language];
 
   const debtOrders = useMemo(
     () => orders
@@ -587,7 +609,7 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
     if (!editingOrder) return;
     const customerName = editCustomerName.trim();
     if (!customerName || customerName.length > 100) {
-      setEditorError('Saisissez un nom de client valide.');
+      setEditorError(copy.customerError);
       return;
     }
 
@@ -608,12 +630,12 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
       <div className="space-y-6">
         <header className="page-heading-row">
           <div>
-            <span className="eyebrow">PAIEMENTS CLIENTS</span>
-            <h1 className="display-title mt-2 text-3xl sm:text-4xl">Gestion des dettes</h1>
-            <p className="mt-2 text-sm text-stone-500">Les commandes non payées ou partiellement payées apparaissent automatiquement ici.</p>
+            <span className="eyebrow">{copy.eyebrow}</span>
+            <h1 className="display-title mt-2 text-3xl sm:text-4xl">{copy.title}</h1>
+            <p className="mt-2 text-sm text-stone-500">{copy.subtitle}</p>
           </div>
           <div className="rounded-xl border border-rose-100 bg-rose-50 px-5 py-3 text-right">
-            <span className="metric-label block text-rose-600">Reste à recevoir</span>
+            <span className="metric-label block text-rose-600">{copy.outstanding}</span>
             <strong className="customer-order-money mt-1 block whitespace-nowrap text-2xl font-semibold text-rose-700">{formatCurrency(totalOutstanding)}</strong>
           </div>
         </header>
@@ -623,8 +645,8 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
             <div className="flex items-center gap-3">
               <span className="rounded-lg bg-rose-50 p-2 text-rose-700"><HandCoins size={20} /></span>
               <div>
-                <h2 className="display-title text-lg">Commandes à encaisser</h2>
-                <p className="text-xs text-stone-500">{debtOrders.length} commande{debtOrders.length === 1 ? '' : 's'} en attente</p>
+                <h2 className="display-title text-lg">{copy.card}</h2>
+                <p className="text-xs text-stone-500">{debtOrders.length} {language === 'fr' ? `commande${debtOrders.length === 1 ? '' : 's'} ${copy.pending}` : language === 'zh' ? copy.pending : `order${debtOrders.length === 1 ? '' : 's'} ${copy.pending}`}</p>
               </div>
             </div>
           </div>
@@ -632,8 +654,8 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
           {debtOrders.length === 0 ? (
             <div className="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
               <CheckCircle2 size={34} className="text-emerald-400" />
-              <h3 className="mt-4 text-base font-bold text-stone-700">Aucune dette en cours</h3>
-              <p className="mt-1 text-sm font-semibold text-stone-400">Toutes les commandes sont intégralement payées.</p>
+              <h3 className="mt-4 text-base font-bold text-stone-700">{copy.none}</h3>
+              <p className="mt-1 text-sm font-semibold text-stone-400">{copy.noneBody}</p>
             </div>
           ) : (
             <div className="divide-y divide-rose-100">
@@ -658,26 +680,26 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
                             </span>
                           </span>
                           <span className="shrink-0 rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-bold text-rose-700">
-                            {order.isUnpaid ? 'Non payée' : `Manque ${formatCurrency(remainingAmount)}`}
+                            {order.isUnpaid ? copy.unpaid : `${copy.short} ${formatCurrency(remainingAmount)}`}
                           </span>
                           <strong className="customer-order-money shrink-0 text-base font-semibold text-rose-700">{formatCurrency(remainingAmount)}</strong>
                         </div>
                       </button>
-                      <button type="button" onClick={() => openEditor(order)} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-sky-600 hover:bg-white disabled:opacity-40" title="Modifier le client" aria-label={`Modifier la dette de ${order.customerName}`}><Pencil size={16} /></button>
-                      <button type="button" onClick={() => { setEditingPayment(null); setPaymentTarget(paymentTargetFor(order)); }} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-emerald-600 hover:bg-white disabled:opacity-40" title="Enregistrer un encaissement" aria-label={`Encaisser la dette de ${order.customerName}`}><HandCoins size={17} /></button>
+                      <button type="button" onClick={() => openEditor(order)} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-sky-600 hover:bg-white disabled:opacity-40" title={copy.editCustomer} aria-label={`${copy.editDebt} ${order.customerName}`}><Pencil size={16} /></button>
+                      <button type="button" onClick={() => { setEditingPayment(null); setPaymentTarget(paymentTargetFor(order)); }} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-emerald-600 hover:bg-white disabled:opacity-40" title={copy.receive} aria-label={`${copy.receiveDebt} ${order.customerName}`}><HandCoins size={17} /></button>
                     </div>
 
                     {expanded && (
                       <div className="border-t border-rose-100 bg-white/70 px-5 py-4">
                         <div className="grid gap-3 sm:grid-cols-3">
-                          <div><span className="metric-label block">Total commande</span><strong className="mt-1 block text-sm text-stone-800">{formatCurrency(order.totalAmount)}</strong></div>
-                          <div><span className="metric-label block">Déjà payé</span><strong className="mt-1 block text-sm text-sky-700">{formatCurrency(order.paidAmount)}</strong></div>
-                          <div><span className="metric-label block">Reste</span><strong className="mt-1 block text-sm text-rose-700">{formatCurrency(remainingAmount)}</strong></div>
+                          <div><span className="metric-label block">{copy.total}</span><strong className="mt-1 block text-sm text-stone-800">{formatCurrency(order.totalAmount)}</strong></div>
+                          <div><span className="metric-label block">{copy.paid}</span><strong className="mt-1 block text-sm text-sky-700">{formatCurrency(order.paidAmount)}</strong></div>
+                          <div><span className="metric-label block">{copy.remaining}</span><strong className="mt-1 block text-sm text-rose-700">{formatCurrency(remainingAmount)}</strong></div>
                         </div>
                         <div className="mt-4 space-y-2">
                           {order.items.map((item, index) => (
                             <div key={`${item.productId}-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-white px-3 py-2.5">
-                              <span className="min-w-0"><strong className="block truncate text-sm text-stone-800">{item.productName}</strong><span className="text-xs font-semibold text-stone-500">{item.boxes} cartons</span></span>
+                              <span className="min-w-0"><strong className="block truncate text-sm text-stone-800">{item.productName}</strong><span className="text-xs font-semibold text-stone-500">{item.boxes} {copy.cartons}</span></span>
                               <strong className="customer-order-money shrink-0 text-sm text-stone-700">{formatCurrency(item.subtotal)}</strong>
                             </div>
                           ))}
@@ -685,7 +707,7 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
                         <DebtPaymentHistory
                           target={paymentTargetFor(order)}
                           formatCurrency={formatCurrency}
-                          language="fr"
+                          language={language}
                           editable
                           onEdit={(payment) => { setEditingPayment(payment); setPaymentTarget(paymentTargetFor(order)); }}
                           onDelete={(payment) => deleteDebtPayment(paymentTargetFor(order), payment)}
@@ -705,26 +727,26 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
           <div role="dialog" aria-modal="true" aria-labelledby="order-debt-editor-title" className="w-full max-w-lg rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 id="order-debt-editor-title" className="display-title text-2xl">Modifier le paiement</h2>
+                <h2 id="order-debt-editor-title" className="display-title text-2xl">{copy.editTitle}</h2>
                 <p className="mt-1 text-xs font-semibold text-stone-500">{editingOrder.orderDate}</p>
               </div>
-              <button type="button" onClick={() => setEditingOrder(null)} disabled={savingOrderId !== null} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label="Annuler"><X size={20} /></button>
+              <button type="button" onClick={() => setEditingOrder(null)} disabled={savingOrderId !== null} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label={copy.cancel}><X size={20} /></button>
             </div>
 
             <form onSubmit={saveOrderDetails} className="mt-6 space-y-5">
               <label className="block">
-                <span className="mb-2 block text-xs font-bold uppercase tracking-widest text-stone-500">Client</span>
+                <span className="mb-2 block text-xs font-bold uppercase tracking-widest text-stone-500">{copy.customer}</span>
                 <input type="text" value={editCustomerName} onChange={(event) => setEditCustomerName(event.target.value)} maxLength={100} className="w-full rounded-lg px-3 py-3 font-bold" />
               </label>
               <div className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-3">
-                <span className="metric-label block">Total commande</span>
+                <span className="metric-label block">{copy.total}</span>
                 <strong className="customer-order-money mt-1 block text-xl text-[#7c3037]">{formatCurrency(editingOrder.totalAmount)}</strong>
               </div>
-              <p className="rounded-lg bg-violet-50 px-4 py-3 text-sm font-semibold leading-5 text-violet-700">Les encaissements sont enregistrés ligne par ligne avec le bouton vert. Le cumul déjà payé ne peut plus être modifié directement.</p>
+              <p className="rounded-lg bg-violet-50 px-4 py-3 text-sm font-semibold leading-5 text-violet-700">{copy.paymentNotice}</p>
               {editorError && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{editorError}</p>}
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <button type="button" onClick={() => setEditingOrder(null)} disabled={savingOrderId !== null} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">Annuler</button>
-                <button type="submit" disabled={savingOrderId !== null} className="flex items-center justify-center gap-2 rounded-lg bg-[#7c3037] px-5 py-3 font-bold text-white disabled:opacity-60"><Save size={17} />{savingOrderId ? 'Enregistrement...' : 'Enregistrer'}</button>
+                <button type="button" onClick={() => setEditingOrder(null)} disabled={savingOrderId !== null} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">{copy.cancel}</button>
+                <button type="submit" disabled={savingOrderId !== null} className="flex items-center justify-center gap-2 rounded-lg bg-[#7c3037] px-5 py-3 font-bold text-white disabled:opacity-60"><Save size={17} />{savingOrderId ? copy.saving : copy.save}</button>
               </div>
             </form>
           </div>
@@ -735,7 +757,7 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
           target={paymentTarget}
           payment={editingPayment}
           formatCurrency={formatCurrency}
-          language="fr"
+          language={language}
           onClose={() => { setPaymentTarget(null); setEditingPayment(null); }}
           onSave={(amount, paymentDate, paymentId) => saveDebtPayment(paymentTarget, amount, paymentDate, paymentId)}
         />

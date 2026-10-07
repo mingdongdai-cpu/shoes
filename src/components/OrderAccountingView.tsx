@@ -3,6 +3,7 @@ import { Banknote, CalendarDays, Calculator, ChevronDown, ChevronUp, Pencil, Rec
 import type { CashDenominationCounts, CashDenominationKey, OrderCashCount, OrderDailyExpense } from '../types';
 import { calculateCashTotal, CASH_DENOMINATIONS, createEmptyCashCounts, filterOrderExpensesByDate } from '../lib/orderAccounting';
 import { getTogoOrderDate } from '../lib/customerOrders';
+import type { OrderLanguage } from '../lib/orderLanguage';
 
 type CashDraft = Record<CashDenominationKey, string>;
 
@@ -15,12 +16,12 @@ function cashCountsToDraft(counts: CashDenominationCounts): CashDraft {
   ) as CashDraft;
 }
 
-function draftToCashCounts(draft: CashDraft): CashDenominationCounts {
+function draftToCashCounts(draft: CashDraft, errorMessage = 'Saisissez un nombre de billets valide.'): CashDenominationCounts {
   const counts = createEmptyCashCounts();
   for (const denomination of CASH_DENOMINATIONS) {
     const key = String(denomination) as CashDenominationKey;
     const value = draft[key].trim() === '' ? 0 : Number(draft[key]);
-    if (!Number.isInteger(value) || value < 0) throw new Error('Saisissez un nombre de billets valide.');
+    if (!Number.isInteger(value) || value < 0) throw new Error(errorMessage);
     counts[key] = value;
   }
   return counts;
@@ -36,6 +37,7 @@ interface OrderAccountingViewProps {
   deleteDailyExpense: (expenseId: string) => Promise<boolean>;
   formatCurrency: (value: number) => string;
   onSelectedDateChange?: (value: string) => void;
+  language?: OrderLanguage;
 }
 
 export function OrderAccountingView({
@@ -47,8 +49,14 @@ export function OrderAccountingView({
   updateDailyExpense,
   deleteDailyExpense,
   formatCurrency,
-  onSelectedDateChange
+  onSelectedDateChange,
+  language = 'fr'
 }: OrderAccountingViewProps) {
+  const copy = {
+    fr: { eyebrow: 'SUIVI QUOTIDIEN', title: 'Gestion comptable', subtitle: 'Comptez la caisse et enregistrez les dépenses de chaque journée.', viewedDate: 'Date consultée', selectDate: 'Sélectionner la date comptable', cashTitle: 'Caisse du jour', saved: 'Enregistrée', denomination: 'Nombre de billets de', cashTotal: 'Total compté', saving: 'Enregistrement...', saveChanges: 'Enregistrer les modifications', saveCash: 'Enregistrer la caisse', expenseTitle: 'Dépense du jour', expenseSubtitle: 'Ajoutez une dépense à la journée.', date: 'Date', amount: 'Montant (XOF)', remark: 'Remarque', remarkPlaceholder: 'Ex. transport, repas...', saveExpense: 'Enregistrer la dépense', accounts: 'Comptes du', accountsSubtitle: 'Caisse et dépenses enregistrées', expenses: 'Dépenses', cashSaved: 'Caisse enregistrée', notes: 'billets', noCash: 'Aucune caisse enregistrée', noCashBody: 'Saisissez les billets pour cette date.', noExpenses: 'Aucune dépense enregistrée', editCash: 'Modifier la caisse', deleteCash: 'Supprimer la caisse', editExpense: 'Modifier la dépense', deleteExpense: 'Supprimer la dépense', close: 'Fermer', editDenomination: 'Modifier le nombre de billets de', cancel: 'Annuler', save: 'Enregistrer', deleteCashTitle: 'Supprimer cette caisse ?', deleteCashBody: 'Cette action est définitive. Vous pourrez ensuite refaire la saisie.', deleting: 'Suppression...', delete: 'Supprimer', deleteExpenseTitle: 'Supprimer cette dépense ?', deleteExpenseBody: 'Cette action est définitive.', invalidCount: 'Saisissez un nombre de billets valide.', invalidCashSave: 'Impossible d’enregistrer la caisse.', invalidCashEdit: 'Impossible de modifier la caisse.', invalidExpense: 'Saisissez une date, un montant et une remarque valides.' },
+    zh: { eyebrow: '每日记账', title: '记账管理', subtitle: '盘点每日现金并记录当天支出。', viewedDate: '查看日期', selectDate: '选择记账日期', cashTitle: '今日现金', saved: '已保存', denomination: '面额张数：', cashTotal: '盘点总额', saving: '保存中...', saveChanges: '保存修改', saveCash: '保存现金盘点', expenseTitle: '本日消费', expenseSubtitle: '记录当天的消费。', date: '日期', amount: '金额 (XOF)', remark: '备注', remarkPlaceholder: '例如交通、餐饮...', saveExpense: '保存消费', accounts: '记账日期：', accountsSubtitle: '现金盘点与消费记录', expenses: '消费', cashSaved: '已保存现金盘点', notes: '张', noCash: '暂无现金盘点', noCashBody: '请填写该日期的面额张数。', noExpenses: '暂无消费记录', editCash: '编辑现金盘点', deleteCash: '删除现金盘点', editExpense: '编辑消费', deleteExpense: '删除消费', close: '关闭', editDenomination: '修改面额张数：', cancel: '取消', save: '保存', deleteCashTitle: '删除这笔现金盘点？', deleteCashBody: '删除后无法恢复，可重新录入。', deleting: '删除中...', delete: '删除', deleteExpenseTitle: '删除这笔消费？', deleteExpenseBody: '删除后无法恢复。', invalidCount: '请输入有效的面额张数。', invalidCashSave: '现金盘点保存失败。', invalidCashEdit: '现金盘点修改失败。', invalidExpense: '请输入有效的日期、金额和备注。' },
+    en: { eyebrow: 'DAILY RECORDS', title: 'Accounting', subtitle: 'Count cash and record daily expenses.', viewedDate: 'View date', selectDate: 'Select accounting date', cashTitle: 'Daily cash', saved: 'Saved', denomination: 'Number of notes of', cashTotal: 'Cash total', saving: 'Saving...', saveChanges: 'Save changes', saveCash: 'Save cash count', expenseTitle: 'Daily expense', expenseSubtitle: 'Add an expense for the day.', date: 'Date', amount: 'Amount (XOF)', remark: 'Note', remarkPlaceholder: 'e.g. transport, meals...', saveExpense: 'Save expense', accounts: 'Records for', accountsSubtitle: 'Saved cash count and expenses', expenses: 'Expenses', cashSaved: 'Cash count saved', notes: 'notes', noCash: 'No cash count saved', noCashBody: 'Enter the number of notes for this date.', noExpenses: 'No expenses saved', editCash: 'Edit cash count', deleteCash: 'Delete cash count', editExpense: 'Edit expense', deleteExpense: 'Delete expense', close: 'Close', editDenomination: 'Edit number of notes of', cancel: 'Cancel', save: 'Save', deleteCashTitle: 'Delete this cash count?', deleteCashBody: 'This cannot be undone. You can enter it again later.', deleting: 'Deleting...', delete: 'Delete', deleteExpenseTitle: 'Delete this expense?', deleteExpenseBody: 'This cannot be undone.', invalidCount: 'Enter a valid number of notes.', invalidCashSave: 'Could not save the cash count.', invalidCashEdit: 'Could not edit the cash count.', invalidExpense: 'Enter a valid date, amount, and note.' },
+  }[language];
   const [today, setToday] = useState(() => getTogoOrderDate());
   const [selectedDate, setSelectedDate] = useState(() => getTogoOrderDate());
   const [cashDraft, setCashDraft] = useState<CashDraft>(() => cashCountsToDraft(createEmptyCashCounts()));
@@ -127,13 +135,13 @@ export function OrderAccountingView({
   const submitCash = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      const counts = draftToCashCounts(cashDraft);
+      const counts = draftToCashCounts(cashDraft, copy.invalidCount);
       setCashError('');
       setSavingCash(true);
       const saved = await saveCashCount(selectedDate, counts);
       if (saved) setCashDraft(cashCountsToDraft(createEmptyCashCounts()));
     } catch (error) {
-      setCashError(error instanceof Error ? error.message : 'Impossible d’enregistrer la caisse.');
+      setCashError(error instanceof Error ? error.message : copy.invalidCashSave);
     } finally {
       setSavingCash(false);
     }
@@ -144,7 +152,7 @@ export function OrderAccountingView({
     const amount = Number(expenseAmount);
     const remark = expenseRemark.trim();
     if (!expenseDate || !Number.isInteger(amount) || amount <= 0 || !remark) {
-      setExpenseError('Saisissez une date, un montant et une remarque valides.');
+      setExpenseError(copy.invalidExpense);
       return;
     }
     setExpenseError('');
@@ -168,13 +176,13 @@ export function OrderAccountingView({
     event.preventDefault();
     if (!editingCashCount) return;
     try {
-      const counts = draftToCashCounts(editCashDraft);
+      const counts = draftToCashCounts(editCashDraft, copy.invalidCount);
       setEditCashError('');
       setUpdatingCash(true);
       const saved = await saveCashCount(editingCashCount.recordDate, counts);
       if (saved) setEditingCashCount(null);
     } catch (error) {
-      setEditCashError(error instanceof Error ? error.message : 'Impossible de modifier la caisse.');
+      setEditCashError(error instanceof Error ? error.message : copy.invalidCashEdit);
     } finally {
       setUpdatingCash(false);
     }
@@ -206,7 +214,7 @@ export function OrderAccountingView({
     const amount = Number(editAmount);
     const remark = editRemark.trim();
     if (!editDate || !Number.isInteger(amount) || amount <= 0 || !remark) {
-      setEditError('Saisissez une date, un montant et une remarque valides.');
+      setEditError(copy.invalidExpense);
       return;
     }
     setEditError('');
@@ -232,13 +240,13 @@ export function OrderAccountingView({
       <div className="space-y-6">
         <header className="page-heading-row">
           <div>
-            <span className="eyebrow">SUIVI QUOTIDIEN</span>
-            <h1 className="display-title mt-2 text-3xl sm:text-4xl">Gestion comptable</h1>
-            <p className="mt-2 text-sm text-stone-500">Comptez la caisse et enregistrez les dépenses de chaque journée.</p>
+            <span className="eyebrow">{copy.eyebrow}</span>
+            <h1 className="display-title mt-2 text-3xl sm:text-4xl">{copy.title}</h1>
+            <p className="mt-2 text-sm text-stone-500">{copy.subtitle}</p>
           </div>
           <label className="rounded-xl border border-stone-200 bg-white px-4 py-3">
-            <span className="metric-label mb-1.5 block">Date consultée</span>
-            <input type="date" value={selectedDate} onInput={(event) => setSelectedDate(event.currentTarget.value)} className="rounded-lg border-stone-200 bg-stone-50 px-3 py-2 text-sm font-bold text-stone-700" aria-label="Sélectionner la date comptable" />
+            <span className="metric-label mb-1.5 block">{copy.viewedDate}</span>
+            <input type="date" value={selectedDate} onInput={(event) => setSelectedDate(event.currentTarget.value)} className="rounded-lg border-stone-200 bg-stone-50 px-3 py-2 text-sm font-bold text-stone-700" aria-label={copy.selectDate} />
           </label>
         </header>
 
@@ -248,9 +256,9 @@ export function OrderAccountingView({
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><Banknote size={20} /></span>
-                  <div><h2 className="display-title text-lg">Caisse du jour</h2><p className="text-xs font-semibold text-stone-500">{selectedDate}</p></div>
+                  <div><h2 className="display-title text-lg">{copy.cashTitle}</h2><p className="text-xs font-semibold text-stone-500">{selectedDate}</p></div>
                 </div>
-                {selectedCashCount && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Enregistrée</span>}
+                {selectedCashCount && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">{copy.saved}</span>}
               </div>
 
               <form onSubmit={submitCash}>
@@ -260,39 +268,39 @@ export function OrderAccountingView({
                     return (
                       <label key={denomination} className="block min-w-0 rounded-lg border border-stone-200 bg-stone-50/70 p-2">
                         <span className="mb-1 block text-xs font-bold tabular-nums text-stone-700">{denomination.toLocaleString('fr-FR')} XOF</span>
-                        <input type="number" inputMode="numeric" min="0" step="1" value={cashDraft[key]} onChange={(event) => setCashDraft((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-md border-stone-200 bg-white px-2.5 py-1.5 text-right font-bold tabular-nums focus:border-emerald-500 focus:ring-emerald-500" aria-label={`Nombre de billets de ${denomination}`} />
+                        <input type="number" inputMode="numeric" min="0" step="1" value={cashDraft[key]} onChange={(event) => setCashDraft((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-md border-stone-200 bg-white px-2.5 py-1.5 text-right font-bold tabular-nums focus:border-emerald-500 focus:ring-emerald-500" aria-label={`${copy.denomination} ${denomination}`} />
                       </label>
                     );
                   })}
                 </div>
                 <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
-                  <span className="metric-label block text-emerald-700">Total compté</span>
+                  <span className="metric-label block text-emerald-700">{copy.cashTotal}</span>
                   <strong className="customer-order-money mt-1 block text-2xl font-semibold text-emerald-800">{formatCurrency(draftCashTotal)}</strong>
                 </div>
                 {cashError && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{cashError}</p>}
-                <button type="submit" disabled={savingCash} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[#2e6249] px-4 py-2.5 font-bold text-white hover:bg-[#25513c] disabled:opacity-60"><Save size={17} />{savingCash ? 'Enregistrement...' : selectedCashCount ? 'Enregistrer les modifications' : 'Enregistrer la caisse'}</button>
+                <button type="submit" disabled={savingCash} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[#2e6249] px-4 py-2.5 font-bold text-white hover:bg-[#25513c] disabled:opacity-60"><Save size={17} />{savingCash ? copy.saving : selectedCashCount ? copy.saveChanges : copy.saveCash}</button>
               </form>
             </section>
 
             <section className="section-panel p-5 sm:p-6">
               <div className="mb-5 flex items-center gap-3">
                 <span className="rounded-lg bg-amber-50 p-2 text-amber-700"><ReceiptText size={20} /></span>
-                <div><h2 className="display-title text-lg">Dépense du jour</h2><p className="text-xs text-stone-500">Ajoutez une dépense à la journée.</p></div>
+                <div><h2 className="display-title text-lg">{copy.expenseTitle}</h2><p className="text-xs text-stone-500">{copy.expenseSubtitle}</p></div>
               </div>
               <form onSubmit={submitExpense} className="space-y-4">
-                <label className="block"><span className="metric-label mb-2 block">Date</span><input type="date" required value={expenseDate} onChange={(event) => setExpenseDate(event.target.value)} className="w-full rounded-lg border-stone-200 bg-white px-3 py-3 font-bold" /></label>
-                <label className="block"><span className="metric-label mb-2 block">Montant (XOF)</span><input type="number" inputMode="numeric" required min="1" step="1" value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} placeholder="0" className="w-full rounded-lg border-stone-200 bg-white px-3 py-3 font-bold" /></label>
-                <label className="block"><span className="metric-label mb-2 block">Remarque</span><textarea required maxLength={500} rows={3} value={expenseRemark} onChange={(event) => setExpenseRemark(event.target.value)} placeholder="Ex. transport, repas..." className="w-full resize-none rounded-lg border-stone-200 bg-white px-3 py-3 font-semibold" /></label>
+                <label className="block"><span className="metric-label mb-2 block">{copy.date}</span><input type="date" required value={expenseDate} onChange={(event) => setExpenseDate(event.target.value)} className="w-full rounded-lg border-stone-200 bg-white px-3 py-3 font-bold" /></label>
+                <label className="block"><span className="metric-label mb-2 block">{copy.amount}</span><input type="number" inputMode="numeric" required min="1" step="1" value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)} placeholder="0" className="w-full rounded-lg border-stone-200 bg-white px-3 py-3 font-bold" /></label>
+                <label className="block"><span className="metric-label mb-2 block">{copy.remark}</span><textarea required maxLength={500} rows={3} value={expenseRemark} onChange={(event) => setExpenseRemark(event.target.value)} placeholder={copy.remarkPlaceholder} className="w-full resize-none rounded-lg border-stone-200 bg-white px-3 py-3 font-semibold" /></label>
                 {expenseError && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{expenseError}</p>}
-                <button type="submit" disabled={savingExpense} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#7c3037] px-4 py-3 font-bold text-white hover:bg-[#68272e] disabled:opacity-60"><Save size={17} />{savingExpense ? 'Enregistrement...' : 'Enregistrer la dépense'}</button>
+                <button type="submit" disabled={savingExpense} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#7c3037] px-4 py-3 font-bold text-white hover:bg-[#68272e] disabled:opacity-60"><Save size={17} />{savingExpense ? copy.saving : copy.saveExpense}</button>
               </form>
             </section>
           </div>
 
           <section className="section-panel self-start overflow-hidden">
             <div className="section-panel-header">
-              <div className="flex items-center gap-3"><span className="rounded-lg bg-violet-50 p-2 text-violet-700"><WalletCards size={20} /></span><div><h2 className="display-title text-lg">Comptes du {selectedDate}</h2><p className="text-xs text-stone-500">Caisse et dépenses enregistrées</p></div></div>
-              <div className="text-right"><span className="metric-label block">Dépenses</span><strong className="customer-order-money text-lg text-[#7c3037]">{formatCurrency(expenseTotal)}</strong></div>
+              <div className="flex items-center gap-3"><span className="rounded-lg bg-violet-50 p-2 text-violet-700"><WalletCards size={20} /></span><div><h2 className="display-title text-lg">{copy.accounts} {selectedDate}</h2><p className="text-xs text-stone-500">{copy.accountsSubtitle}</p></div></div>
+              <div className="text-right"><span className="metric-label block">{copy.expenses}</span><strong className="customer-order-money text-lg text-[#7c3037]">{formatCurrency(expenseTotal)}</strong></div>
             </div>
 
             <div className="space-y-4 p-4 sm:p-5">
@@ -300,16 +308,16 @@ export function OrderAccountingView({
                 <article className="overflow-hidden rounded-xl border border-emerald-100 bg-emerald-50/55">
                   <div className="flex items-center gap-2 p-4">
                     <button type="button" onClick={() => setCashExpanded((current) => !current)} aria-expanded={cashExpanded} className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left">
-                      <span className="flex min-w-0 items-center gap-3"><span className="text-emerald-500">{cashExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</span><span><strong className="block text-sm text-stone-900">Caisse enregistrée</strong><span className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-stone-500"><CalendarDays size={13} />{selectedCashCount.recordDate}</span></span></span>
+                      <span className="flex min-w-0 items-center gap-3"><span className="text-emerald-500">{cashExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</span><span><strong className="block text-sm text-stone-900">{copy.cashSaved}</strong><span className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-stone-500"><CalendarDays size={13} />{selectedCashCount.recordDate}</span></span></span>
                       <strong className="customer-order-money shrink-0 text-lg text-emerald-700">{formatCurrency(selectedCashCount.totalAmount)}</strong>
                     </button>
-                    <button type="button" onClick={() => openCashEditor(selectedCashCount)} className="rounded-lg p-2 text-sky-600 hover:bg-white" aria-label="Modifier la caisse"><Pencil size={16} /></button>
-                    <button type="button" onClick={() => setCashPendingDeletion(selectedCashCount)} className="rounded-lg p-2 text-rose-600 hover:bg-white" aria-label="Supprimer la caisse"><Trash2 size={16} /></button>
+                    <button type="button" onClick={() => openCashEditor(selectedCashCount)} className="rounded-lg p-2 text-sky-600 hover:bg-white" aria-label={copy.editCash}><Pencil size={16} /></button>
+                    <button type="button" onClick={() => setCashPendingDeletion(selectedCashCount)} className="rounded-lg p-2 text-rose-600 hover:bg-white" aria-label={copy.deleteCash}><Trash2 size={16} /></button>
                   </div>
-                  {cashExpanded && <div className="border-t border-emerald-100 bg-white/75 p-4"><div className="grid gap-2 sm:grid-cols-2">{CASH_DENOMINATIONS.map((denomination) => { const key = String(denomination) as CashDenominationKey; return <div key={denomination} className="flex items-center justify-between rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm"><span className="font-semibold text-stone-500">{denomination.toLocaleString('fr-FR')} XOF</span><strong className="tabular-nums text-stone-800">{selectedCashCount.counts[key]} billet{selectedCashCount.counts[key] === 1 ? '' : 's'}</strong></div>; })}</div></div>}
+                  {cashExpanded && <div className="border-t border-emerald-100 bg-white/75 p-4"><div className="grid gap-2 sm:grid-cols-2">{CASH_DENOMINATIONS.map((denomination) => { const key = String(denomination) as CashDenominationKey; return <div key={denomination} className="flex items-center justify-between rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm"><span className="font-semibold text-stone-500">{denomination.toLocaleString('fr-FR')} XOF</span><strong className="tabular-nums text-stone-800">{selectedCashCount.counts[key]} {language === 'zh' ? copy.notes : language === 'fr' ? `billet${selectedCashCount.counts[key] === 1 ? '' : 's'}` : `note${selectedCashCount.counts[key] === 1 ? '' : 's'}`}</strong></div>; })}</div></div>}
                 </article>
               ) : (
-                <div className="rounded-xl border border-dashed border-stone-200 px-5 py-8 text-center"><Calculator size={28} className="mx-auto text-stone-300" /><p className="mt-3 text-sm font-bold text-stone-600">Aucune caisse enregistrée</p><p className="mt-1 text-xs text-stone-400">Saisissez les billets pour cette date.</p></div>
+                <div className="rounded-xl border border-dashed border-stone-200 px-5 py-8 text-center"><Calculator size={28} className="mx-auto text-stone-300" /><p className="mt-3 text-sm font-bold text-stone-600">{copy.noCash}</p><p className="mt-1 text-xs text-stone-400">{copy.noCashBody}</p></div>
               )}
 
               <div className="space-y-3">
@@ -318,24 +326,24 @@ export function OrderAccountingView({
                     <span className="rounded-lg bg-amber-50 p-2 text-amber-700"><ReceiptText size={18} /></span>
                     <span className="min-w-0 flex-1"><strong className="block truncate text-sm text-stone-900">{expense.remark}</strong><span className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-stone-500"><CalendarDays size={13} />{expense.expenseDate}</span></span>
                     <strong className="customer-order-money shrink-0 text-base text-[#7c3037]">{formatCurrency(expense.amount)}</strong>
-                    <button type="button" onClick={() => openExpenseEditor(expense)} className="rounded-lg p-2 text-sky-600 hover:bg-stone-50" aria-label={`Modifier la dépense ${expense.remark}`}><Pencil size={16} /></button>
-                    <button type="button" onClick={() => setExpensePendingDeletion(expense)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50" aria-label={`Supprimer la dépense ${expense.remark}`}><Trash2 size={16} /></button>
+                    <button type="button" onClick={() => openExpenseEditor(expense)} className="rounded-lg p-2 text-sky-600 hover:bg-stone-50" aria-label={`${copy.editExpense} ${expense.remark}`}><Pencil size={16} /></button>
+                    <button type="button" onClick={() => setExpensePendingDeletion(expense)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50" aria-label={`${copy.deleteExpense} ${expense.remark}`}><Trash2 size={16} /></button>
                   </article>
                 ))}
-                {selectedExpenses.length === 0 && <div className="rounded-xl border border-dashed border-stone-200 px-5 py-8 text-center"><ReceiptText size={28} className="mx-auto text-stone-300" /><p className="mt-3 text-sm font-bold text-stone-600">Aucune dépense enregistrée</p></div>}
+                {selectedExpenses.length === 0 && <div className="rounded-xl border border-dashed border-stone-200 px-5 py-8 text-center"><ReceiptText size={28} className="mx-auto text-stone-300" /><p className="mt-3 text-sm font-bold text-stone-600">{copy.noExpenses}</p></div>}
               </div>
             </div>
           </section>
         </div>
       </div>
 
-      {editingCashCount && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4"><div role="dialog" aria-modal="true" aria-labelledby="cash-editor-title" className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7"><div className="flex items-center justify-between gap-4"><div><h2 id="cash-editor-title" className="display-title text-2xl">Modifier la caisse</h2><p className="mt-1 text-sm font-semibold text-stone-500">{editingCashCount.recordDate}</p></div><button type="button" onClick={() => setEditingCashCount(null)} disabled={updatingCash} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label="Fermer"><X size={20} /></button></div><form onSubmit={submitCashEdit} className="mt-6"><div className="grid gap-3 sm:grid-cols-2">{CASH_DENOMINATIONS.map((denomination) => { const key = String(denomination) as CashDenominationKey; return <label key={denomination} className="block rounded-lg border border-stone-200 bg-stone-50/70 p-3"><span className="metric-label mb-2 block">{denomination.toLocaleString('fr-FR')} XOF</span><input type="number" inputMode="numeric" min="0" step="1" value={editCashDraft[key]} onChange={(event) => setEditCashDraft((current) => ({ ...current, [key]: event.target.value }))} placeholder="0" className="w-full rounded-lg border-stone-200 bg-white px-3 py-2.5 text-right font-bold tabular-nums focus:border-emerald-500 focus:ring-emerald-500" aria-label={`Modifier le nombre de billets de ${denomination}`} /></label>; })}</div><div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3"><span className="metric-label block text-emerald-700">Total compté</span><strong className="customer-order-money mt-1 block text-2xl font-semibold text-emerald-800">{formatCurrency(editCashTotal)}</strong></div>{editCashError && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{editCashError}</p>}<div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => setEditingCashCount(null)} disabled={updatingCash} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">Annuler</button><button type="submit" disabled={updatingCash} className="flex items-center justify-center gap-2 rounded-lg bg-[#2e6249] px-5 py-3 font-bold text-white disabled:opacity-60"><Save size={17} />{updatingCash ? 'Enregistrement...' : 'Enregistrer'}</button></div></form></div></div>}
+      {editingCashCount && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4"><div role="dialog" aria-modal="true" aria-labelledby="cash-editor-title" className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7"><div className="flex items-center justify-between gap-4"><div><h2 id="cash-editor-title" className="display-title text-2xl">{copy.editCash}</h2><p className="mt-1 text-sm font-semibold text-stone-500">{editingCashCount.recordDate}</p></div><button type="button" onClick={() => setEditingCashCount(null)} disabled={updatingCash} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label={copy.close}><X size={20} /></button></div><form onSubmit={submitCashEdit} className="mt-6"><div className="grid gap-3 sm:grid-cols-2">{CASH_DENOMINATIONS.map((denomination) => { const key = String(denomination) as CashDenominationKey; return <label key={denomination} className="block rounded-lg border border-stone-200 bg-stone-50/70 p-3"><span className="metric-label mb-2 block">{denomination.toLocaleString('fr-FR')} XOF</span><input type="number" inputMode="numeric" min="0" step="1" value={editCashDraft[key]} onChange={(event) => setEditCashDraft((current) => ({ ...current, [key]: event.target.value }))} placeholder="0" className="w-full rounded-lg border-stone-200 bg-white px-3 py-2.5 text-right font-bold tabular-nums focus:border-emerald-500 focus:ring-emerald-500" aria-label={`${copy.editDenomination} ${denomination}`} /></label>; })}</div><div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3"><span className="metric-label block text-emerald-700">{copy.cashTotal}</span><strong className="customer-order-money mt-1 block text-2xl font-semibold text-emerald-800">{formatCurrency(editCashTotal)}</strong></div>{editCashError && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{editCashError}</p>}<div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => setEditingCashCount(null)} disabled={updatingCash} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">{copy.cancel}</button><button type="submit" disabled={updatingCash} className="flex items-center justify-center gap-2 rounded-lg bg-[#2e6249] px-5 py-3 font-bold text-white disabled:opacity-60"><Save size={17} />{updatingCash ? copy.saving : copy.save}</button></div></form></div></div>}
 
-      {cashPendingDeletion && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4"><div role="alertdialog" aria-modal="true" aria-labelledby="cash-delete-title" className="w-full max-w-md rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7"><h2 id="cash-delete-title" className="display-title text-2xl">Supprimer cette caisse ?</h2><p className="mt-3 text-sm leading-6 text-stone-500">{cashPendingDeletion.recordDate} · {formatCurrency(cashPendingDeletion.totalAmount)}</p><p className="mt-1 text-sm font-semibold text-rose-600">Cette action est définitive. Vous pourrez ensuite refaire la saisie.</p><div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => setCashPendingDeletion(null)} disabled={deletingCash} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">Annuler</button><button type="button" onClick={confirmCashDeletion} disabled={deletingCash} className="flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-5 py-3 font-bold text-white disabled:opacity-60"><Trash2 size={17} />{deletingCash ? 'Suppression...' : 'Supprimer'}</button></div></div></div>}
+      {cashPendingDeletion && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4"><div role="alertdialog" aria-modal="true" aria-labelledby="cash-delete-title" className="w-full max-w-md rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7"><h2 id="cash-delete-title" className="display-title text-2xl">{copy.deleteCashTitle}</h2><p className="mt-3 text-sm leading-6 text-stone-500">{cashPendingDeletion.recordDate} · {formatCurrency(cashPendingDeletion.totalAmount)}</p><p className="mt-1 text-sm font-semibold text-rose-600">{copy.deleteCashBody}</p><div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => setCashPendingDeletion(null)} disabled={deletingCash} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">{copy.cancel}</button><button type="button" onClick={confirmCashDeletion} disabled={deletingCash} className="flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-5 py-3 font-bold text-white disabled:opacity-60"><Trash2 size={17} />{deletingCash ? copy.deleting : copy.delete}</button></div></div></div>}
 
-      {editingExpense && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4"><div role="dialog" aria-modal="true" aria-labelledby="expense-editor-title" className="w-full max-w-lg rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7"><div className="flex items-center justify-between gap-4"><h2 id="expense-editor-title" className="display-title text-2xl">Modifier la dépense</h2><button type="button" onClick={() => setEditingExpense(null)} disabled={updatingExpense} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label="Fermer"><X size={20} /></button></div><form onSubmit={submitExpenseEdit} className="mt-6 space-y-4"><label className="block"><span className="metric-label mb-2 block">Date</span><input type="date" required value={editDate} onChange={(event) => setEditDate(event.target.value)} className="w-full rounded-lg border-stone-200 px-3 py-3 font-bold" /></label><label className="block"><span className="metric-label mb-2 block">Montant (XOF)</span><input type="number" inputMode="numeric" required min="1" step="1" value={editAmount} onChange={(event) => setEditAmount(event.target.value)} className="w-full rounded-lg border-stone-200 px-3 py-3 font-bold" /></label><label className="block"><span className="metric-label mb-2 block">Remarque</span><textarea required maxLength={500} rows={3} value={editRemark} onChange={(event) => setEditRemark(event.target.value)} className="w-full resize-none rounded-lg border-stone-200 px-3 py-3 font-semibold" /></label>{editError && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{editError}</p>}<div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end"><button type="button" onClick={() => setEditingExpense(null)} disabled={updatingExpense} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">Annuler</button><button type="submit" disabled={updatingExpense} className="flex items-center justify-center gap-2 rounded-lg bg-[#7c3037] px-5 py-3 font-bold text-white disabled:opacity-60"><Save size={17} />{updatingExpense ? 'Enregistrement...' : 'Enregistrer'}</button></div></form></div></div>}
+      {editingExpense && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4"><div role="dialog" aria-modal="true" aria-labelledby="expense-editor-title" className="w-full max-w-lg rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7"><div className="flex items-center justify-between gap-4"><h2 id="expense-editor-title" className="display-title text-2xl">{copy.editExpense}</h2><button type="button" onClick={() => setEditingExpense(null)} disabled={updatingExpense} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100" aria-label={copy.close}><X size={20} /></button></div><form onSubmit={submitExpenseEdit} className="mt-6 space-y-4"><label className="block"><span className="metric-label mb-2 block">{copy.date}</span><input type="date" required value={editDate} onChange={(event) => setEditDate(event.target.value)} className="w-full rounded-lg border-stone-200 px-3 py-3 font-bold" /></label><label className="block"><span className="metric-label mb-2 block">{copy.amount}</span><input type="number" inputMode="numeric" required min="1" step="1" value={editAmount} onChange={(event) => setEditAmount(event.target.value)} className="w-full rounded-lg border-stone-200 px-3 py-3 font-bold" /></label><label className="block"><span className="metric-label mb-2 block">{copy.remark}</span><textarea required maxLength={500} rows={3} value={editRemark} onChange={(event) => setEditRemark(event.target.value)} className="w-full resize-none rounded-lg border-stone-200 px-3 py-3 font-semibold" /></label>{editError && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{editError}</p>}<div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end"><button type="button" onClick={() => setEditingExpense(null)} disabled={updatingExpense} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">{copy.cancel}</button><button type="submit" disabled={updatingExpense} className="flex items-center justify-center gap-2 rounded-lg bg-[#7c3037] px-5 py-3 font-bold text-white disabled:opacity-60"><Save size={17} />{updatingExpense ? copy.saving : copy.save}</button></div></form></div></div>}
 
-      {expensePendingDeletion && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4"><div role="alertdialog" aria-modal="true" aria-labelledby="expense-delete-title" className="w-full max-w-md rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7"><h2 id="expense-delete-title" className="display-title text-2xl">Supprimer cette dépense ?</h2><p className="mt-3 text-sm leading-6 text-stone-500">{expensePendingDeletion.remark} · {formatCurrency(expensePendingDeletion.amount)}</p><p className="mt-1 text-sm font-semibold text-rose-600">Cette action est définitive.</p><div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => setExpensePendingDeletion(null)} disabled={deletingExpense} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">Annuler</button><button type="button" onClick={confirmExpenseDeletion} disabled={deletingExpense} className="flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-5 py-3 font-bold text-white disabled:opacity-60"><Trash2 size={17} />{deletingExpense ? 'Suppression...' : 'Supprimer'}</button></div></div></div>}
+      {expensePendingDeletion && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4"><div role="alertdialog" aria-modal="true" aria-labelledby="expense-delete-title" className="w-full max-w-md rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7"><h2 id="expense-delete-title" className="display-title text-2xl">{copy.deleteExpenseTitle}</h2><p className="mt-3 text-sm leading-6 text-stone-500">{expensePendingDeletion.remark} · {formatCurrency(expensePendingDeletion.amount)}</p><p className="mt-1 text-sm font-semibold text-rose-600">{copy.deleteExpenseBody}</p><div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => setExpensePendingDeletion(null)} disabled={deletingExpense} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">{copy.cancel}</button><button type="button" onClick={confirmExpenseDeletion} disabled={deletingExpense} className="flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-5 py-3 font-bold text-white disabled:opacity-60"><Trash2 size={17} />{deletingExpense ? copy.deleting : copy.delete}</button></div></div></div>}
     </>
   );
 }

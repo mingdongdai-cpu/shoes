@@ -32,6 +32,20 @@ test('transaction edit moves totals between months and products', () => {
   assert.equal(delta.months['2026-08'].outAmount, 4_000);
 });
 
+test('batch inbound increases purchase totals without affecting outbound sales', () => {
+  const delta = buildAnalyticsDelta({
+    afterTransactions: [
+      { productId: 'p1', type: 'in', quantity: 72, unitPrice: 1000, occurredAt: at },
+      { productId: 'p1', type: 'in', quantity: 36, unitPrice: 1000, occurredAt: at }
+    ]
+  });
+  assert.equal(delta.overview.inTotal, 108_000);
+  assert.equal(delta.overview.outTotal, 0);
+  assert.equal(delta.overview.balance, 108_000);
+  assert.equal(delta.overview.transactionCount, 2);
+  assert.equal(delta.months['2026-08'].inAmount, 108_000);
+});
+
 test('expense create updates only expense count and monthly expense total', () => {
   const delta = buildAnalyticsDelta({ afterExpenses: [{ amount: 12_500, occurredAt: at }] });
   assert.equal(delta.overview.expenseCount, 1);

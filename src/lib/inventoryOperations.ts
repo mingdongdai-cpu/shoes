@@ -1,14 +1,14 @@
-export interface BatchOutLine {
+export interface BatchLine {
   productId: string;
   boxes: number;
 }
 
-export interface AggregatedBatchOutLine {
+export interface AggregatedBatchLine {
   productId: string;
   boxes: number;
 }
 
-export function aggregateBatchOutLines(lines: BatchOutLine[]): AggregatedBatchOutLine[] {
+export function aggregateBatchLines(lines: BatchLine[]): AggregatedBatchLine[] {
   const boxesByProductId = new Map<string, number>();
 
   for (const line of lines) {
@@ -19,6 +19,14 @@ export function aggregateBatchOutLines(lines: BatchOutLine[]): AggregatedBatchOu
   }
 
   return [...boxesByProductId].map(([productId, boxes]) => ({ productId, boxes }));
+}
+
+export function getStockAfterBatchTransaction(
+  currentStock: number,
+  type: 'in' | 'out',
+  quantity: number
+): number {
+  return currentStock + (type === 'in' ? quantity : -quantity);
 }
 
 export function getStockAfterTransactionDeletion(

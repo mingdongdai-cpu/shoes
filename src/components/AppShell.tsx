@@ -15,12 +15,15 @@ import {
   X,
 } from 'lucide-react';
 import type { User, View } from '../types';
+import type { OrderLanguage } from '../lib/orderLanguage';
 
 interface AppShellProps {
   user: User;
   currentView: View;
   onViewChange: (view: View) => void;
   onLogout: () => void;
+  orderLanguage?: OrderLanguage;
+  onOrderLanguageChange?: (language: OrderLanguage) => void;
   children: ReactNode;
 }
 
@@ -55,12 +58,38 @@ const customerOrdersNavigation: NavigationItem = {
   icon: ClipboardList,
 };
 
-const orderNavigation: NavigationItem[] = [
-  { label: 'Liste des prix', view: 'home', icon: Package },
-  { label: 'Saisie commande', view: 'order-entry', icon: ShoppingCart },
-  { label: 'Gestion comptable', view: 'order-accounting', icon: WalletCards },
-  { label: 'Gestion des dettes', view: 'order-debts', icon: HandCoins },
-];
+const orderNavigation: Record<OrderLanguage, NavigationItem[]> = {
+  fr: [
+    { label: 'Liste des prix', view: 'home', icon: Package },
+    { label: 'Saisie commande', view: 'order-entry', icon: ShoppingCart },
+    { label: 'Gestion comptable', view: 'order-accounting', icon: WalletCards },
+    { label: 'Gestion des dettes', view: 'order-debts', icon: HandCoins },
+  ],
+  zh: [
+    { label: '价格表', view: 'home', icon: Package },
+    { label: '录入订单', view: 'order-entry', icon: ShoppingCart },
+    { label: '记账管理', view: 'order-accounting', icon: WalletCards },
+    { label: '欠款管理', view: 'order-debts', icon: HandCoins },
+  ],
+  en: [
+    { label: 'Price list', view: 'home', icon: Package },
+    { label: 'New order', view: 'order-entry', icon: ShoppingCart },
+    { label: 'Accounting', view: 'order-accounting', icon: WalletCards },
+    { label: 'Debts', view: 'order-debts', icon: HandCoins },
+  ],
+};
+
+function OrderLanguagePicker({ language, onChange }: { language: OrderLanguage; onChange: (language: OrderLanguage) => void }) {
+  return (
+    <div role="group" aria-label={language === 'fr' ? 'Langue' : language === 'zh' ? '语言' : 'Language'} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-600/60 bg-stone-800/60 p-1">
+      {([['zh', '中'], ['fr', 'FR'], ['en', 'EN']] as const).map(([value, label]) => (
+        <button key={value} type="button" lang={value} onClick={() => onChange(value)} aria-label={value === 'zh' ? '中文' : value === 'fr' ? 'Français' : 'English'} aria-pressed={language === value} className={`rounded-md px-2.5 py-1.5 text-xs font-bold transition-colors ${language === value ? 'bg-[#e7d7bf] text-stone-900' : 'text-stone-300 hover:bg-stone-700 hover:text-white'}`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
@@ -100,9 +129,10 @@ function NavigationButton({
   );
 }
 
-export function AppShell({ user, currentView, onViewChange, onLogout, children }: AppShellProps) {
+export function AppShell({ user, currentView, onViewChange, onLogout, orderLanguage = 'fr', onOrderLanguageChange, children }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const roleLabel = user.role === 'admin' ? '管理员' : user.role === 'order' ? 'Saisie' : '查询员';
+  const roleLabel = user.role === 'admin' ? '管理员' : user.role === 'order' ? orderLanguage === 'zh' ? '订单录入' : orderLanguage === 'en' ? 'Orders' : 'Saisie' : '查询员';
+  const logoutLabel = orderLanguage === 'zh' ? '退出登录' : orderLanguage === 'en' ? 'Log out' : 'Se déconnecter';
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -133,10 +163,10 @@ export function AppShell({ user, currentView, onViewChange, onLogout, children }
         <aside className="app-sidebar hidden md:flex">
           <Brand />
 
-          <nav className="mt-10 flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="Navigation commandes">
-            <span className="shell-nav-label">COMMANDES</span>
+          <nav className="mt-10 flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label={orderLanguage === 'zh' ? '订单导航' : orderLanguage === 'en' ? 'Order navigation' : 'Navigation commandes'}>
+            <span className="shell-nav-label">{orderLanguage === 'zh' ? '订单' : orderLanguage === 'en' ? 'ORDERS' : 'COMMANDES'}</span>
             <div className="space-y-1">
-              {orderNavigation.map((item) => (
+              {orderNavigation[orderLanguage].map((item) => (
                 <NavigationButton
                   key={item.view}
                   item={item}
@@ -147,31 +177,34 @@ export function AppShell({ user, currentView, onViewChange, onLogout, children }
             </div>
           </nav>
 
+          {onOrderLanguageChange && <div className="px-4 pb-4"><OrderLanguagePicker language={orderLanguage} onChange={onOrderLanguageChange} /></div>}
+
           <div className="sidebar-account">
             <span className="account-status" aria-hidden="true" />
             <span className="min-w-0 flex-1">
               <strong className="block truncate text-sm font-semibold text-stone-100">{user.username}</strong>
               <span className="block text-[11px] tracking-[0.08em] text-stone-500">{roleLabel}</span>
             </span>
-            <button type="button" onClick={onLogout} className="sidebar-logout" title="Se déconnecter">
+            <button type="button" onClick={onLogout} className="sidebar-logout" title={logoutLabel}>
               <LogOut size={17} />
-              <span className="sr-only">Se déconnecter</span>
+              <span className="sr-only">{logoutLabel}</span>
             </button>
           </div>
         </aside>
 
         <header className="mobile-shell-header md:hidden">
           <Brand compact />
-          <button type="button" onClick={onLogout} className="button-secondary button-icon" title="Se déconnecter">
+          {onOrderLanguageChange && <OrderLanguagePicker language={orderLanguage} onChange={onOrderLanguageChange} />}
+          <button type="button" onClick={onLogout} className="button-secondary button-icon" title={logoutLabel}>
             <LogOut size={18} />
-            <span className="sr-only">Se déconnecter</span>
+            <span className="sr-only">{logoutLabel}</span>
           </button>
         </header>
 
         <main className="app-main min-w-0">{children}</main>
 
-        <nav className="mobile-navigation order-mobile-navigation md:hidden" aria-label="Navigation commandes mobile">
-          {orderNavigation.map((item) => (
+        <nav className="mobile-navigation order-mobile-navigation md:hidden" aria-label={orderLanguage === 'zh' ? '手机订单导航' : orderLanguage === 'en' ? 'Mobile order navigation' : 'Navigation commandes mobile'}>
+          {orderNavigation[orderLanguage].map((item) => (
             <NavigationButton
               key={item.view}
               item={item}

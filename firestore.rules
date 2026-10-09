@@ -59,6 +59,11 @@
 //   - operatorUid: string (required) - Order account uid
 //   - createdAt: timestamp (required) - Record creation timestamp
 //
+// Collection: cargoContainers
+// Document ID: auto-generated
+// Fields: containerNumber, billOfLadingNumber, arrivalDate, stockedDate, status, remark,
+//         cargoBoxes, items, operatorUid, createdAt, updatedAt
+//
 // Collection: orderCashCounts
 // Document ID: YYYY-MM-DD
 // Fields: recordDate, counts, totalAmount, operatorUid, createdAt, updatedAt
@@ -297,6 +302,23 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidCargoContainer(data) {
+      return data.keys().hasOnly(['containerNumber', 'billOfLadingNumber', 'arrivalDate', 'stockedDate', 'status', 'remark', 'cargoBoxes', 'items', 'operatorUid', 'createdAt', 'updatedAt']) &&
+             data.containerNumber is string && data.containerNumber.size() > 0 && data.containerNumber.size() <= 80 &&
+             data.billOfLadingNumber is string && data.billOfLadingNumber.size() > 0 && data.billOfLadingNumber.size() <= 80 &&
+             (data.arrivalDate == null || (data.arrivalDate is string && data.arrivalDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))) &&
+             data.status in ['在途', '到港', '到库'] &&
+             (data.status == '到库' ?
+               (data.stockedDate is string && data.stockedDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')) :
+               data.stockedDate == null) &&
+             data.remark is string && data.remark.size() <= 1000 &&
+             data.cargoBoxes is int && data.cargoBoxes > 0 &&
+             data.items is list && data.items.size() <= 100 &&
+             data.operatorUid is string && data.operatorUid == request.auth.uid &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
     function isValidCashCounts(counts) {
       return counts is map &&
              counts.keys().hasOnly(['10000', '5000', '2000', '1000', '500', '200', '100', '50']) &&
@@ -456,6 +478,16 @@ service cloud.firestore {
       allow create: if isAdmin() && isValidCustomerOrderSync(request.resource.data, syncDate);
       allow update: if false;
       allow delete: if isAdmin();
+    }
+
+    match /cargoContainers/{containerId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidCargoContainer(request.resource.data);
+      allow update: if isAdmin() &&
+        isValidCargoContainer(request.resource.data) &&
+        request.resource.data.operatorUid == resource.data.operatorUid &&
+        request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
     }
 
     match /orderCashCounts/{cashDate} {

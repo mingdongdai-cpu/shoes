@@ -80,6 +80,32 @@ export interface CustomerOrderSync {
   createdAt: Timestamp;
 }
 
+export interface CargoContainerItem {
+  productId: string;
+  productName: string;
+  spec: number;
+  boxes: number;
+  quantity: number;
+}
+
+export const CARGO_CONTAINER_STATUSES = ['在途', '到港', '到库'] as const;
+export type CargoContainerStatus = typeof CARGO_CONTAINER_STATUSES[number];
+
+export interface CargoContainer {
+  id: string;
+  containerNumber: string;
+  billOfLadingNumber: string;
+  arrivalDate: string | null;
+  stockedDate: string | null;
+  status: CargoContainerStatus;
+  remark: string;
+  cargoBoxes: number;
+  items: CargoContainerItem[];
+  operatorUid: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 export type CashDenomination = 10000 | 5000 | 2000 | 1000 | 500 | 200 | 100 | 50;
 export type CashDenominationKey = `${CashDenomination}`;
 export type CashDenominationCounts = Record<CashDenominationKey, number>;
@@ -186,6 +212,7 @@ export type View =
   | 'order-accounting'
   | 'order-debts'
   | 'customer-orders'
+  | 'cargo-containers'
   | 'products'
   | 'expenses'
   | 'debts';

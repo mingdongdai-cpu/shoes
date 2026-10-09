@@ -37,10 +37,12 @@ import {
   type Transaction as FirestoreWriteTransaction,
   type DocumentData
 } from 'firebase/firestore';
-import { Product, OrderProduct, CustomerOrder, CustomerOrderItem, CustomerOrderSync, OrderCashCount, OrderDailyExpense, CashDenominationCounts, CashBalance, ProductRiskMetrics, Transaction, User, View, Toast, Expense, Debt, DebtPayment, DebtPaymentTarget, DebtSource, SalesPeriodData, DashboardMetrics, AnalyticsOverview, AnalyticsMonth } from './types';
+import { CARGO_CONTAINER_STATUSES, type Product, type OrderProduct, type CustomerOrder, type CustomerOrderItem, type CustomerOrderSync, type CargoContainer, type CargoContainerItem, type CargoContainerStatus, type OrderCashCount, type OrderDailyExpense, type CashDenominationCounts, type CashBalance, type ProductRiskMetrics, type Transaction, type User, type View, type Toast, type Expense, type Debt, type DebtPayment, type DebtPaymentTarget, type DebtSource, type SalesPeriodData, type DashboardMetrics, type AnalyticsOverview, type AnalyticsMonth } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
 import { CustomerOrdersView, OrderDebtsView, OrderPriceListView } from './components/OrderViews';
 import { OrderAccountingView } from './components/OrderAccountingView';
+import { CargoContainersView } from './components/CargoContainersView';
+import { areCargoContainerDatesValid } from './lib/cargoContainers';
 import { AppShell } from './components/AppShell';
 import { orderText, type OrderLanguage } from './lib/orderLanguage';
 import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate, type ReportPeriod } from './lib/timeWindow';
@@ -447,6 +449,46 @@ function mapCustomerOrderSyncDoc(id: string, data: DocumentData): CustomerOrderS
   };
 }
 
+function mapCargoContainerDoc(id: string, data: DocumentData): CargoContainer {
+  const items = Array.isArray(data.items)
+    ? data.items.map((item): CargoContainerItem => ({
+        productId: String(item?.productId ?? ''),
+        productName: String(item?.productName ?? ''),
+        spec: Number(item?.spec ?? 0),
+        boxes: Number(item?.boxes ?? 0),
+        quantity: Number(item?.quantity ?? 0)
+      }))
+    : [];
+
+  const createdAt = requireTimestamp(data.createdAt, 'cargoContainers.createdAt');
+  const status = String(data.status ?? '');
+  if (!CARGO_CONTAINER_STATUSES.some((option) => option === status)) {
+    throw new Error(`cargoContainers.status 无效: ${status}`);
+  }
+  const arrivalDate = data.arrivalDate;
+  if (arrivalDate !== null && (typeof arrivalDate !== 'string' || !isOrderDate(arrivalDate))) {
+    throw new Error('cargoContainers.arrivalDate 无效');
+  }
+  const stockedDate = data.stockedDate ?? null;
+  if (stockedDate !== null && (typeof stockedDate !== 'string' || !isOrderDate(stockedDate))) {
+    throw new Error('cargoContainers.stockedDate 无效');
+  }
+  return {
+    id,
+    containerNumber: String(data.containerNumber ?? ''),
+    billOfLadingNumber: String(data.billOfLadingNumber ?? ''),
+    arrivalDate,
+    stockedDate,
+    status: status as CargoContainerStatus,
+    remark: String(data.remark ?? ''),
+    cargoBoxes: Number(data.cargoBoxes ?? 0),
+    items,
+    operatorUid: String(data.operatorUid ?? ''),
+    createdAt,
+    updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : createdAt
+  };
+}
+
 function mapOrderCashCountDoc(id: string, data: DocumentData): OrderCashCount {
   const counts = normalizeCashCounts(data.counts);
   return {
@@ -507,6 +549,7 @@ export default function App() {
   const [orderProducts, setOrderProducts] = useState<OrderProduct[]>([]);
   const [customerOrders, setCustomerOrders] = useState<CustomerOrder[]>([]);
   const [customerOrderSync, setCustomerOrderSync] = useState<CustomerOrderSync | null>(null);
+  const [cargoContainers, setCargoContainers] = useState<CargoContainer[]>([]);
   const [orderCashCounts, setOrderCashCounts] = useState<OrderCashCount[]>([]);
   const [orderDailyExpenses, setOrderDailyExpenses] = useState<OrderDailyExpense[]>([]);
   const [debtRepaymentTotal, setDebtRepaymentTotal] = useState(0);
@@ -585,6 +628,7 @@ export default function App() {
       setOrderProducts([]);
       setCustomerOrders([]);
       setCustomerOrderSync(null);
+      setCargoContainers([]);
       setOrderCashCounts([]);
       setOrderDailyExpenses([]);
       setDebtRepaymentTotal(0);
@@ -876,7 +920,7 @@ export default function App() {
       return;
     }
     if (nextView === 'order-entry') return;
-    if (nextView === 'customer-orders' && user?.role !== 'admin') return;
+    if ((nextView === 'customer-orders' || nextView === 'cargo-containers') && user?.role !== 'admin') return;
     setCurrentView(nextView);
   };
 
@@ -889,7 +933,7 @@ export default function App() {
       setCurrentView('home');
       return;
     }
-    if (user?.role !== 'admin' && currentView === 'customer-orders') {
+    if (user?.role !== 'admin' && (currentView === 'customer-orders' || currentView === 'cargo-containers')) {
       setCurrentView('home');
     }
   }, [currentView, user?.role]);
@@ -993,6 +1037,7 @@ export default function App() {
     setDebts([]);
     setCustomerOrders([]);
     setCustomerOrderSync(null);
+    setCargoContainers([]);
 
     if (user.role === 'order') {
       if (currentView === 'order-debts') {
@@ -1067,6 +1112,12 @@ export default function App() {
       unsubscribers.push(onSnapshot(doc(db, 'customerOrderSyncs', customerOrdersDate), (snapshot) => {
         setCustomerOrderSync(snapshot.exists() ? mapCustomerOrderSyncDoc(snapshot.id, snapshot.data()) : null);
       }, (error) => handleFirestoreError(error, OperationType.GET, `customerOrderSyncs/${customerOrdersDate}`)));
+    } else if (currentView === 'cargo-containers' && user.role === 'admin') {
+      unsubscribers.push(onSnapshot(
+        collection(db, 'cargoContainers'),
+        (snapshot) => setCargoContainers(snapshot.docs.map((itemDoc) => mapCargoContainerDoc(itemDoc.id, itemDoc.data()))),
+        (error) => handleFirestoreError(error, OperationType.GET, 'cargoContainers')
+      ));
     } else if (currentView === 'debts') {
       unsubscribers.push(onSnapshot(
         query(collection(db, 'debts'), orderBy('occurredAt', 'desc')),
@@ -1352,6 +1403,90 @@ export default function App() {
       setOrderLanguage('fr');
     } catch (error) {
       showToast(isOrderUser ? orderText(orderLanguage, 'Échec de la déconnexion', '退出失败', 'Could not log out') : '退出失败', 'error');
+    }
+  };
+
+  const saveCargoContainer = async ({
+    id,
+    containerNumber,
+    billOfLadingNumber,
+    arrivalDate,
+    stockedDate,
+    status,
+    remark,
+    cargoBoxes,
+    items
+  }: {
+    id?: string;
+    containerNumber: string;
+    billOfLadingNumber: string;
+    arrivalDate: string | null;
+    stockedDate: string | null;
+    status: CargoContainerStatus;
+    remark: string;
+    cargoBoxes: number;
+    items: CargoContainerItem[];
+  }) => {
+    if (user?.role !== 'admin' || !auth.currentUser?.uid) {
+      showToast('仅管理员可以保存货柜', 'error');
+      return false;
+    }
+
+    const normalizedNumber = containerNumber.trim().toUpperCase();
+    const normalizedBillNumber = billOfLadingNumber.trim().toUpperCase();
+    const normalizedRemark = remark.trim();
+    const validItems = items.length <= 100 && items.every((item) => (
+      item.productId.length > 0 &&
+      item.productName.length > 0 && item.productName.length <= 100 &&
+      Number.isInteger(item.spec) && item.spec > 0 &&
+      Number.isInteger(item.boxes) && item.boxes > 0 &&
+      item.quantity === item.spec * item.boxes
+    ));
+    if (
+      !normalizedNumber || normalizedNumber.length > 80 ||
+      !normalizedBillNumber || normalizedBillNumber.length > 80 ||
+      !areCargoContainerDatesValid(status, arrivalDate, stockedDate) ||
+      !CARGO_CONTAINER_STATUSES.includes(status) ||
+      normalizedRemark.length > 1000 ||
+      !Number.isInteger(cargoBoxes) || cargoBoxes <= 0 ||
+      !validItems
+    ) {
+      showToast('货柜资料不完整', 'error');
+      return false;
+    }
+    if (cargoContainers.some((item) => item.id !== id && item.containerNumber.trim().toUpperCase() === normalizedNumber)) {
+      showToast('该货柜号码已经存在', 'error');
+      return false;
+    }
+
+    try {
+      const now = Timestamp.now();
+      const values = {
+        containerNumber: normalizedNumber,
+        billOfLadingNumber: normalizedBillNumber,
+        arrivalDate,
+        stockedDate,
+        status,
+        remark: normalizedRemark,
+        cargoBoxes,
+        items,
+        updatedAt: now
+      };
+      if (id) {
+        await updateDoc(doc(db, 'cargoContainers', id), values);
+      } else {
+        await addDoc(collection(db, 'cargoContainers'), {
+          ...values,
+          operatorUid: auth.currentUser.uid,
+          createdAt: now
+        });
+      }
+      showToast(id ? '货柜资料已更新' : '货柜已保存');
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'cargoContainers');
+      showToast('货柜保存失败', 'error');
+      return false;
     }
   };
 
@@ -3137,6 +3272,13 @@ export default function App() {
                 inventorySync={customerOrderSync}
                 syncOrdersToInventory={syncCustomerOrdersToInventory}
                 undoInventorySync={undoCustomerOrdersInventorySync}
+              />
+            )}
+            {user.role === 'admin' && currentView === 'cargo-containers' && (
+              <CargoContainersView
+                containers={cargoContainers}
+                products={activeProducts}
+                saveCargoContainer={saveCargoContainer}
               />
             )}
             {user.role !== 'order' && currentView === 'products' && (

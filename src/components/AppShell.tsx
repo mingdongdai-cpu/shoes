@@ -4,6 +4,7 @@ import {
   ArrowLeftRight,
   BarChart3,
   ClipboardList,
+  Container,
   HandCoins,
   Home,
   LogOut,
@@ -56,6 +57,12 @@ const customerOrdersNavigation: NavigationItem = {
   label: '客户订单',
   view: 'customer-orders',
   icon: ClipboardList,
+};
+
+const cargoContainersNavigation: NavigationItem = {
+  label: '货柜情况',
+  view: 'cargo-containers',
+  icon: Container,
 };
 
 const orderNavigation: Record<OrderLanguage, NavigationItem[]> = {
@@ -154,7 +161,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
     setMobileMenuOpen(false);
   };
   const visibleManagementNavigation = user.role === 'admin'
-    ? [...managementNavigation, customerOrdersNavigation]
+    ? [managementNavigation[0], cargoContainersNavigation, ...managementNavigation.slice(1), customerOrdersNavigation]
     : managementNavigation;
 
   if (user.role === 'order') {

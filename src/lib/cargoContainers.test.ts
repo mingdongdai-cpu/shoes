@@ -1,11 +1,57 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { Timestamp } from 'firebase/firestore';
+import { AppShell } from '../components/AppShell';
+import { CargoContainersView } from '../components/CargoContainersView';
 import { areCargoContainerDatesValid, buildCargoContainerItems, compareCargoContainers, getCargoContainerCardDate, getCargoContainerTotalBoxes, resolveCargoContainerBoxes } from './cargoContainers';
 import { CARGO_CONTAINER_STATUSES, type CargoContainer } from '../types';
 
 test('cargo container status options are the three canonical workflow states', () => {
   assert.deepEqual(CARGO_CONTAINER_STATUSES, ['在途', '到港', '到库']);
+});
+
+test('staff can see cargo navigation and details without cargo editing controls', () => {
+  const staffShell = renderToStaticMarkup(createElement(AppShell, {
+    user: { uid: 'staff-1', username: 'staff', role: 'staff' },
+    currentView: 'cargo-containers',
+    onViewChange: () => {},
+    onLogout: () => {},
+    children: null,
+  }));
+  assert.match(staffShell, /货柜情况/);
+  assert.doesNotMatch(staffShell, /客户订单/);
+
+  const container: CargoContainer = {
+    id: 'cargo-1',
+    containerNumber: 'TEST1234567',
+    billOfLadingNumber: 'BL123',
+    arrivalDate: '2026-10-14',
+    stockedDate: null,
+    status: '在途',
+    remark: '',
+    cargoBoxes: 10,
+    items: [],
+    operatorUid: 'admin-1',
+    createdAt: Timestamp.fromMillis(1),
+    updatedAt: Timestamp.fromMillis(1),
+  };
+  const renderView = (canEdit: boolean) => renderToStaticMarkup(createElement(CargoContainersView, {
+    containers: [container],
+    products: [],
+    canEdit,
+    saveCargoContainer: async () => true,
+  }));
+  const staffView = renderView(false);
+  assert.match(staffView, /TEST1234567/);
+  assert.match(staffView, /预计到港日期/);
+  assert.doesNotMatch(staffView, /录入货柜/);
+  assert.doesNotMatch(staffView, /编辑货柜/);
+
+  const adminView = renderView(true);
+  assert.match(adminView, /录入货柜/);
+  assert.match(adminView, /编辑货柜/);
 });
 
 test('cargo containers group by status, with undated transit first then arrival date', () => {

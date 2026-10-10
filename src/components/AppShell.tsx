@@ -160,9 +160,12 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
     onViewChange(view);
     setMobileMenuOpen(false);
   };
-  const visibleManagementNavigation = user.role === 'admin'
-    ? [managementNavigation[0], cargoContainersNavigation, ...managementNavigation.slice(1), customerOrdersNavigation]
-    : managementNavigation;
+  const visibleManagementNavigation = [
+    managementNavigation[0],
+    cargoContainersNavigation,
+    ...managementNavigation.slice(1),
+    ...(user.role === 'admin' ? [customerOrdersNavigation] : []),
+  ];
 
   if (user.role === 'order') {
     return (

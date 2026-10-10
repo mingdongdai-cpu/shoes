@@ -8,6 +8,7 @@ import { isOrderDate } from '../lib/customerOrders';
 interface CargoContainersViewProps {
   containers: CargoContainer[];
   products: Product[];
+  canEdit: boolean;
   saveCargoContainer: (input: {
     id?: string;
     containerNumber: string;
@@ -39,7 +40,7 @@ function getStatusClass(status: CargoContainerStatus): string {
   return 'bg-sky-50 text-sky-700';
 }
 
-export function CargoContainersView({ containers, products, saveCargoContainer }: CargoContainersViewProps) {
+export function CargoContainersView({ containers, products, canEdit, saveCargoContainer }: CargoContainersViewProps) {
   const nextLineId = useRef(1);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isArrivalSummaryOpen, setIsArrivalSummaryOpen] = useState(false);
@@ -253,9 +254,11 @@ export function CargoContainersView({ containers, products, saveCargoContainer }
           <h1 className="display-title mt-2 text-3xl sm:text-4xl">货柜情况</h1>
           <p className="mt-2 text-sm text-stone-500">查看货柜号、提单号、预计到港日期、当前状态和货物明细。</p>
         </div>
-        <button type="button" onClick={openCreateForm} className="button-primary flex min-h-11 items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-bold">
-          <Plus size={17} />录入货柜
-        </button>
+        {canEdit && (
+          <button type="button" onClick={openCreateForm} className="button-primary flex min-h-11 items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-bold">
+            <Plus size={17} />录入货柜
+          </button>
+        )}
       </header>
 
       <section className="grid gap-px overflow-hidden rounded-xl border border-stone-200 bg-stone-200 sm:grid-cols-2 lg:grid-cols-5" aria-label="货柜汇总">
@@ -301,7 +304,7 @@ export function CargoContainersView({ containers, products, saveCargoContainer }
           <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center">
             <Ship size={38} className="text-stone-300" />
             <h3 className="mt-4 text-lg font-bold text-slate-800">还没有货柜记录</h3>
-            <p className="mt-1 text-sm text-stone-500">点击“录入货柜”添加第一条货柜资料。</p>
+            {canEdit && <p className="mt-1 text-sm text-stone-500">点击“录入货柜”添加第一条货柜资料。</p>}
           </div>
         ) : (
           <div className="divide-y divide-stone-200">
@@ -341,7 +344,7 @@ export function CargoContainersView({ containers, products, saveCargoContainer }
                       </span>
                       <ChevronDown size={19} className={`text-stone-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
                     </button>
-                    <button type="button" onClick={() => openEditForm(cargo)} className="button-icon m-4 ml-0 shrink-0 text-[var(--forest)]" aria-label={`编辑货柜 ${cargo.containerNumber}`}><Pencil size={17} /></button>
+                    {canEdit && <button type="button" onClick={() => openEditForm(cargo)} className="button-icon m-4 ml-0 shrink-0 text-[var(--forest)]" aria-label={`编辑货柜 ${cargo.containerNumber}`}><Pencil size={17} /></button>}
                   </div>
 
                   {expanded && (
@@ -379,7 +382,7 @@ export function CargoContainersView({ containers, products, saveCargoContainer }
       </section>
 
       <AnimatePresence>
-        {isFormOpen && (
+        {canEdit && isFormOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4" onMouseDown={closeForm}>
             <motion.section initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="surface max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-stone-200" role="dialog" aria-modal="true" aria-labelledby="cargo-form-title" onMouseDown={(event) => event.stopPropagation()}>
               <div className="flex items-start justify-between border-b border-stone-200 px-6 py-5">
@@ -420,7 +423,7 @@ export function CargoContainersView({ containers, products, saveCargoContainer }
       </AnimatePresence>
 
       <AnimatePresence>
-        {pendingStockSave && (
+        {canEdit && pendingStockSave && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4">
             <motion.section initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} role="dialog" aria-modal="true" aria-labelledby="cargo-stock-date-title" className="surface w-full max-w-sm rounded-xl border border-stone-200">
               <div className="border-b border-stone-200 px-6 py-5">

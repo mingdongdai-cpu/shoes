@@ -920,7 +920,7 @@ export default function App() {
       return;
     }
     if (nextView === 'order-entry') return;
-    if ((nextView === 'customer-orders' || nextView === 'cargo-containers') && user?.role !== 'admin') return;
+    if (nextView === 'customer-orders' && user?.role !== 'admin') return;
     setCurrentView(nextView);
   };
 
@@ -933,7 +933,7 @@ export default function App() {
       setCurrentView('home');
       return;
     }
-    if (user?.role !== 'admin' && (currentView === 'customer-orders' || currentView === 'cargo-containers')) {
+    if (user?.role !== 'admin' && currentView === 'customer-orders') {
       setCurrentView('home');
     }
   }, [currentView, user?.role]);
@@ -1112,7 +1112,7 @@ export default function App() {
       unsubscribers.push(onSnapshot(doc(db, 'customerOrderSyncs', customerOrdersDate), (snapshot) => {
         setCustomerOrderSync(snapshot.exists() ? mapCustomerOrderSyncDoc(snapshot.id, snapshot.data()) : null);
       }, (error) => handleFirestoreError(error, OperationType.GET, `customerOrderSyncs/${customerOrdersDate}`)));
-    } else if (currentView === 'cargo-containers' && user.role === 'admin') {
+    } else if (currentView === 'cargo-containers' && (user.role === 'admin' || user.role === 'staff')) {
       unsubscribers.push(onSnapshot(
         collection(db, 'cargoContainers'),
         (snapshot) => setCargoContainers(snapshot.docs.map((itemDoc) => mapCargoContainerDoc(itemDoc.id, itemDoc.data()))),
@@ -3274,10 +3274,11 @@ export default function App() {
                 undoInventorySync={undoCustomerOrdersInventorySync}
               />
             )}
-            {user.role === 'admin' && currentView === 'cargo-containers' && (
+            {(user.role === 'admin' || user.role === 'staff') && currentView === 'cargo-containers' && (
               <CargoContainersView
                 containers={cargoContainers}
                 products={activeProducts}
+                canEdit={user.role === 'admin'}
                 saveCargoContainer={saveCargoContainer}
               />
             )}

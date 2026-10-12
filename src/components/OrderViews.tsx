@@ -266,7 +266,7 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
             <span className="rounded-lg bg-danger/10 p-2 text-oxblood"><ClipboardList size={19} /></span>
             <div className="min-w-0">
               <h2 className="display-title truncate text-lg">{copy.title}</h2>
-              <p className="text-xs text-stone-500">{copy.subtitle}</p>
+              <p className="truncate text-xs text-stone-500">{copy.subtitle}</p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-3">
@@ -312,19 +312,21 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
                 <article key={order.id} className={needsAttention ? 'bg-danger/10' : 'bg-white'}>
                   <div className="flex items-center gap-2 px-3 py-3.5 sm:px-4">
                     <button type="button" onClick={() => setExpandedOrderId(expanded ? null : order.id)} aria-expanded={expanded} className="min-w-0 flex-1 rounded-lg px-1 py-1 text-left hover:bg-stone-50">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="shrink-0 text-stone-400">{expanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</span>
-                          <span className="min-w-0">
-                            <strong className="block truncate text-sm text-stone-900">{order.customerName}</strong>
-                            <span className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-stone-500"><CalendarDays size={13} />{order.orderDate}</span>
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 shrink-0 text-stone-400">{expanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-baseline justify-between gap-3">
+                            <strong className="truncate text-sm text-stone-900">{order.customerName}</strong>
+                            <strong className="customer-order-money shrink-0 text-base font-semibold tabular-nums text-oxblood">{formatCurrency(order.totalAmount)}</strong>
+                          </span>
+                          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-stone-500">
+                            <span className="flex items-center gap-1.5"><CalendarDays size={13} />{order.orderDate}</span>
+                            {paymentStatus === 'unpaid' && <span className="rounded-full bg-danger/10 px-2.5 py-0.5 text-[11px] font-bold text-danger">{copy.unpaid}</span>}
+                            {paymentStatus === 'underpaid' && <span className="rounded-full bg-danger/10 px-2.5 py-0.5 text-[11px] font-bold text-danger">{copy.underpaid} {formatCurrency(paymentDifference)}</span>}
+                            {paymentStatus === 'overpaid' && <span className="rounded-full bg-forest/10 px-2.5 py-0.5 text-[11px] font-bold text-forest">{copy.overpaid} {formatCurrency(paymentDifference)}</span>}
+                            {inventoryLocked && <span className="flex items-center gap-1 rounded-full bg-brass/10 px-2.5 py-0.5 text-[11px] font-bold text-brass"><LockKeyhole size={11} />{copy.synced}</span>}
                           </span>
                         </span>
-                        {paymentStatus === 'unpaid' && <span className="shrink-0 rounded-full bg-danger/10 px-2.5 py-1 text-[11px] font-bold text-danger">{copy.unpaid}</span>}
-                        {paymentStatus === 'underpaid' && <span className="shrink-0 rounded-full bg-danger/10 px-2.5 py-1 text-[11px] font-bold text-danger">{copy.underpaid} {formatCurrency(paymentDifference)}</span>}
-                        {paymentStatus === 'overpaid' && <span className="shrink-0 rounded-full bg-forest/10 px-2.5 py-1 text-[11px] font-bold text-forest">{copy.overpaid} {formatCurrency(paymentDifference)}</span>}
-                        {inventoryLocked && <span className="flex shrink-0 items-center gap-1 rounded-full bg-brass/10 px-2.5 py-1 text-[11px] font-bold text-brass"><LockKeyhole size={11} />{copy.synced}</span>}
-                        <strong className="customer-order-money shrink-0 text-base font-semibold tabular-nums text-oxblood">{formatCurrency(order.totalAmount)}</strong>
                       </div>
                     </button>
                     {!inventoryLocked && <button type="button" onClick={() => openEditor(order)} className="shrink-0 rounded-lg p-2 text-oxblood hover:bg-danger/10" title={copy.edit} aria-label={`${copy.edit} ${order.customerName}`}><Pencil size={16} /></button>}

@@ -2059,297 +2059,303 @@ export const OrderEntryView = ({
           </div>
         )}
       </AnimatePresence>
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.06fr)_minmax(0,1fr)]">
-        <div className="surface rounded-xl p-5 sm:p-7 shadow-sm border border-stone-200">
-          <div className="mb-5 sm:mb-6">
-            <h3 className="text-lg font-semibold text-stone-800">{copy.selectProduct}</h3>
-          </div>
-
-          <div className="mb-6 grid gap-4 border-b border-stone-200 pb-6 sm:grid-cols-2">
-            <div>
-              <label className="mb-2 block text-sm font-bold uppercase tracking-widest text-stone-600">{copy.customer}</label>
-              <input
-                type="text"
-                value={customerName}
-                onChange={(event) => setCustomerName(event.target.value)}
-                maxLength={100}
-                placeholder={copy.customerPlaceholder}
-                className="w-full rounded-xl border-stone-200 bg-white py-3 font-bold focus:border-oxblood focus:ring-oxblood/25"
-              />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 2xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.06fr)_minmax(0,1fr)]">
+        <div className="flex flex-col gap-6 2xl:contents">
+          <div className="surface rounded-xl p-5 sm:p-7 shadow-sm border border-stone-200">
+            <div className="mb-5 sm:mb-6">
+              <h3 className="text-lg font-semibold text-stone-800">{copy.selectProduct}</h3>
             </div>
-            <div>
-              <label className="mb-2 block text-sm font-bold uppercase tracking-widest text-stone-600">{copy.date}</label>
-              <input
-                type="date"
-                value={orderDate}
-                disabled
-                aria-label={copy.autoDate}
-                className="w-full cursor-not-allowed rounded-xl border-stone-200 bg-stone-100 py-3 font-bold text-stone-600 opacity-100"
-              />
-            </div>
-          </div>
 
-          <form onSubmit={handleAddSubmit} className="space-y-5">
-            <div className="relative">
-              <label className="block text-sm font-bold text-stone-600 uppercase tracking-widest mb-2">{copy.model}</label>
-              <div className="relative">
+            <div className="mb-6 grid gap-4 border-b border-stone-200 pb-6 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-bold uppercase tracking-widest text-stone-600">{copy.customer}</label>
                 <input
                   type="text"
-                  placeholder={copy.searchPlaceholder}
-                  value={selectedProduct ? selectedProduct.name : searchTerm}
-                  onChange={(event) => {
-                    setSearchTerm(event.target.value);
-                    if (selectedId) setSelectedId('');
-                    setShowDropdown(true);
-                  }}
-                  onFocus={() => setShowDropdown(true)}
-                  className="w-full rounded-xl border-stone-200 bg-white focus:ring-oxblood/25 focus:border-oxblood pr-10 py-3 font-bold !text-left"
+                  value={customerName}
+                  onChange={(event) => setCustomerName(event.target.value)}
+                  maxLength={100}
+                  placeholder={copy.customerPlaceholder}
+                  className="w-full rounded-xl border-stone-200 bg-white py-3 font-bold focus:border-oxblood focus:ring-oxblood/25"
                 />
-                {selectedId && (
-                  <button
-                    type="button"
-                    onClick={resetCurrentLine}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
-                  >
-                    <XCircle size={17} />
-                  </button>
-                )}
               </div>
+              <div>
+                <label className="mb-2 block text-sm font-bold uppercase tracking-widest text-stone-600">{copy.date}</label>
+                <input
+                  type="date"
+                  value={orderDate}
+                  disabled
+                  aria-label={copy.autoDate}
+                  className="w-full cursor-not-allowed rounded-xl border-stone-200 bg-stone-100 py-3 font-bold text-stone-600 opacity-100"
+                />
+              </div>
+            </div>
 
-              {showDropdown && !selectedId && (
-                <div className="absolute z-50 w-full mt-2 bg-white border border-stone-200 rounded-xl shadow-sm max-h-72 overflow-y-auto custom-scrollbar">
-                  {filteredProducts.length > 0 ? (
-                    filteredProducts.map((product) => (
+            <form onSubmit={handleAddSubmit} className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem] 2xl:grid-cols-1">
+                <div className="relative">
+                  <label className="block text-sm font-bold text-stone-600 uppercase tracking-widest mb-2">{copy.model}</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder={copy.searchPlaceholder}
+                      value={selectedProduct ? selectedProduct.name : searchTerm}
+                      onChange={(event) => {
+                        setSearchTerm(event.target.value);
+                        if (selectedId) setSelectedId('');
+                        setShowDropdown(true);
+                      }}
+                      onFocus={() => setShowDropdown(true)}
+                      className="w-full rounded-xl border-stone-200 bg-white focus:ring-oxblood/25 focus:border-oxblood pr-10 py-3 font-bold !text-left"
+                    />
+                    {selectedId && (
                       <button
-                        key={product.id}
                         type="button"
-                        onClick={() => {
-                          setSelectedId(product.id);
-                          setSearchTerm('');
-                          setShowDropdown(false);
-                        }}
-                        className="w-full text-left px-4 py-3 hover:bg-oxblood/10 transition-colors border-b border-stone-100/60 last:border-0"
+                        onClick={resetCurrentLine}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
                       >
-                        <div className="font-semibold text-stone-900">{product.name}</div>
-                        <div className="text-xs font-bold text-stone-500">
-                          {copy.packaging}: {formatPackaging(product.spec)} · {copy.boxPrice}: {formatCurrency(product.price * product.spec)}
-                        </div>
+                        <XCircle size={17} />
                       </button>
-                    ))
-                  ) : (
-                    <div className="px-4 py-4 text-sm text-stone-400 italic font-bold">{copy.noProductFound}</div>
+                    )}
+                  </div>
+
+                  {showDropdown && !selectedId && (
+                    <div className="absolute z-50 w-full mt-2 bg-white border border-stone-200 rounded-xl shadow-sm max-h-72 overflow-y-auto custom-scrollbar">
+                      {filteredProducts.length > 0 ? (
+                        filteredProducts.map((product) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedId(product.id);
+                              setSearchTerm('');
+                              setShowDropdown(false);
+                            }}
+                            className="w-full text-left px-4 py-3 hover:bg-oxblood/10 transition-colors border-b border-stone-100/60 last:border-0"
+                          >
+                            <div className="font-semibold text-stone-900">{product.name}</div>
+                            <div className="text-xs font-bold text-stone-500">
+                              {copy.packaging}: {formatPackaging(product.spec)} · {copy.boxPrice}: {formatCurrency(product.price * product.spec)}
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-4 text-sm text-stone-400 italic font-bold">{copy.noProductFound}</div>
+                      )}
+                    </div>
+                  )}
+                  {showDropdown && !selectedId && (
+                    <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
                   )}
                 </div>
-              )}
-              {showDropdown && !selectedId && (
-                <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
-              )}
-            </div>
 
-            <div>
-              <label className="block text-sm font-bold text-stone-600 uppercase tracking-widest mb-2">{copy.boxes}</label>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={boxes}
-                onChange={(event) => setBoxes(event.target.value)}
-                className="w-full rounded-xl border-stone-200 bg-white focus:ring-oxblood/25 focus:border-oxblood py-3 font-bold"
-              />
-            </div>
-
-            <div className="rounded-xl bg-oxblood/10 border border-oxblood/25 p-3.5 sm:p-4">
-              <div className="text-xs font-semibold text-oxblood uppercase tracking-widest mb-2">{copy.currentSubtotal}</div>
-              <div className="text-2xl font-semibold text-stone-900">{formatCurrency(currentSubtotal)}</div>
-              {enteredProduct && (
-                <div className="mt-1 text-sm font-bold text-stone-500">
-                  {enteredProduct.name} · {formatOrderStock(currentQuantity, enteredProduct.spec)}
+                <div>
+                  <label className="block text-sm font-bold text-stone-600 uppercase tracking-widest mb-2">{copy.boxes}</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={boxes}
+                    onChange={(event) => setBoxes(event.target.value)}
+                    className="w-full rounded-xl border-stone-200 bg-white focus:ring-oxblood/25 focus:border-oxblood py-3 font-bold"
+                  />
                 </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] 2xl:grid-cols-1">
+                <div className="rounded-xl bg-oxblood/10 border border-oxblood/25 p-3.5 sm:p-4">
+                  <div className="text-xs font-semibold text-oxblood uppercase tracking-widest mb-2">{copy.currentSubtotal}</div>
+                  <div className="text-2xl font-semibold text-stone-900">{formatCurrency(currentSubtotal)}</div>
+                  {enteredProduct && (
+                    <div className="mt-1 text-sm font-bold text-stone-500">
+                      {enteredProduct.name} · {formatOrderStock(currentQuantity, enteredProduct.spec)}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-oxblood py-4 font-semibold text-white shadow-sm transition-all hover:bg-oxblood/85 active:scale-[0.99] sm:px-8 2xl:px-0"
+                >
+                  <Plus size={20} />
+                  {copy.addToOrder}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div className="surface rounded-xl p-5 sm:p-7 shadow-sm border border-stone-200">
+            <div className="mb-5 flex items-center justify-between gap-3 sm:mb-6">
+              <div>
+                <h3 className="text-lg font-semibold text-stone-800">
+                  {copy.orderDetails}
+                </h3>
+              </div>
+              {orderItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearOrder}
+                  className="rounded-xl border border-danger/25 bg-danger/10 px-3.5 py-2 text-sm font-semibold text-danger hover:bg-danger/10 transition-all"
+                >
+                  {copy.clearOrder}
+                </button>
               )}
             </div>
 
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-oxblood py-4 font-semibold text-white shadow-sm transition-all hover:bg-oxblood/85 active:scale-[0.99] flex items-center justify-center gap-2"
-            >
-              <Plus size={20} />
-              {copy.addToOrder}
-            </button>
-          </form>
-        </div>
-
-        <div className="surface rounded-xl p-5 sm:p-7 shadow-sm border border-stone-200">
-          <div className="mb-5 flex items-center justify-between gap-3 sm:mb-6">
-            <div>
-              <h3 className="text-lg font-semibold text-stone-800">
-                {copy.orderDetails}
-              </h3>
-            </div>
-            {orderItems.length > 0 && (
-              <button
-                type="button"
-                onClick={handleClearOrder}
-                className="rounded-xl border border-danger/25 bg-danger/10 px-3.5 py-2 text-sm font-semibold text-danger hover:bg-danger/10 transition-all"
-              >
-                {copy.clearOrder}
-              </button>
-            )}
-          </div>
-
-          {orderItems.length === 0 ? (
-            <div className="flex min-h-[360px] flex-col items-center justify-center rounded-xl border border-dashed border-stone-300 bg-stone-50/55 px-6 text-center">
-              <span className="rounded-full bg-white p-4 text-stone-300 shadow-sm">
-                <Package size={30} />
-              </span>
-              <h4 className="mt-4 text-base font-semibold text-stone-600">
-                {copy.emptyTitle}
-              </h4>
-              <p className="mt-1 max-w-xs text-sm font-semibold leading-6 text-stone-400">
-                {copy.emptyBody}
-              </p>
-            </div>
-          ) : (
-            <>
-          <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm md:hidden">
-            <table className="w-full table-fixed text-left">
-              <colgroup>
-                <col className="w-[21%]" />
-                <col className="w-[19%]" />
-                <col className="w-[21%]" />
-                <col className="w-[23%]" />
-                <col className="w-[16%]" />
-              </colgroup>
-              <thead className="bg-stone-50/70">
-                <tr>
-                  <th className="px-2 py-3 text-[11px] font-semibold uppercase tracking-wide text-stone-400">{copy.model}</th>
-                  <th className="px-2 py-3 text-[11px] font-semibold uppercase tracking-wide text-stone-400">{copy.quantity}</th>
-                  <th className="px-2 py-3 text-[11px] font-semibold uppercase leading-tight tracking-wide text-stone-400">{copy.mobileBoxPrice}</th>
-                  <th className="px-2 py-3 text-[11px] font-semibold uppercase tracking-wide text-stone-400">{copy.mobileTotal}</th>
-                  <th className="px-1 py-3"><span className="sr-only">{copy.action}</span></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100/80">
-                {orderRows.map(({ item, quantity, subtotal }) => (
-                  <tr key={item.id}>
-                    <td className="truncate px-2 py-4 text-xs font-semibold text-stone-900">{item.product.name}</td>
-                    <td className="px-2 py-4 text-xs font-bold leading-tight text-stone-600">{formatOrderStock(quantity, item.product.spec)}</td>
-                    <td className="px-2 py-4">
-                      <div className="text-xs font-semibold leading-tight text-stone-700">{formatMobileAmount(item.product.price * item.product.spec)}</div>
-                      <div className="mt-0.5 text-[11px] font-bold text-stone-400">XOF</div>
-                    </td>
-                    <td className="px-2 py-4">
-                      <div className="text-xs font-semibold leading-tight text-oxblood">{formatMobileAmount(subtotal)}</div>
-                      <div className="mt-0.5 text-[11px] font-bold text-oxblood/80">XOF</div>
-                    </td>
-                    <td className="px-1 py-4 text-right">
-                      <div className="flex items-center justify-end">
-                        <button
-                          type="button"
-                          onClick={() => startEditingOrderItem(item)}
-                          className="rounded-lg p-1.5 text-oxblood transition-colors hover:bg-oxblood/10"
-                          title={copy.edit}
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveItem(item.id)}
-                          className="rounded-lg p-1.5 text-danger transition-colors hover:bg-danger/10"
-                          title={copy.remove}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
+            {orderItems.length === 0 ? (
+              <div className="flex min-h-[360px] flex-col items-center justify-center rounded-xl border border-dashed border-stone-300 bg-stone-50/55 px-6 text-center">
+                <span className="rounded-full bg-white p-4 text-stone-300 shadow-sm">
+                  <Package size={30} />
+                </span>
+                <h4 className="mt-4 text-base font-semibold text-stone-600">
+                  {copy.emptyTitle}
+                </h4>
+                <p className="mt-1 max-w-xs text-sm font-semibold leading-6 text-stone-400">
+                  {copy.emptyBody}
+                </p>
+              </div>
+            ) : (
+              <>
+            <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm md:hidden">
+              <table className="w-full table-fixed text-left">
+                <colgroup>
+                  <col className="w-[21%]" />
+                  <col className="w-[19%]" />
+                  <col className="w-[21%]" />
+                  <col className="w-[23%]" />
+                  <col className="w-[16%]" />
+                </colgroup>
+                <thead className="bg-stone-50/70">
+                  <tr>
+                    <th className="px-2 py-3 text-[11px] font-semibold uppercase tracking-wide text-stone-400">{copy.model}</th>
+                    <th className="px-2 py-3 text-[11px] font-semibold uppercase tracking-wide text-stone-400">{copy.quantity}</th>
+                    <th className="px-2 py-3 text-[11px] font-semibold uppercase leading-tight tracking-wide text-stone-400">{copy.mobileBoxPrice}</th>
+                    <th className="px-2 py-3 text-[11px] font-semibold uppercase tracking-wide text-stone-400">{copy.mobileTotal}</th>
+                    <th className="px-1 py-3"><span className="sr-only">{copy.action}</span></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="hidden overflow-x-auto custom-scrollbar md:block">
-            <table className="w-full table-fixed text-left">
-              <colgroup>
-                <col className="w-[24%]" />
-                <col className="w-[17%]" />
-                <col className="w-[22%]" />
-                <col className="w-[23%]" />
-                <col className="w-[14%]" />
-              </colgroup>
-              <thead>
-                <tr className="border-b border-stone-200">
-                  <th className="py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-400">{copy.product}</th>
-                  <th className="py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-400">{copy.quantity}</th>
-                  <th className="py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-400">{copy.mobileBoxPrice}</th>
-                  <th className="py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-400">{copy.subtotal}</th>
-                  <th className="py-2 text-right text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-400">{copy.action}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/20">
-                {orderRows.map(({ item, quantity, subtotal }) => {
-                  return (
-                    <tr key={item.id} className="hover:bg-white transition-colors">
-                      <td className="py-4 pr-2">
-                        <div className="font-semibold text-stone-900">{item.product.name}</div>
-                        <div className="truncate text-[11px] font-bold text-stone-400">{copy.shortPackaging}: {formatPackaging(item.product.spec)}</div>
+                </thead>
+                <tbody className="divide-y divide-stone-100/80">
+                  {orderRows.map(({ item, quantity, subtotal }) => (
+                    <tr key={item.id}>
+                      <td className="truncate px-2 py-4 text-xs font-semibold text-stone-900">{item.product.name}</td>
+                      <td className="px-2 py-4 text-xs font-bold leading-tight text-stone-600">{formatOrderStock(quantity, item.product.spec)}</td>
+                      <td className="px-2 py-4">
+                        <div className="text-xs font-semibold leading-tight text-stone-700">{formatMobileAmount(item.product.price * item.product.spec)}</div>
+                        <div className="mt-0.5 text-[11px] font-bold text-stone-400">XOF</div>
                       </td>
-                      <td className="py-4 pr-1 text-xs font-bold text-stone-600">{formatOrderStock(quantity, item.product.spec)}</td>
-                      <td className="whitespace-nowrap py-4 pr-1 text-xs font-bold text-stone-600">{formatCurrency(item.product.price * item.product.spec)}</td>
-                      <td className="whitespace-nowrap py-4 pr-1 text-xs font-semibold text-oxblood">{formatCurrency(subtotal)}</td>
-                      <td className="py-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
+                      <td className="px-2 py-4">
+                        <div className="text-xs font-semibold leading-tight text-oxblood">{formatMobileAmount(subtotal)}</div>
+                        <div className="mt-0.5 text-[11px] font-bold text-oxblood/80">XOF</div>
+                      </td>
+                      <td className="px-1 py-4 text-right">
+                        <div className="flex items-center justify-end">
                           <button
                             type="button"
                             onClick={() => startEditingOrderItem(item)}
-                            className="rounded-xl p-2 text-oxblood transition-all hover:bg-oxblood/10"
+                            className="rounded-lg p-1.5 text-oxblood transition-colors hover:bg-oxblood/10"
                             title={copy.edit}
                           >
-                            <Pencil size={18} />
+                            <Pencil size={15} />
                           </button>
                           <button
                             type="button"
                             onClick={() => handleRemoveItem(item.id)}
-                            className="rounded-xl p-2 text-danger transition-all hover:bg-danger/10"
+                            className="rounded-lg p-1.5 text-danger transition-colors hover:bg-danger/10"
                             title={copy.remove}
                           >
-                            <Trash2 size={18} />
+                            <Trash2 size={15} />
                           </button>
                         </div>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-5 space-y-4 border-t border-stone-200 pt-5 sm:mt-6">
-            <div className="flex items-center justify-between gap-4 rounded-xl bg-danger/10 px-4 py-4 sm:bg-transparent sm:px-0 sm:py-0">
-              <label className="flex cursor-pointer items-center gap-2.5 text-sm font-bold text-stone-600">
-                <input
-                  type="checkbox"
-                  checked={isUnpaid}
-                  onChange={(event) => setIsUnpaid(event.target.checked)}
-                  className="h-4 w-4 rounded border-stone-300 accent-danger"
-                />
-                <span>{copy.unpaidOrder}</span>
-              </label>
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-semibold text-stone-500">{copy.orderTotal}</span>
-                <span className="whitespace-nowrap text-2xl font-semibold tracking-tight text-danger sm:text-3xl">{formatCurrency(committedTotal)}</span>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <button
-              type="button"
-              onClick={handleSubmitOrder}
-              disabled={isSubmittingOrder}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-oxblood py-4 font-semibold text-white transition-all hover:bg-[#68272e] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Save size={19} />
-              {isSubmittingOrder ? copy.saving : copy.submitOrder}
-            </button>
+
+            <div className="hidden overflow-x-auto custom-scrollbar md:block">
+              <table className="w-full table-fixed text-left">
+                <colgroup>
+                  <col className="w-[24%]" />
+                  <col className="w-[17%]" />
+                  <col className="w-[22%]" />
+                  <col className="w-[23%]" />
+                  <col className="w-[14%]" />
+                </colgroup>
+                <thead>
+                  <tr className="border-b border-stone-200">
+                    <th className="py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-400">{copy.product}</th>
+                    <th className="py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-400">{copy.quantity}</th>
+                    <th className="py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-400">{copy.mobileBoxPrice}</th>
+                    <th className="py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-400">{copy.subtotal}</th>
+                    <th className="py-2 text-right text-[11px] font-semibold uppercase tracking-[0.08em] text-stone-400">{copy.action}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/20">
+                  {orderRows.map(({ item, quantity, subtotal }) => {
+                    return (
+                      <tr key={item.id} className="hover:bg-white transition-colors">
+                        <td className="py-4 pr-2">
+                          <div className="font-semibold text-stone-900">{item.product.name}</div>
+                          <div className="truncate text-[11px] font-bold text-stone-400">{copy.shortPackaging}: {formatPackaging(item.product.spec)}</div>
+                        </td>
+                        <td className="py-4 pr-1 text-xs font-bold text-stone-600">{formatOrderStock(quantity, item.product.spec)}</td>
+                        <td className="whitespace-nowrap py-4 pr-1 text-xs font-bold text-stone-600">{formatCurrency(item.product.price * item.product.spec)}</td>
+                        <td className="whitespace-nowrap py-4 pr-1 text-xs font-semibold text-oxblood">{formatCurrency(subtotal)}</td>
+                        <td className="py-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => startEditingOrderItem(item)}
+                              className="rounded-xl p-2 text-oxblood transition-all hover:bg-oxblood/10"
+                              title={copy.edit}
+                            >
+                              <Pencil size={18} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveItem(item.id)}
+                              className="rounded-xl p-2 text-danger transition-all hover:bg-danger/10"
+                              title={copy.remove}
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-5 space-y-4 border-t border-stone-200 pt-5 sm:mt-6">
+              <div className="flex items-center justify-between gap-4 rounded-xl bg-danger/10 px-4 py-4 sm:bg-transparent sm:px-0 sm:py-0">
+                <label className="flex cursor-pointer items-center gap-2.5 text-sm font-bold text-stone-600">
+                  <input
+                    type="checkbox"
+                    checked={isUnpaid}
+                    onChange={(event) => setIsUnpaid(event.target.checked)}
+                    className="h-4 w-4 rounded border-stone-300 accent-danger"
+                  />
+                  <span>{copy.unpaidOrder}</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold text-stone-500">{copy.orderTotal}</span>
+                  <span className="whitespace-nowrap text-2xl font-semibold tracking-tight text-danger sm:text-3xl">{formatCurrency(committedTotal)}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleSubmitOrder}
+                disabled={isSubmittingOrder}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-oxblood py-4 font-semibold text-white transition-all hover:bg-[#68272e] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Save size={19} />
+                {isSubmittingOrder ? copy.saving : copy.submitOrder}
+              </button>
+            </div>
+              </>
+            )}
           </div>
-            </>
-          )}
         </div>
 
         <div className="xl:sticky xl:top-6 xl:self-start">

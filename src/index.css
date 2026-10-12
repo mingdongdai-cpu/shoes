@@ -4,6 +4,11 @@
   --font-sans: "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Songti SC", "STSong", "Noto Serif CJK SC", "Times New Roman", ui-serif, serif;
   --font-mono: "SFMono-Regular", "JetBrains Mono", ui-monospace, monospace;
+  --color-oxblood: #7c3037;
+  --color-brass: #9b7845;
+  --color-forest: #2e6249;
+  --color-ochre: #9a6722;
+  --color-danger: #a04448;
 }
 
 :root {
@@ -162,59 +167,13 @@ tbody tr:hover {
   background: #f8f5ef;
 }
 
-/* Legacy utility colors are normalized here so every existing business view
-   uses the same restrained retail palette without changing its behavior. */
+/* Surfaces always use the design tokens, even when a view adds border or shadow utilities. */
 .app-main .surface {
   border-color: var(--line) !important;
   background: var(--surface) !important;
   box-shadow: 0 2px 10px rgba(47, 41, 33, 0.045) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-}
-
-.app-main [class*='backdrop-blur'] {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-
-.app-main [class*='bg-gradient'],
-.app-main [class*='radial-gradient'] {
-  background-image: none !important;
-}
-
-.app-main [class*='border-white'] {
-  border-color: var(--line) !important;
-}
-
-.app-main [class*='shadow-['],
-.app-main .shadow-xl,
-.app-main .shadow-2xl,
-.app-main .shadow-lg {
-  box-shadow: none !important;
-}
-
-.app-main .bg-indigo-600\/90,
-.app-main .bg-indigo-600,
-.app-main .bg-purple-600\/90,
-.app-main .bg-purple-600 {
-  background-color: var(--oxblood) !important;
-}
-
-.app-main .text-indigo-500,
-.app-main .text-indigo-600,
-.app-main .text-indigo-700,
-.app-main .text-purple-500,
-.app-main .text-purple-600,
-.app-main .text-purple-700 {
-  color: var(--oxblood) !important;
-}
-
-.app-main .bg-sky-500,
-.app-main .bg-sky-600,
-.app-main .bg-emerald-500,
-.app-main .bg-emerald-600\/90,
-.app-main .bg-emerald-600 {
-  background-color: var(--forest) !important;
 }
 
 @utility app-shell {
@@ -724,7 +683,7 @@ tbody tr:hover {
 }
 
 .metric-band-secondary {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .metric-band-item {

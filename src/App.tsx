@@ -20,7 +20,6 @@ import {
   addDoc, 
   deleteDoc, 
   updateDoc,
-  setDoc,
   doc, 
   query, 
   where,
@@ -37,7 +36,7 @@ import {
   type Transaction as FirestoreWriteTransaction,
   type DocumentData
 } from 'firebase/firestore';
-import { CARGO_CONTAINER_STATUSES, type Product, type OrderProduct, type CustomerOrder, type CustomerOrderItem, type CustomerOrderSync, type CargoContainer, type CargoContainerItem, type CargoContainerStatus, type OrderCashCount, type OrderDailyExpense, type CashDenominationCounts, type CashBalance, type ProductRiskMetrics, type Transaction, type User, type View, type Toast, type Expense, type Debt, type DebtPayment, type DebtPaymentTarget, type DebtSource, type SalesPeriodData, type DashboardMetrics, type AnalyticsOverview, type AnalyticsMonth } from './types';
+import { CARGO_CONTAINER_STATUSES, type Product, type OrderProduct, type CustomerOrder, type CustomerOrderItem, type CustomerOrderSync, type CargoContainer, type CargoContainerItem, type CargoContainerStatus, type OrderCashCount, type OrderDailyExpense, type CashDenominationCounts, type CashBalance, type ProductRiskMetrics, type Transaction, type User, type View, type Toast, type Expense, type Debt, type DebtPayment, type DebtPaymentTarget, type SalesPeriodData, type DashboardMetrics, type AnalyticsOverview, type AnalyticsMonth } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
 import { CustomerOrdersView, OrderDebtsView, OrderPriceListView } from './components/OrderViews';
 import { OrderAccountingView } from './components/OrderAccountingView';
@@ -45,15 +44,16 @@ import { CargoContainersView } from './components/CargoContainersView';
 import { areCargoContainerDatesValid } from './lib/cargoContainers';
 import { AppShell } from './components/AppShell';
 import { orderText, type OrderLanguage } from './lib/orderLanguage';
-import { formatDateTimeLabel, getRangeByMonth, getRangeByPeriod, isWithinRange, timestampToDate, type ReportPeriod } from './lib/timeWindow';
+import { formatDateTimeLabel, getPreviousMonthToDateRange, getRangeByMonth, getRangeByPeriod, isWithinRange, getLocalToday, timestampToDate, toIsoWeekInputValue, type ReportPeriod } from './lib/timeWindow';
 import { hasDuplicateProductName, normalizeProductName } from './lib/productNames';
 import { aggregateBatchLines, getStockAfterBatchTransaction, getStockAfterTransactionDeletion, type BatchLine } from './lib/inventoryOperations';
 import { isCustomerOrderDebt, isOrderDate, normalizeCustomerOrderDebtHistory, normalizeCustomerOrderPaidAmount, normalizeCustomerOrderUnpaid } from './lib/customerOrders';
 import { calculateCashTotal, normalizeCashCounts } from './lib/orderAccounting';
 import { buildAnalyticsDelta, IN_TOTAL_BASELINE_VALUE, type AnalyticsDelta, type AnalyticsExpenseInput, type AnalyticsTransactionInput } from './lib/analytics';
 import { aggregateCustomerOrdersForInventory } from './lib/customerOrderSync';
+import { calculateProductRisk, SALES_LOOKBACK_DAYS } from './lib/productRisk';
 import { resolveSettlementValue } from './lib/debtRecords';
-import { calculatePaidAmountAfterPaymentChange, getDebtPaymentKey } from './lib/debtPayments';
+import { calculatePaidAmountAfterPaymentChange, getDebtPaymentKey, mapDebtPaymentDoc } from './lib/debtPayments';
 import { applyCashCountDelta, calculateCashContributionAfterCountChange, calculateCashCountTotal, calculateCurrentInventoryTotal, calculateOutstandingDebtTotal } from './lib/homeOverview';
 
 
@@ -118,9 +118,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       return (
         <div className="app-shell min-h-screen flex items-center justify-center p-4">
           <div className="surface p-8 rounded-xl border border-stone-200 max-w-md w-full text-center">
-            <XCircle className="text-rose-500 mx-auto mb-4" size={48} />
-            <h2 className="text-xl font-black text-slate-900 mb-2">出错了</h2>
-            <p className="text-slate-600 mb-6">{errorMessage}</p>
+            <XCircle className="text-danger mx-auto mb-4" size={48} />
+            <h2 className="text-xl font-semibold text-stone-900 mb-2">出错了</h2>
+            <p className="text-stone-600 mb-6">{errorMessage}</p>
             <button 
               onClick={() => window.location.reload()}
               className="w-full py-3 rounded-xl font-bold button-primary hover:brightness-105 transition-all"
@@ -149,13 +149,6 @@ const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('zh-CN').format(amount) + ' XOF';
 };
 
-const toLocalDateInputValue = (date: Date) => {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-const getTogoDate = () => toLocalDateInputValue(new Date());
 const getTogoMonth = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -170,14 +163,7 @@ const getPreviousMonth = (monthValue: string) => {
   const prevMonth = `${base.getMonth() + 1}`.padStart(2, '0');
   return `${prevYear}-${prevMonth}`;
 };
-const getTogoWeek = () => {
-  const now = new Date();
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`;
-};
+const getTogoWeek = () => toIsoWeekInputValue(new Date());
 
 interface SalesPeriodWindow {
   key: string;
@@ -279,21 +265,6 @@ function mapDebtDoc(id: string, data: DocumentData): Debt {
     occurredAt: data.occurredAt as Timestamp,
     settledAt: data.settledAt instanceof Timestamp ? data.settledAt : null,
     operatorUid: data.operatorUid as string
-  };
-}
-
-function mapDebtPaymentDoc(id: string, data: DocumentData): DebtPayment {
-  const createdAt = requireTimestamp(data.createdAt, 'debtPayments.createdAt');
-  return {
-    id,
-    debtSource: data.debtSource === 'manual' ? 'manual' : 'customer-order',
-    debtId: String(data.debtId ?? ''),
-    debtKey: String(data.debtKey ?? ''),
-    amount: Number(data.amount ?? 0),
-    paymentDate: String(data.paymentDate ?? ''),
-    operatorUid: String(data.operatorUid ?? ''),
-    createdAt,
-    updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : createdAt
   };
 }
 
@@ -554,12 +525,14 @@ export default function App() {
   const [orderDailyExpenses, setOrderDailyExpenses] = useState<OrderDailyExpense[]>([]);
   const [debtRepaymentTotal, setDebtRepaymentTotal] = useState(0);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactionsView, setTransactionsView] = useState<View | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [analyticsOverview, setAnalyticsOverview] = useState<AnalyticsOverview | null>(null);
   const [analyticsMonths, setAnalyticsMonths] = useState<AnalyticsMonth[]>([]);
   const [homeCashBalanceTotal, setHomeCashBalanceTotal] = useState(0);
   const [homeManualDebtTotal, setHomeManualDebtTotal] = useState(0);
+  const [previousMonthToDateSales, setPreviousMonthToDateSales] = useState<number | null>(null);
   const [homeCustomerOrderDebtTotal, setHomeCustomerOrderDebtTotal] = useState(0);
   const [currentView, setCurrentView] = useState<View>('home');
 
@@ -569,19 +542,19 @@ export default function App() {
   const [inventoryComparisonMode, setInventoryComparisonMode] = useState<'week' | 'month'>('week');
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('day');
   
-  const [selectedDate, setSelectedDate] = useState(getTogoDate());
+  const [selectedDate, setSelectedDate] = useState(getLocalToday());
   const [selectedWeek, setSelectedWeek] = useState(getTogoWeek()); 
   const [selectedMonth, setSelectedMonth] = useState(getTogoMonth());
-  const [reportStartDate, setReportStartDate] = useState(getTogoDate());
-  const [reportEndDate, setReportEndDate] = useState(getTogoDate());
+  const [reportStartDate, setReportStartDate] = useState(getLocalToday());
+  const [reportEndDate, setReportEndDate] = useState(getLocalToday());
   const [dashboardHotMonth, setDashboardHotMonth] = useState(getTogoMonth());
-  const [customerOrdersDate, setCustomerOrdersDate] = useState(getTogoDate());
-  const [accountingDate, setAccountingDate] = useState(getTogoDate());
-  const [adminOrderAccountingDate, setAdminOrderAccountingDate] = useState(getTogoDate());
+  const [customerOrdersDate, setCustomerOrdersDate] = useState(getLocalToday());
+  const [accountingDate, setAccountingDate] = useState(getLocalToday());
+  const [adminOrderAccountingDate, setAdminOrderAccountingDate] = useState(getLocalToday());
   const [expenseFilterMonth, setExpenseFilterMonth] = useState(getTogoMonth());
   const [stockHistoryRequest, setStockHistoryRequest] = useState(() => ({
-    startDate: getTogoDate(),
-    endDate: getTogoDate(),
+    startDate: getLocalToday(),
+    endDate: getLocalToday(),
     productId: '',
     allTime: false
   }));
@@ -805,6 +778,29 @@ export default function App() {
     };
   }, [user, currentView]);
 
+  useEffect(() => {
+    setPreviousMonthToDateSales(null);
+    if (!user || user.role === 'order' || currentView !== 'home' || selectedMonth !== getTogoMonth()) return;
+
+    let cancelled = false;
+    const range = getPreviousMonthToDateRange(new Date());
+    getDocs(query(
+      collection(db, 'transactions'),
+      where('occurredAt', '>=', Timestamp.fromDate(range.start)),
+      where('occurredAt', '<=', Timestamp.fromDate(range.end))
+    )).then((snapshot) => {
+      if (cancelled) return;
+      setPreviousMonthToDateSales(snapshot.docs
+        .map((itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data()))
+        .filter((transaction) => transaction.type === 'out')
+        .reduce((total, transaction) => total + transaction.quantity * transaction.unitPrice, 0));
+    }).catch((error) => handleFirestoreError(error, OperationType.GET, 'transactions'));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, currentView, selectedMonth]);
+
   // --- Toast Logic ---
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     toastIdRef.current += 1;
@@ -829,16 +825,9 @@ export default function App() {
   }, [products]);
 
   const productRiskMetricsByProduct = useMemo(() => {
-    const STOCK_WARNING_BOX_THRESHOLD = 30;
-    const DAYS_OF_COVER_WARNING_THRESHOLD = 14;
-    const STALE_DAYS_THRESHOLD = 30;
-    const LOOKBACK_DAYS = 30;
-    const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const lookbackStart = new Date(todayStart);
-    lookbackStart.setDate(lookbackStart.getDate() - LOOKBACK_DAYS);
+    const lookbackStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    lookbackStart.setDate(lookbackStart.getDate() - SALES_LOOKBACK_DAYS);
 
     const recentOutQtyByProduct: Record<string, number> = {};
     const lastSaleByProduct: Record<string, Date | null> = {};
@@ -865,40 +854,14 @@ export default function App() {
 
     const metricsMap: Record<string, ProductRiskMetrics> = {};
     for (const product of activeProducts) {
-      const spec = product.spec > 0 ? product.spec : 1;
-      const stockBoxes = product.stock / spec;
-      const outBoxes30d = recentOutQtyByProduct[product.id] / spec;
-      const avgDailyBoxes30d = outBoxes30d / LOOKBACK_DAYS;
-      const daysOfCover = avgDailyBoxes30d > 0 ? stockBoxes / avgDailyBoxes30d : Number.POSITIVE_INFINITY;
-      const lastSaleAt = lastSaleByProduct[product.id];
-      const daysSinceLastSale = lastSaleAt
-        ? Math.max(
-            0,
-            Math.floor(
-              (todayStart.getTime() - new Date(lastSaleAt.getFullYear(), lastSaleAt.getMonth(), lastSaleAt.getDate()).getTime()) / MS_PER_DAY
-            )
-          )
-        : null;
-
-      const warningReasons: string[] = [];
-      if (stockBoxes < STOCK_WARNING_BOX_THRESHOLD) {
-        warningReasons.push('库存低于30箱');
-      }
-      if (daysOfCover < DAYS_OF_COVER_WARNING_THRESHOLD) {
-        warningReasons.push('可售天数低于14天');
-      }
-
-      metricsMap[product.id] = {
+      metricsMap[product.id] = calculateProductRisk({
         productId: product.id,
-        stockBoxes,
-        avgDailyBoxes30d,
-        daysOfCover,
-        lastSaleAt,
-        daysSinceLastSale,
-        isWarning: warningReasons.length > 0,
-        isStale: stockBoxes > 0 && (daysSinceLastSale === null || daysSinceLastSale >= STALE_DAYS_THRESHOLD),
-        warningReasons
-      };
+        spec: product.spec,
+        stock: product.stock,
+        createdAt: product.createdAt?.toDate() ?? null,
+        lastSaleAt: lastSaleByProduct[product.id],
+        outQuantity30d: recentOutQtyByProduct[product.id]
+      }, now);
     }
 
     return metricsMap;
@@ -945,7 +908,7 @@ export default function App() {
     const periods: SalesPeriodWindow[] = [];
     let periodStart = monthStart;
 
-    while (periodStart < nextMonthStart) {
+    while (periodStart < nextMonthStart && periodStart <= now) {
       const day = periodStart.getDay();
       const daysToNextMonday = day === 0 ? 1 : 8 - day;
       const nextMonday = new Date(periodStart);
@@ -1019,6 +982,7 @@ export default function App() {
         setTransactions(snapshot.docs
           .map((itemDoc) => mapTransactionDoc(itemDoc.id, itemDoc.data()))
           .sort((left, right) => right.occurredAt.toMillis() - left.occurredAt.toMillis()));
+        setTransactionsView(currentView);
       }, (error) => handleFirestoreError(error, OperationType.GET, 'transactions')));
     };
     const listenCustomerOrders = (sourceQuery: ReturnType<typeof query>) => {
@@ -1033,6 +997,7 @@ export default function App() {
     };
 
     setTransactions([]);
+    setTransactionsView(null);
     setExpenses([]);
     setDebts([]);
     setCustomerOrders([]);
@@ -1217,12 +1182,14 @@ export default function App() {
     const summaries = new Map(analyticsMonths.map((item) => [item.monthKey, item]));
     const currentSummary = summaries.get(selectedMonth);
     const previousSummary = summaries.get(previousMonth);
+    const isCurrentMonth = selectedMonth === getTogoMonth();
+    const previousSalesRange = isCurrentMonth ? getPreviousMonthToDateRange(new Date()) : null;
     const currentMonthSales = currentSummary?.outAmount ?? 0;
-    const previousMonthSales = previousSummary?.outAmount ?? 0;
+    const previousMonthSales = isCurrentMonth ? previousMonthToDateSales : (previousSummary?.outAmount ?? 0);
     const currentMonthExpenses = currentSummary?.expenseAmount ?? 0;
     const previousMonthExpenses = previousSummary?.expenseAmount ?? 0;
 
-    const salesMoM = previousMonthSales > 0
+    const salesMoM = previousMonthSales !== null && previousMonthSales > 0
       ? ((currentMonthSales - previousMonthSales) / previousMonthSales) * 100
       : null;
 
@@ -1236,12 +1203,11 @@ export default function App() {
       cashBalanceTotal: homeCashBalanceTotal,
       currentInventoryTotal: calculateCurrentInventoryTotal(products),
       outstandingDebtTotal: homeManualDebtTotal + homeCustomerOrderDebtTotal,
-      warningCount: warnings.length,
-      staleCount: staleProducts.length,
       salesMoM,
+      salesCompareDays: previousSalesRange ? { current: new Date().getDate(), previous: previousSalesRange.end.getDate() } : null,
       expenseMoM
     };
-  }, [selectedMonth, analyticsMonths, products, homeCashBalanceTotal, homeManualDebtTotal, homeCustomerOrderDebtTotal, warnings.length, staleProducts.length]);
+  }, [selectedMonth, analyticsMonths, products, homeCashBalanceTotal, homeManualDebtTotal, homeCustomerOrderDebtTotal, previousMonthToDateSales]);
 
   const dashboardMetrics = useMemo<DashboardMetrics>(() => {
     const now = new Date();
@@ -2506,7 +2472,7 @@ export default function App() {
           });
         }
         writeAnalyticsDelta(trx, buildAnalyticsDelta({
-          afterTransactions: lines.map((line, index) => {
+          afterTransactions: lines.map((line) => {
             const productData = productDataById.get(line.productId)!;
             return {
               productId: line.productId,
@@ -3069,7 +3035,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="app-shell min-h-screen flex items-center justify-center">
-        <div className="h-12 w-12 animate-spin rounded-full border-[3px] border-sky-100 border-t-sky-500"></div>
+        <div className="h-12 w-12 animate-spin rounded-full border-[3px] border-brass/25 border-t-brass"></div>
       </div>
     );
   }
@@ -3125,6 +3091,7 @@ export default function App() {
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  isRiskDataReady={transactionsView === currentView}
                   products={activeProducts}
                   totalOutQuantityByProduct={totalOutQuantityByProduct}
                   formatStock={formatStock}
@@ -3141,6 +3108,7 @@ export default function App() {
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  isRiskDataReady={transactionsView === currentView}
                   products={activeProducts}
                   totalOutQuantityByProduct={totalOutQuantityByProduct}
                   formatStock={formatStock}
@@ -3157,6 +3125,7 @@ export default function App() {
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  isRiskDataReady={transactionsView === currentView}
                   products={activeProducts}
                   totalOutQuantityByProduct={totalOutQuantityByProduct}
                   formatStock={formatStock}
@@ -3173,6 +3142,7 @@ export default function App() {
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  isRiskDataReady={transactionsView === currentView}
                   products={activeProducts}
                   totalOutQuantityByProduct={totalOutQuantityByProduct}
                   formatStock={formatStock}
@@ -3231,7 +3201,7 @@ export default function App() {
                   createCustomerOrder={createCustomerOrder}
                   updateCustomerOrder={updateCustomerOrder}
                   deleteCustomerOrder={deleteCustomerOrder}
-                  getToday={getTogoDate}
+                  getToday={getLocalToday}
                   language={orderLanguage}
                   onOrdersDateChange={setCustomerOrdersDate}
                 />
@@ -3353,30 +3323,30 @@ export default function App() {
       {/* Confirm Delete Modal */}
       <AnimatePresence>
         {confirmDeleteId && (
-          <div className="fixed inset-0 bg-slate-900/25 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-stone-900/25 z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               className="surface rounded-xl p-8 w-full max-w-sm border border-stone-200 text-center"
             >
-              <div className="w-16 h-16 bg-rose-50 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <AlertTriangle className="text-rose-500" size={32} />
+              <div className="w-16 h-16 bg-danger/10 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="text-danger" size={32} />
               </div>
-              <h3 className="text-xl font-black text-slate-800 mb-2">确认删除？</h3>
-              <p className="text-slate-500 mb-8">确定要彻底删除此流水记录吗？此操作不可撤销，库存将自动回滚。</p>
+              <h3 className="text-xl font-semibold text-stone-800 mb-2">确认删除？</h3>
+              <p className="text-stone-500 mb-8">确定要彻底删除此流水记录吗？此操作不可撤销，库存将自动回滚。</p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setConfirmDeleteId(null)}
                   disabled={isDeletingTransaction}
-                  className="flex-1 py-3 rounded-xl font-semibold text-slate-600 button-secondary hover:bg-white transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex-1 py-3 rounded-xl font-semibold text-stone-600 button-secondary hover:bg-white transition-all disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   取消
                 </button>
                 <button
                   onClick={() => void deleteTransaction(confirmDeleteId)}
                   disabled={isDeletingTransaction}
-                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-rose-500/90 hover:bg-rose-600 shadow-sm shadow-rose-300/30 transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-danger hover:bg-danger/85 shadow-sm transition-all disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isDeletingTransaction ? '删除中...' : '确认删除'}
                 </button>
@@ -3389,28 +3359,28 @@ export default function App() {
       {/* Confirm Delete Expense Modal */}
       <AnimatePresence>
         {confirmDeleteExpenseId && (
-          <div className="fixed inset-0 bg-slate-900/25 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-stone-900/25 z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               className="surface rounded-xl p-8 w-full max-w-sm border border-stone-200 text-center"
             >
-              <div className="w-16 h-16 bg-rose-50 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <AlertTriangle className="text-rose-500" size={32} />
+              <div className="w-16 h-16 bg-danger/10 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="text-danger" size={32} />
               </div>
-              <h3 className="text-xl font-black text-slate-800 mb-2">确认删除？</h3>
-              <p className="text-slate-500 mb-8">确定要彻底删除此支出明细吗？此操作不可撤销。</p>
+              <h3 className="text-xl font-semibold text-stone-800 mb-2">确认删除？</h3>
+              <p className="text-stone-500 mb-8">确定要彻底删除此支出明细吗？此操作不可撤销。</p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setConfirmDeleteExpenseId(null)}
-                  className="flex-1 py-3 rounded-xl font-semibold text-slate-600 button-secondary hover:bg-white transition-all"
+                  className="flex-1 py-3 rounded-xl font-semibold text-stone-600 button-secondary hover:bg-white transition-all"
                 >
                   取消
                 </button>
                 <button
                   onClick={() => deleteExpense(confirmDeleteExpenseId)}
-                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-rose-500/90 hover:bg-rose-600 shadow-sm shadow-rose-300/30 transition-all"
+                  className="flex-1 py-3 rounded-xl font-semibold text-white bg-danger hover:bg-danger/85 shadow-sm transition-all"
                 >
                   确认删除
                 </button>
@@ -3431,11 +3401,11 @@ export default function App() {
               exit={{ opacity: 0, x: 20, scale: 0.9 }}
               className={`flex items-center gap-3 px-5 py-3 rounded-xl border surface ${
                 toast.type === 'success' 
-                  ? 'border-emerald-200/50 text-emerald-900' 
-                  : 'border-rose-200/50 text-rose-900'
+                  ? 'border-forest/25 text-forest'
+                  : 'border-danger/25 text-danger'
               }`}
             >
-              {toast.type === 'success' ? <CheckCircle2 className="text-emerald-500" size={20} /> : <XCircle className="text-rose-500" size={20} />}
+              {toast.type === 'success' ? <CheckCircle2 className="text-forest" size={20} /> : <XCircle className="text-danger" size={20} />}
               <span className="font-medium">{toast.message}</span>
             </motion.div>
           ))}

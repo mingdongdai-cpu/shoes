@@ -28,6 +28,13 @@ export function parseIsoWeek(weekValue: string): TimeRange {
   return { start, end };
 }
 
+export function getPreviousMonthToDateRange(now: Date): TimeRange {
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousMonthDays = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+  const end = new Date(start.getFullYear(), start.getMonth(), Math.min(now.getDate(), previousMonthDays), 23, 59, 59, 999);
+  return { start, end };
+}
+
 export function getRangeByMonth(month: string): TimeRange {
   const [year, monthPart] = month.split('-');
   const y = Number.parseInt(year, 10);
@@ -83,12 +90,27 @@ export function isWithinRange(value: Timestamp, range: TimeRange): boolean {
   return date >= range.start && date <= range.end;
 }
 
-export function formatDateInputValue(value: Timestamp): string {
-  const date = timestampToDate(value);
+export function toLocalDateInputValue(date: Date): string {
   const y = date.getFullYear();
   const m = `${date.getMonth() + 1}`.padStart(2, '0');
   const d = `${date.getDate()}`.padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+export function getLocalToday(): string {
+  return toLocalDateInputValue(new Date());
+}
+
+export function toIsoWeekInputValue(date: Date): string {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${weekNo.toString().padStart(2, '0')}`;
+}
+
+export function formatDateInputValue(value: Timestamp): string {
+  return toLocalDateInputValue(timestampToDate(value));
 }
 
 export function formatDateTimeLabel(value: Timestamp): string {
@@ -100,11 +122,4 @@ export function formatDateTimeLabel(value: Timestamp): string {
   const mm = `${date.getMinutes()}`.padStart(2, '0');
   const ss = `${date.getSeconds()}`.padStart(2, '0');
   return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
-}
-
-export function monthKeyFromTimestamp(value: Timestamp): string {
-  const date = timestampToDate(value);
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, '0');
-  return `${y}-${m}`;
 }

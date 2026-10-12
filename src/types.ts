@@ -230,9 +230,11 @@ export interface ProductRiskMetrics {
   daysOfCover: number;
   lastSaleAt: Date | null;
   daysSinceLastSale: number | null;
+  isOutOfStock: boolean;
   isWarning: boolean;
   isStale: boolean;
   warningReasons: string[];
+  staleReasons: string[];
 }
 
 export interface SalesPeriodColumn {

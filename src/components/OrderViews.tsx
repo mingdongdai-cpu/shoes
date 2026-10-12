@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, CheckCircle2, ChevronDown, ChevronUp, ClipboardList, HandCoins, LockKeyhole, Package, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Trash2, X } from 'lucide-react';
 import type { CustomerOrder, CustomerOrderItem, CustomerOrderSync, DebtPayment, DebtPaymentTarget, OrderProduct } from '../types';
-import { buildCustomerOrderTotals, filterCustomerOrdersByDate, getCustomerOrderBalance, getCustomerOrderOutstanding, getCustomerOrderPaymentStatus, getTogoOrderDate, isCustomerOrderDebt } from '../lib/customerOrders';
+import { buildCustomerOrderTotals, filterCustomerOrdersByDate, getCustomerOrderBalance, getCustomerOrderOutstanding, getCustomerOrderPaymentStatus, isCustomerOrderDebt } from '../lib/customerOrders';
+import { getLocalToday } from '../lib/timeWindow';
 import { DebtPaymentDialog, DebtPaymentHistory } from './DebtPayments';
 import type { OrderLanguage } from '../lib/orderLanguage';
 
@@ -41,7 +42,7 @@ export function OrderPriceListView({ products, formatCurrency, language = 'fr' }
       <section className="section-panel overflow-hidden">
         <div className="section-panel-header">
           <div className="flex items-center gap-3">
-            <span className="rounded-lg bg-amber-50 p-2 text-amber-700"><Package size={20} /></span>
+            <span className="rounded-lg bg-ochre/10 p-2 text-ochre"><Package size={20} /></span>
             <div>
               <h2 className="text-lg font-bold text-stone-900">{copy.card}</h2>
               <p className="text-xs text-stone-500">{copy.cardSubtitle}</p>
@@ -49,7 +50,7 @@ export function OrderPriceListView({ products, formatCurrency, language = 'fr' }
           </div>
           <label className="relative w-full sm:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={17} />
-            <input type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder={copy.search} className="w-full rounded-lg border-stone-200 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold focus:border-amber-500 focus:ring-amber-500" />
+            <input type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder={copy.search} className="w-full rounded-lg border-stone-200 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold focus:border-ochre focus:ring-ochre/25" />
           </label>
         </div>
 
@@ -65,11 +66,11 @@ export function OrderPriceListView({ products, formatCurrency, language = 'fr' }
             </thead>
             <tbody>
               {visibleProducts.map((product) => (
-                <tr key={product.id} className="odd:bg-white even:bg-stone-50/45 hover:bg-amber-50/35">
+                <tr key={product.id} className="odd:bg-white even:bg-stone-50/45 hover:bg-ochre/10">
                   <td className="px-4 py-4 font-bold text-stone-900">{product.name}</td>
                   <td className="px-4 py-4 text-center font-semibold tabular-nums text-stone-600">{product.spec}</td>
                   <td className="px-4 py-4 text-right font-semibold tabular-nums text-stone-600">{formatCurrency(product.price)}</td>
-                  <td className="px-4 py-4 text-right font-bold tabular-nums text-[#7c3037]">{formatCurrency(product.price * product.spec)}</td>
+                  <td className="px-4 py-4 text-right font-bold tabular-nums text-oxblood">{formatCurrency(product.price * product.spec)}</td>
                 </tr>
               ))}
             </tbody>
@@ -115,8 +116,8 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
   const [isSaving, setIsSaving] = useState(false);
   const [orderPendingDeletion, setOrderPendingDeletion] = useState<CustomerOrder | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [today, setToday] = useState(() => getTogoOrderDate());
-  const [selectedDate, setSelectedDate] = useState(() => getTogoOrderDate());
+  const [today, setToday] = useState(() => getLocalToday());
+  const [selectedDate, setSelectedDate] = useState(() => getLocalToday());
   const copy = {
     fr: {
         title: 'Commandes clients', subtitle: 'Enregistrées en temps réel', emptyTitle: 'Aucune commande enregistrée',
@@ -150,7 +151,7 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
 
   useEffect(() => {
     const refreshToday = () => {
-      const nextToday = getTogoOrderDate();
+      const nextToday = getLocalToday();
       if (nextToday === today) return;
       setSelectedDate((currentDate) => currentDate === today ? nextToday : currentDate);
       setToday(nextToday);
@@ -262,7 +263,7 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
       <section className={`customer-orders-panel overflow-hidden ${embedded ? 'surface rounded-xl border border-stone-200 shadow-sm' : 'section-panel'}`}>
         <div className="flex items-center justify-between gap-3 border-b border-stone-200 px-4 py-4 sm:px-5">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="rounded-lg bg-rose-50 p-2 text-[#7c3037]"><ClipboardList size={19} /></span>
+            <span className="rounded-lg bg-danger/10 p-2 text-oxblood"><ClipboardList size={19} /></span>
             <div className="min-w-0">
               <h2 className="display-title truncate text-lg">{copy.title}</h2>
               <p className="text-xs text-stone-500">{copy.subtitle}</p>
@@ -279,7 +280,7 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
 
         <div className="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/55 px-4 py-3 sm:px-5">
           <label htmlFor={`customer-orders-date-${language}-${embedded ? 'embedded' : 'page'}`} className="metric-label flex items-center gap-2">
-            <CalendarDays size={15} className="text-[#7c3037]" />
+            <CalendarDays size={15} className="text-oxblood" />
             <span>{copy.dateFilter}</span>
           </label>
           <input
@@ -289,7 +290,7 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
             max={today}
             onChange={(event) => setSelectedDate(event.target.value)}
             aria-label={copy.dateFilter}
-            className="w-40 rounded-lg border-stone-200 bg-white px-3 py-2 text-sm font-bold tabular-nums text-stone-700 focus:border-[#7c3037] focus:ring-[#7c3037]"
+            className="w-40 rounded-lg border-stone-200 bg-white px-3 py-2 text-sm font-bold tabular-nums text-stone-700 focus:border-oxblood focus:ring-[#7c3037]"
           />
         </div>
 
@@ -308,7 +309,7 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
               const needsAttention = paymentStatus === 'unpaid' || paymentStatus === 'underpaid';
               const inventoryLocked = Boolean(order.inventorySyncId);
               return (
-                <article key={order.id} className={needsAttention ? 'bg-rose-50/65' : 'bg-white'}>
+                <article key={order.id} className={needsAttention ? 'bg-danger/10' : 'bg-white'}>
                   <div className="flex items-center gap-2 px-3 py-3.5 sm:px-4">
                     <button type="button" onClick={() => setExpandedOrderId(expanded ? null : order.id)} aria-expanded={expanded} className="min-w-0 flex-1 rounded-lg px-1 py-1 text-left hover:bg-stone-50">
                       <div className="flex items-center justify-between gap-3">
@@ -319,15 +320,15 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
                             <span className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-stone-500"><CalendarDays size={13} />{order.orderDate}</span>
                           </span>
                         </span>
-                        {paymentStatus === 'unpaid' && <span className="shrink-0 rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-bold text-rose-700">{copy.unpaid}</span>}
-                        {paymentStatus === 'underpaid' && <span className="shrink-0 rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-bold text-rose-700">{copy.underpaid} {formatCurrency(paymentDifference)}</span>}
-                        {paymentStatus === 'overpaid' && <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-700">{copy.overpaid} {formatCurrency(paymentDifference)}</span>}
-                        {inventoryLocked && <span className="flex shrink-0 items-center gap-1 rounded-full bg-sky-100 px-2.5 py-1 text-[10px] font-bold text-sky-700"><LockKeyhole size={11} />{copy.synced}</span>}
-                        <strong className="customer-order-money shrink-0 text-base font-semibold tabular-nums text-[#7c3037]">{formatCurrency(order.totalAmount)}</strong>
+                        {paymentStatus === 'unpaid' && <span className="shrink-0 rounded-full bg-danger/10 px-2.5 py-1 text-[11px] font-bold text-danger">{copy.unpaid}</span>}
+                        {paymentStatus === 'underpaid' && <span className="shrink-0 rounded-full bg-danger/10 px-2.5 py-1 text-[11px] font-bold text-danger">{copy.underpaid} {formatCurrency(paymentDifference)}</span>}
+                        {paymentStatus === 'overpaid' && <span className="shrink-0 rounded-full bg-forest/10 px-2.5 py-1 text-[11px] font-bold text-forest">{copy.overpaid} {formatCurrency(paymentDifference)}</span>}
+                        {inventoryLocked && <span className="flex shrink-0 items-center gap-1 rounded-full bg-brass/10 px-2.5 py-1 text-[11px] font-bold text-brass"><LockKeyhole size={11} />{copy.synced}</span>}
+                        <strong className="customer-order-money shrink-0 text-base font-semibold tabular-nums text-oxblood">{formatCurrency(order.totalAmount)}</strong>
                       </div>
                     </button>
-                    {!inventoryLocked && <button type="button" onClick={() => openEditor(order)} className="shrink-0 rounded-lg p-2 text-[#7c3037] hover:bg-rose-50" title={copy.edit} aria-label={`${copy.edit} ${order.customerName}`}><Pencil size={16} /></button>}
-                    {!inventoryLocked && <button type="button" onClick={() => setOrderPendingDeletion(order)} className="shrink-0 rounded-lg p-2 text-rose-500 hover:bg-rose-50" title={copy.deleteOrder} aria-label={`${copy.deleteOrder} ${order.customerName}`}><Trash2 size={16} /></button>}
+                    {!inventoryLocked && <button type="button" onClick={() => openEditor(order)} className="shrink-0 rounded-lg p-2 text-oxblood hover:bg-danger/10" title={copy.edit} aria-label={`${copy.edit} ${order.customerName}`}><Pencil size={16} /></button>}
+                    {!inventoryLocked && <button type="button" onClick={() => setOrderPendingDeletion(order)} className="shrink-0 rounded-lg p-2 text-danger hover:bg-danger/10" title={copy.deleteOrder} aria-label={`${copy.deleteOrder} ${order.customerName}`}><Trash2 size={16} /></button>}
                   </div>
 
                   {expanded && (
@@ -378,13 +379,13 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
                 </label>
               </div>
 
-              <label className={`mt-4 flex items-center gap-2.5 rounded-lg border border-rose-100 bg-rose-50/55 px-4 py-3 text-sm font-bold text-rose-700 ${editor.order.hasDebtHistory ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+              <label className={`mt-4 flex items-center gap-2.5 rounded-lg border border-danger/25 bg-danger/10 px-4 py-3 text-sm font-bold text-danger ${editor.order.hasDebtHistory ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                 <input
                   type="checkbox"
                   checked={editor.isUnpaid}
                   disabled={editor.order.hasDebtHistory}
                   onChange={(event) => setEditor((current) => current ? { ...current, isUnpaid: event.target.checked, paidAmount: event.target.checked ? '' : current.paidAmount } : current)}
-                  className="h-4 w-4 rounded border-rose-300 accent-rose-600"
+                  className="h-4 w-4 rounded border-danger/45 accent-danger"
                 />
                 <span>{copy.unpaidOrder}</span>
               </label>
@@ -407,7 +408,7 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
                         <span className="mb-2 block text-xs font-bold uppercase tracking-widest text-stone-500">{copy.boxes}</span>
                         <input type="number" min="1" step="1" value={line.boxes} onChange={(event) => updateEditorLine(line.key, { boxes: event.target.value })} className="w-full rounded-lg px-3" />
                       </label>
-                      <button type="button" onClick={() => setEditor((current) => current ? { ...current, lines: current.lines.filter((item) => item.key !== line.key) } : current)} className="flex h-11 w-11 items-center justify-center rounded-lg text-rose-500 hover:bg-rose-50" title={copy.remove} aria-label={copy.remove}><Trash2 size={17} /></button>
+                      <button type="button" onClick={() => setEditor((current) => current ? { ...current, lines: current.lines.filter((item) => item.key !== line.key) } : current)} className="flex h-11 w-11 items-center justify-center rounded-lg text-danger hover:bg-danger/10" title={copy.remove} aria-label={copy.remove}><Trash2 size={17} /></button>
                     </div>
                   );
                 })}
@@ -431,16 +432,16 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
                 </label>
               </div>
               {editor.order.hasDebtHistory && (
-                <p className="mt-3 rounded-lg bg-violet-50 px-4 py-3 text-xs font-semibold leading-5 text-violet-700">
+                <p className="mt-3 rounded-lg bg-brass/10 px-4 py-3 text-xs font-semibold leading-5 text-brass">
                   {copy.debtNotice}
                 </p>
               )}
-              {editorError && <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{editorError}</p>}
+              {editorError && <p className="mt-4 rounded-lg bg-danger/10 px-4 py-3 text-sm font-semibold text-danger">{editorError}</p>}
             </div>
 
             <footer className="flex flex-col-reverse gap-3 border-t border-stone-200 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
               <button type="button" onClick={() => setEditor(null)} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600 hover:bg-stone-50">{copy.cancel}</button>
-              <button type="button" onClick={saveEditor} disabled={isSaving} className="flex items-center justify-center gap-2 rounded-lg bg-[#7c3037] px-5 py-3 font-bold text-white hover:bg-[#68272e] disabled:opacity-60"><Save size={17} />{isSaving ? copy.saving : copy.save}</button>
+              <button type="button" onClick={saveEditor} disabled={isSaving} className="flex items-center justify-center gap-2 rounded-lg bg-oxblood px-5 py-3 font-bold text-white hover:bg-[#68272e] disabled:opacity-60"><Save size={17} />{isSaving ? copy.saving : copy.save}</button>
             </footer>
           </div>
         </div>
@@ -450,7 +451,7 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
         <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/45 p-4">
           <div role="dialog" aria-modal="true" aria-labelledby="customer-order-delete-title" className="w-full max-w-md rounded-xl bg-[#fffefa] p-6 shadow-2xl sm:p-7">
             <div className="flex items-start gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600"><Trash2 size={20} /></span>
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-danger/10 text-danger"><Trash2 size={20} /></span>
               <div>
                 <h2 id="customer-order-delete-title" className="text-xl font-bold text-stone-900">{copy.deleteTitle}</h2>
                 <p className="mt-2 text-sm font-semibold leading-6 text-stone-500">{copy.deleteBody}</p>
@@ -460,12 +461,12 @@ export function CustomerOrdersPanel({ orders, products, formatCurrency, updateCu
               <strong className="block text-sm text-stone-900">{orderPendingDeletion.customerName}</strong>
               <div className="mt-1 flex items-center justify-between gap-3 text-xs font-semibold text-stone-500">
                 <span>{orderPendingDeletion.orderDate}</span>
-                <span className="customer-order-money text-sm font-semibold tabular-nums text-[#7c3037]">{formatCurrency(orderPendingDeletion.totalAmount)}</span>
+                <span className="customer-order-money text-sm font-semibold tabular-nums text-oxblood">{formatCurrency(orderPendingDeletion.totalAmount)}</span>
               </div>
             </div>
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button type="button" onClick={() => setOrderPendingDeletion(null)} disabled={isDeleting} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600 hover:bg-stone-50 disabled:opacity-60">{copy.cancel}</button>
-              <button type="button" onClick={confirmDeleteOrder} disabled={isDeleting} className="flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-5 py-3 font-bold text-white hover:bg-rose-700 disabled:opacity-60"><Trash2 size={17} />{isDeleting ? copy.deleting : copy.confirmDelete}</button>
+              <button type="button" onClick={confirmDeleteOrder} disabled={isDeleting} className="flex items-center justify-center gap-2 rounded-lg bg-danger px-5 py-3 font-bold text-white hover:bg-danger/85 disabled:opacity-60"><Trash2 size={17} />{isDeleting ? copy.deleting : copy.confirmDelete}</button>
             </div>
           </div>
         </div>
@@ -513,13 +514,13 @@ export function CustomerOrdersView({ orders, products, formatCurrency, updateCus
           <p className="mt-2 text-sm text-stone-500">查看并编辑 order 账户提交的客户订货记录。</p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-          <button type="button" onClick={() => setConfirmingSyncAction(true)} disabled={!inventorySync && orders.length === 0} className={`flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${inventorySync ? 'border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100' : 'bg-[#7c3037] text-white hover:bg-[#68272e]'}`}>
+          <button type="button" onClick={() => setConfirmingSyncAction(true)} disabled={!inventorySync && orders.length === 0} className={`flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${inventorySync ? 'border border-brass/25 bg-brass/10 text-brass hover:bg-brass/10' : 'bg-oxblood text-white hover:bg-[#68272e]'}`}>
             {inventorySync ? <RotateCcw size={17} /> : <RefreshCw size={17} />}
             {inventorySync ? '撤销同步' : '同步'}
           </button>
           <label className="relative w-full sm:w-80">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={17} />
-            <input type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="搜索客户或商品..." className="w-full rounded-lg border-stone-200 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold focus:border-[#7c3037] focus:ring-[#7c3037]" />
+            <input type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="搜索客户或商品..." className="w-full rounded-lg border-stone-200 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold focus:border-oxblood focus:ring-[#7c3037]" />
           </label>
         </div>
       </header>
@@ -529,7 +530,7 @@ export function CustomerOrdersView({ orders, products, formatCurrency, updateCus
       {confirmingSyncAction && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4">
           <div role="dialog" aria-modal="true" aria-labelledby="customer-order-sync-title" className="w-full max-w-md rounded-xl bg-[#fffefa] p-6 shadow-2xl">
-            <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-xl ${inventorySync ? 'bg-sky-50 text-sky-700' : 'bg-rose-50 text-[#7c3037]'}`}>
+            <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-xl ${inventorySync ? 'bg-brass/10 text-brass' : 'bg-danger/10 text-oxblood'}`}>
               {inventorySync ? <RotateCcw size={24} /> : <RefreshCw size={24} />}
             </div>
             <h2 id="customer-order-sync-title" className="display-title mt-4 text-center text-2xl">{inventorySync ? '撤销当天同步？' : '同步到出库流水？'}</h2>
@@ -540,7 +541,7 @@ export function CustomerOrdersView({ orders, products, formatCurrency, updateCus
             </p>
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button type="button" onClick={() => setConfirmingSyncAction(false)} disabled={isApplyingSyncAction} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600 hover:bg-stone-50 disabled:opacity-60">取消</button>
-              <button type="button" onClick={applySyncAction} disabled={isApplyingSyncAction} className={`flex items-center justify-center gap-2 rounded-lg px-5 py-3 font-bold text-white disabled:opacity-60 ${inventorySync ? 'bg-sky-700 hover:bg-sky-800' : 'bg-[#7c3037] hover:bg-[#68272e]'}`}>
+              <button type="button" onClick={applySyncAction} disabled={isApplyingSyncAction} className={`flex items-center justify-center gap-2 rounded-lg px-5 py-3 font-bold text-white disabled:opacity-60 ${inventorySync ? 'bg-brass hover:bg-brass/85' : 'bg-oxblood hover:bg-[#68272e]'}`}>
                 {isApplyingSyncAction ? '处理中...' : inventorySync ? '确认撤销' : '确认同步'}
               </button>
             </div>
@@ -634,16 +635,16 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
             <h1 className="display-title mt-2 text-3xl sm:text-4xl">{copy.title}</h1>
             <p className="mt-2 text-sm text-stone-500">{copy.subtitle}</p>
           </div>
-          <div className="rounded-xl border border-rose-100 bg-rose-50 px-5 py-3 text-right">
-            <span className="metric-label block text-rose-600">{copy.outstanding}</span>
-            <strong className="customer-order-money mt-1 block whitespace-nowrap text-2xl font-semibold text-rose-700">{formatCurrency(totalOutstanding)}</strong>
+          <div className="rounded-xl border border-danger/25 bg-danger/10 px-5 py-3 text-right">
+            <span className="metric-label block text-danger">{copy.outstanding}</span>
+            <strong className="customer-order-money mt-1 block whitespace-nowrap text-2xl font-semibold text-danger">{formatCurrency(totalOutstanding)}</strong>
           </div>
         </header>
 
         <section className="section-panel overflow-hidden">
           <div className="section-panel-header">
             <div className="flex items-center gap-3">
-              <span className="rounded-lg bg-rose-50 p-2 text-rose-700"><HandCoins size={20} /></span>
+              <span className="rounded-lg bg-danger/10 p-2 text-danger"><HandCoins size={20} /></span>
               <div>
                 <h2 className="display-title text-lg">{copy.card}</h2>
                 <p className="text-xs text-stone-500">{debtOrders.length} {language === 'fr' ? `commande${debtOrders.length === 1 ? '' : 's'} ${copy.pending}` : language === 'zh' ? copy.pending : `order${debtOrders.length === 1 ? '' : 's'} ${copy.pending}`}</p>
@@ -653,17 +654,17 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
 
           {debtOrders.length === 0 ? (
             <div className="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
-              <CheckCircle2 size={34} className="text-emerald-400" />
+              <CheckCircle2 size={34} className="text-forest/80" />
               <h3 className="mt-4 text-base font-bold text-stone-700">{copy.none}</h3>
               <p className="mt-1 text-sm font-semibold text-stone-400">{copy.noneBody}</p>
             </div>
           ) : (
-            <div className="divide-y divide-rose-100">
+            <div className="divide-y divide-danger/15">
               {debtOrders.map((order) => {
                 const expanded = expandedOrderId === order.id;
                 const remainingAmount = getCustomerOrderOutstanding(order);
                 return (
-                  <article key={order.id} className="bg-rose-50/60">
+                  <article key={order.id} className="bg-danger/10">
                     <div className="flex items-center gap-2 px-4 py-4 sm:px-5">
                       <button
                         type="button"
@@ -673,28 +674,28 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
                       >
                         <div className="flex items-center justify-between gap-3">
                           <span className="flex min-w-0 items-center gap-2">
-                            <span className="shrink-0 text-rose-400">{expanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</span>
+                            <span className="shrink-0 text-danger/80">{expanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</span>
                             <span className="min-w-0">
                               <strong className="block truncate text-sm text-stone-900">{order.customerName}</strong>
                               <span className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-stone-500"><CalendarDays size={13} />{order.orderDate}</span>
                             </span>
                           </span>
-                          <span className="shrink-0 rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-bold text-rose-700">
+                          <span className="shrink-0 rounded-full bg-danger/10 px-2.5 py-1 text-[11px] font-bold text-danger">
                             {order.isUnpaid ? copy.unpaid : `${copy.short} ${formatCurrency(remainingAmount)}`}
                           </span>
-                          <strong className="customer-order-money shrink-0 text-base font-semibold text-rose-700">{formatCurrency(remainingAmount)}</strong>
+                          <strong className="customer-order-money shrink-0 text-base font-semibold text-danger">{formatCurrency(remainingAmount)}</strong>
                         </div>
                       </button>
-                      <button type="button" onClick={() => openEditor(order)} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-sky-600 hover:bg-white disabled:opacity-40" title={copy.editCustomer} aria-label={`${copy.editDebt} ${order.customerName}`}><Pencil size={16} /></button>
-                      <button type="button" onClick={() => { setEditingPayment(null); setPaymentTarget(paymentTargetFor(order)); }} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-emerald-600 hover:bg-white disabled:opacity-40" title={copy.receive} aria-label={`${copy.receiveDebt} ${order.customerName}`}><HandCoins size={17} /></button>
+                      <button type="button" onClick={() => openEditor(order)} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-brass hover:bg-white disabled:opacity-40" title={copy.editCustomer} aria-label={`${copy.editDebt} ${order.customerName}`}><Pencil size={16} /></button>
+                      <button type="button" onClick={() => { setEditingPayment(null); setPaymentTarget(paymentTargetFor(order)); }} disabled={savingOrderId !== null} className="shrink-0 rounded-lg p-2 text-forest hover:bg-white disabled:opacity-40" title={copy.receive} aria-label={`${copy.receiveDebt} ${order.customerName}`}><HandCoins size={17} /></button>
                     </div>
 
                     {expanded && (
-                      <div className="border-t border-rose-100 bg-white/70 px-5 py-4">
+                      <div className="border-t border-danger/25 bg-white/70 px-5 py-4">
                         <div className="grid gap-3 sm:grid-cols-3">
                           <div><span className="metric-label block">{copy.total}</span><strong className="mt-1 block text-sm text-stone-800">{formatCurrency(order.totalAmount)}</strong></div>
-                          <div><span className="metric-label block">{copy.paid}</span><strong className="mt-1 block text-sm text-sky-700">{formatCurrency(order.paidAmount)}</strong></div>
-                          <div><span className="metric-label block">{copy.remaining}</span><strong className="mt-1 block text-sm text-rose-700">{formatCurrency(remainingAmount)}</strong></div>
+                          <div><span className="metric-label block">{copy.paid}</span><strong className="mt-1 block text-sm text-brass">{formatCurrency(order.paidAmount)}</strong></div>
+                          <div><span className="metric-label block">{copy.remaining}</span><strong className="mt-1 block text-sm text-danger">{formatCurrency(remainingAmount)}</strong></div>
                         </div>
                         <div className="mt-4 space-y-2">
                           {order.items.map((item, index) => (
@@ -740,13 +741,13 @@ export function OrderDebtsView({ orders, formatCurrency, updateCustomerOrder, sa
               </label>
               <div className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-3">
                 <span className="metric-label block">{copy.total}</span>
-                <strong className="customer-order-money mt-1 block text-xl text-[#7c3037]">{formatCurrency(editingOrder.totalAmount)}</strong>
+                <strong className="customer-order-money mt-1 block text-xl text-oxblood">{formatCurrency(editingOrder.totalAmount)}</strong>
               </div>
-              <p className="rounded-lg bg-violet-50 px-4 py-3 text-sm font-semibold leading-5 text-violet-700">{copy.paymentNotice}</p>
-              {editorError && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{editorError}</p>}
+              <p className="rounded-lg bg-brass/10 px-4 py-3 text-sm font-semibold leading-5 text-brass">{copy.paymentNotice}</p>
+              {editorError && <p className="rounded-lg bg-danger/10 px-4 py-3 text-sm font-semibold text-danger">{editorError}</p>}
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => setEditingOrder(null)} disabled={savingOrderId !== null} className="rounded-lg border border-stone-200 bg-white px-5 py-3 font-bold text-stone-600">{copy.cancel}</button>
-                <button type="submit" disabled={savingOrderId !== null} className="flex items-center justify-center gap-2 rounded-lg bg-[#7c3037] px-5 py-3 font-bold text-white disabled:opacity-60"><Save size={17} />{savingOrderId ? copy.saving : copy.save}</button>
+                <button type="submit" disabled={savingOrderId !== null} className="flex items-center justify-center gap-2 rounded-lg bg-oxblood px-5 py-3 font-bold text-white disabled:opacity-60"><Save size={17} />{savingOrderId ? copy.saving : copy.save}</button>
               </div>
             </form>
           </div>

@@ -1,28 +1,13 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, Pencil, Plus, ReceiptText, Trash2, X } from 'lucide-react';
-import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { DebtPayment, DebtPaymentTarget } from '../types';
-import { getDebtPaymentKey } from '../lib/debtPayments';
-import { getTogoOrderDate } from '../lib/customerOrders';
+import { getDebtPaymentKey, mapDebtPaymentDoc } from '../lib/debtPayments';
+import { getLocalToday } from '../lib/timeWindow';
 import type { OrderLanguage } from '../lib/orderLanguage';
 
 type Language = OrderLanguage;
-
-function mapDebtPayment(id: string, data: Record<string, unknown>): DebtPayment {
-  const createdAt = data.createdAt instanceof Timestamp ? data.createdAt : Timestamp.fromMillis(0);
-  return {
-    id,
-    debtSource: data.debtSource === 'manual' ? 'manual' : 'customer-order',
-    debtId: String(data.debtId ?? ''),
-    debtKey: String(data.debtKey ?? ''),
-    amount: Number(data.amount ?? 0),
-    paymentDate: String(data.paymentDate ?? ''),
-    operatorUid: String(data.operatorUid ?? ''),
-    createdAt,
-    updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : createdAt
-  };
-}
 
 export function DebtPaymentHistory({
   target,
@@ -55,28 +40,28 @@ export function DebtPaymentHistory({
     );
     return onSnapshot(paymentQuery, (snapshot) => {
       setPayments(snapshot.docs
-        .map((itemDoc) => mapDebtPayment(itemDoc.id, itemDoc.data()))
+        .map((itemDoc) => mapDebtPaymentDoc(itemDoc.id, itemDoc.data()))
         .sort((left, right) => right.paymentDate.localeCompare(left.paymentDate) || right.createdAt.toMillis() - left.createdAt.toMillis()));
     });
   }, [target.debtId, target.debtSource]);
 
   return (
     <section className="mt-4 rounded-xl border border-stone-200 bg-white p-3.5">
-      <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-600">
-        <ReceiptText size={15} className="text-emerald-600" />
+      <div className="mb-2 flex items-center gap-2 text-xs font-bold text-stone-600">
+        <ReceiptText size={15} className="text-forest" />
         {copy.title}
       </div>
       {payments.length === 0 ? (
-        <p className="text-xs font-medium text-slate-400">{copy.empty}</p>
+        <p className="text-xs font-medium text-stone-400">{copy.empty}</p>
       ) : (
         <div className="divide-y divide-stone-100">
           {payments.map((payment) => (
             <div key={payment.id} className="flex items-center gap-2 py-2.5 text-sm">
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 font-semibold text-slate-500"><CalendarDays size={14} />{payment.paymentDate}</span>
-              <strong className="shrink-0 text-emerald-700">{formatCurrency(payment.amount)}</strong>
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 font-semibold text-stone-500"><CalendarDays size={14} />{payment.paymentDate}</span>
+              <strong className="shrink-0 text-forest">{formatCurrency(payment.amount)}</strong>
               {editable && (
                 <span className="ml-1 inline-flex shrink-0 gap-1">
-                  <button type="button" onClick={() => onEdit(payment)} aria-label={copy.edit} title={copy.edit} className="rounded-lg p-1.5 text-sky-600 hover:bg-sky-50"><Pencil size={14} /></button>
+                  <button type="button" onClick={() => onEdit(payment)} aria-label={copy.edit} title={copy.edit} className="rounded-lg p-1.5 text-brass hover:bg-brass/10"><Pencil size={14} /></button>
                   <button
                     type="button"
                     disabled={deletingId !== null}
@@ -88,7 +73,7 @@ export function DebtPaymentHistory({
                     }}
                     aria-label={copy.remove}
                     title={copy.remove}
-                    className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+                    className="rounded-lg p-1.5 text-danger hover:bg-danger/10 disabled:opacity-40"
                   ><Trash2 size={14} /></button>
                 </span>
               )}
@@ -116,7 +101,7 @@ export function DebtPaymentDialog({
   onSave: (amount: number, paymentDate: string, paymentId?: string) => Promise<boolean>;
 }) {
   const [amount, setAmount] = useState(payment ? String(payment.amount) : '');
-  const [paymentDate, setPaymentDate] = useState(payment?.paymentDate ?? getTogoOrderDate());
+  const [paymentDate, setPaymentDate] = useState(payment?.paymentDate ?? getLocalToday());
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const maxAmount = target.amount - target.paidAmount + (payment?.amount ?? 0);
@@ -141,7 +126,7 @@ export function DebtPaymentDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/35 p-4">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-stone-900/35 p-4">
       <div role="dialog" aria-modal="true" aria-labelledby="debt-payment-dialog-title" className="w-full max-w-md rounded-xl border border-stone-200 bg-[#fffefa] p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -152,22 +137,22 @@ export function DebtPaymentDialog({
         </div>
         <form onSubmit={handleSubmit} className="mt-6 space-y-5">
           <div className="grid grid-cols-3 gap-2 rounded-xl border border-stone-200 bg-stone-50 p-3 text-center">
-            <div><span className="metric-label block">{copy.original}</span><strong className="mt-1 block text-sm text-amber-700">{formatCurrency(target.amount)}</strong></div>
-            <div><span className="metric-label block">{copy.paid}</span><strong className="mt-1 block text-sm text-sky-700">{formatCurrency(target.paidAmount)}</strong></div>
-            <div><span className="metric-label block">{copy.remaining}</span><strong className="mt-1 block text-sm text-rose-700">{formatCurrency(remainingAmount)}</strong></div>
+            <div><span className="metric-label block">{copy.original}</span><strong className="mt-1 block text-sm text-ochre">{formatCurrency(target.amount)}</strong></div>
+            <div><span className="metric-label block">{copy.paid}</span><strong className="mt-1 block text-sm text-brass">{formatCurrency(target.paidAmount)}</strong></div>
+            <div><span className="metric-label block">{copy.remaining}</span><strong className="mt-1 block text-sm text-danger">{formatCurrency(remainingAmount)}</strong></div>
           </div>
           <label className="block">
             <span className="mb-2 block text-xs font-bold uppercase tracking-widest text-stone-500">{copy.amount}</span>
-            <input type="number" required autoFocus inputMode="numeric" min="1" max={maxAmount} step="1" value={amount} onChange={(event) => setAmount(event.target.value)} className="w-full rounded-lg border-stone-200 bg-white px-3 py-3 font-bold focus:border-emerald-600 focus:ring-emerald-600" />
+            <input type="number" required autoFocus inputMode="numeric" min="1" max={maxAmount} step="1" value={amount} onChange={(event) => setAmount(event.target.value)} className="w-full rounded-lg border-stone-200 bg-white px-3 py-3 font-bold focus:border-forest focus:ring-forest/25" />
           </label>
           <label className="block">
             <span className="mb-2 block text-xs font-bold uppercase tracking-widest text-stone-500">{copy.date}</span>
-            <input type="date" required value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} className="w-full rounded-lg border-stone-200 bg-white px-3 py-3 font-bold focus:border-emerald-600 focus:ring-emerald-600" />
+            <input type="date" required value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} className="w-full rounded-lg border-stone-200 bg-white px-3 py-3 font-bold focus:border-forest focus:ring-forest/25" />
           </label>
-          {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p>}
+          {error && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm font-semibold text-danger">{error}</p>}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-lg border border-stone-200 bg-white py-3 font-bold text-stone-600">{copy.cancel}</button>
-            <button type="submit" disabled={saving} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 py-3 font-bold text-white hover:bg-emerald-700 disabled:opacity-60"><Plus size={17} />{saving ? '…' : copy.save}</button>
+            <button type="submit" disabled={saving} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-forest py-3 font-bold text-white hover:bg-forest/85 disabled:opacity-60"><Plus size={17} />{saving ? '…' : copy.save}</button>
           </div>
         </form>
       </div>

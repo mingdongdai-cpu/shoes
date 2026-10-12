@@ -7,7 +7,6 @@
         "dev": "vite --port=3000 --host=127.0.0.1",
         "build": "vite build",
         "preview": "vite preview",
-        "clean": "powershell -NoProfile -Command \"if (Test-Path dist) { Remove-Item dist -Recurse -Force }\"",
         "lint": "tsc --noEmit",
         "test": "tsx --test src/lib/*.test.ts"
     },
@@ -25,8 +24,6 @@
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^6.0.2",
-        "autoprefixer": "^10.4.21",
-        "postcss": "^8.5.15",
         "tailwindcss": "^4.1.14",
         "tsx": "^4.21.0",
         "typescript": "~5.8.2",

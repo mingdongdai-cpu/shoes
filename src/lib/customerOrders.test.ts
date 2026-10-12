@@ -6,7 +6,6 @@ import {
   getCustomerOrderBalance,
   getCustomerOrderOutstanding,
   getCustomerOrderPaymentStatus,
-  getTogoOrderDate,
   isOrderDate,
   normalizeCustomerOrderPaidAmount,
   normalizeCustomerOrderDebtHistory,
@@ -54,11 +53,6 @@ test('isOrderDate accepts real ISO dates only', () => {
   assert.equal(isOrderDate('2026-08-14'), true);
   assert.equal(isOrderDate('2026-02-30'), false);
   assert.equal(isOrderDate('14/08/2026'), false);
-});
-
-test('getTogoOrderDate returns the Africa/Lome business date', () => {
-  assert.equal(getTogoOrderDate(new Date('2026-08-14T23:59:59Z')), '2026-08-14');
-  assert.equal(getTogoOrderDate(new Date('2026-08-15T00:00:00Z')), '2026-08-15');
 });
 
 test('filterCustomerOrdersByDate keeps only orders from the selected date', () => {

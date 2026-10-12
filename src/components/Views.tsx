@@ -282,6 +282,7 @@ interface HomeViewProps {
   };
   formatStock: (total: number, spec: number) => string;
   remitCashBalance: (remainingAmount: number) => Promise<boolean>;
+  showToast: (message: string, type?: 'success' | 'error') => void;
   homeMetrics: {
     selectedMonth: string;
     previousMonth: string;
@@ -298,7 +299,7 @@ export const HomeView = ({
   stats, formatCurrency, reportPeriod, setReportPeriod, selectedDate, setSelectedDate, 
   selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth,
   reportStartDate, setReportStartDate, reportEndDate, setReportEndDate,
-  salesReport, formatStock, remitCashBalance, homeMetrics
+  salesReport, formatStock, remitCashBalance, showToast, homeMetrics
 }: HomeViewProps) => {
   const [showRemittanceModal, setShowRemittanceModal] = useState(false);
   const [remainingCashAmount, setRemainingCashAmount] = useState('');
@@ -325,6 +326,39 @@ export const HomeView = ({
     (sum: number, item: SalesReportItem) => sum + (item.quantity % item.spec),
     0
   );
+
+  const handleExportSalesReport = async () => {
+    const weekRange = parseIsoWeek(selectedWeek);
+    const [periodText, fileSuffix] = reportPeriod === 'day'
+      ? [dateLabel, selectedDate]
+      : reportPeriod === 'month'
+        ? [monthLabel, selectedMonth]
+        : reportPeriod === 'week'
+          ? [
+              `${toLocalDateInputValue(weekRange.start).replaceAll('-', '/')} 至 ${toLocalDateInputValue(weekRange.end).replaceAll('-', '/')}`,
+              `${toLocalDateInputValue(weekRange.start)}至${toLocalDateInputValue(weekRange.end)}`
+            ]
+          : [`${reportStartDateLabel} 至 ${reportEndDateLabel}`, `${reportStartDate}至${reportEndDate}`];
+    const toBoxes = (item: SalesReportItem) => Math.round((item.quantity / (item.spec || 1)) * 100) / 100;
+    const rows = salesReport.items.map((item) => [periodText, item.name, toBoxes(item), item.amount]);
+    const totalBoxValue = Math.round(salesReport.items.reduce((sum, item) => sum + toBoxes(item), 0) * 100) / 100;
+    const table = [['日期', '款式名称', '箱数', '金额'], ...rows, ['合计', '', totalBoxValue, salesReport.totalAmount]];
+    try {
+      await writeStyledXlsx(table, '销售报表', `销售报表_${fileSuffix}.xlsx`, {
+        columnWidths: [26, 20, 12, 16],
+        headerHeight: 26,
+        rowHeight: 22,
+        headerFontSize: 12,
+        headerFontColor: 'FFFFFF',
+        headerFill: '7C3037',
+        rowFill: (rowIndex) => (rowIndex === table.length - 1 ? 'F2EFE9' : 'FFFFFF')
+      });
+      showToast('销售报表已导出', 'success');
+    } catch (error) {
+      console.error('Export sales report failed:', error);
+      showToast('导出失败，请重试', 'error');
+    }
+  };
 
   const submitRemittance = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -467,6 +501,15 @@ export const HomeView = ({
                 />
               </div>
             )}
+            <button
+              type="button"
+              onClick={handleExportSalesReport}
+              disabled={salesReport.items.length === 0}
+              className="button-primary inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Download size={15} />
+              导出表格
+            </button>
           </div>
         </div>
 

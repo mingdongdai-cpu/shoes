@@ -3082,6 +3082,7 @@ export default function App() {
                   salesReport={salesReport}
                   formatStock={formatStock}
                   remitCashBalance={remitCashBalance}
+                  showToast={showToast}
                   homeMetrics={homeMetrics}
                 />
               )}

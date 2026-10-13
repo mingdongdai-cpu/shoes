@@ -9,6 +9,7 @@ import {
   HandCoins,
   Home,
   LogOut,
+  MapPin,
   Menu,
   Package,
   ShoppingCart,
@@ -88,7 +89,9 @@ const orderNavigation: Record<OrderLanguage, NavigationItem[]> = {
 };
 
 const bossNavigation: NavigationItem[] = [
-  { label: '两国总览', view: 'group-overview', icon: Globe2 },
+  { label: '两国对比', view: 'group-overview', icon: Globe2 },
+  { label: '多哥', view: 'group-togo', icon: MapPin },
+  { label: '尼日利亚', view: 'group-nigeria', icon: MapPin },
 ];
 
 function OrderLanguagePicker({ language, onChange }: { language: OrderLanguage; onChange: (language: OrderLanguage) => void }) {
@@ -220,7 +223,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
 
         <main className="app-main min-w-0">{children}</main>
 
-        <nav className="mobile-navigation order-mobile-navigation md:hidden" aria-label={orderLanguage === 'zh' ? '手机订单导航' : orderLanguage === 'en' ? 'Mobile order navigation' : 'Navigation commandes mobile'}>
+        <nav className={`mobile-navigation md:hidden ${user.role === 'boss' ? 'boss-mobile-navigation' : 'order-mobile-navigation'}`} aria-label={user.role === 'boss' ? '手机总览导航' : orderLanguage === 'zh' ? '手机订单导航' : orderLanguage === 'en' ? 'Mobile order navigation' : 'Navigation commandes mobile'}>
           {simpleNavigation.map((item) => (
             <NavigationButton
               key={item.view}

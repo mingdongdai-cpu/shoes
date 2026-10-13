@@ -852,7 +852,10 @@ export default function App() {
   }, [activeProducts, productRiskMetricsByProduct]);
 
   const handleViewChange = (nextView: View) => {
-    if (user?.role === 'boss') return;
+    if (user?.role === 'boss') {
+      if (nextView === 'group-overview' || nextView === 'group-togo' || nextView === 'group-nigeria') setCurrentView(nextView);
+      return;
+    }
     if (user?.role === 'order') {
       if (nextView === 'home' || nextView === 'order-entry' || nextView === 'order-accounting' || nextView === 'order-debts') {
         setCurrentView(nextView);
@@ -865,11 +868,12 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (user?.role === 'boss' && currentView !== 'group-overview') {
+    const isGroupView = currentView === 'group-overview' || currentView === 'group-togo' || currentView === 'group-nigeria';
+    if (user?.role === 'boss' && !isGroupView) {
       setCurrentView('group-overview');
       return;
     }
-    if (user?.role !== 'boss' && currentView === 'group-overview') {
+    if (user?.role !== 'boss' && isGroupView) {
       setCurrentView('home');
       return;
     }
@@ -3187,7 +3191,9 @@ export default function App() {
                   onHistoryQueryChange={setStockHistoryRequest}
                 />
               )}
-              {user.role === 'boss' && currentView === 'group-overview' && <GroupOverviewView />}
+              {user.role === 'boss' && (currentView === 'group-overview' || currentView === 'group-togo' || currentView === 'group-nigeria') && (
+                <GroupOverviewView tab={currentView === 'group-togo' ? 'togo' : currentView === 'group-nigeria' ? 'nigeria' : 'compare'} onOpenCountry={(country) => handleViewChange(country === 'togo' ? 'group-togo' : 'group-nigeria')} />
+              )}
               {user.role === 'order' && currentView === 'home' && (
                 <OrderPriceListView
                   products={orderProducts}

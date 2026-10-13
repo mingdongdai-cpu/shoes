@@ -569,6 +569,10 @@ tbody tr:hover {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.boss-mobile-navigation {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .mobile-navigation .shell-nav-item,
 .mobile-nav-item {
   display: flex;

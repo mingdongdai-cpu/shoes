@@ -22,7 +22,7 @@ import type { ProductRiskMetrics } from '../types';
 import { PickerChip } from './Views';
 
 export type CountryKey = 'togo' | 'nigeria';
-type Tab = 'compare' | CountryKey;
+export type GroupTab = 'compare' | CountryKey;
 type PeriodMode = 'day' | 'month';
 
 export interface Period {
@@ -342,27 +342,39 @@ function CompareCard({ country, period, onOpen }: { country: CountryConfig; peri
 export function DailySalesChart({ daily, monthKey, formatCurrency }: { daily: number[]; monthKey: string; formatCurrency: (value: number) => string }) {
   const peak = Math.max(0, ...daily);
   const today = toLocalDateInputValue(new Date());
+  const defaultIndex = today.startsWith(monthKey) ? Number(today.slice(8)) - 1 : daily.length - 1;
+  const [selectedIndex, setSelectedIndex] = useState(defaultIndex);
+  const dateOf = (index: number) => `${monthKey}-${String(index + 1).padStart(2, '0')}`;
+
   return (
     <div>
-      <div className="flex h-64 items-end gap-[2px] border-b border-stone-200" role="img" aria-label="当月每日销售额">
-        {daily.map((amount, index) => {
-          const dateValue = `${monthKey}-${String(index + 1).padStart(2, '0')}`;
-          return (
-            <div key={dateValue} className="flex h-full min-w-0 flex-1 items-end" title={`${dateValue.slice(5).replace('-', '/')}：${formatCurrency(amount)}`}>
-              <div
-                className={`w-full rounded-t-[3px] ${dateValue === today ? 'bg-oxblood' : 'bg-brass'}`}
-                style={{ height: amount > 0 && peak > 0 ? `${Math.max(2, (amount / peak) * 100)}%` : '0%' }}
-              />
-            </div>
-          );
-        })}
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <span className="text-sm font-semibold text-stone-600">{dateOf(selectedIndex).slice(5).replace('-', '/')}</span>
+        <span className="font-serif text-xl font-semibold tabular-nums text-stone-800">{formatCurrency(daily[selectedIndex] ?? 0)}</span>
+      </div>
+      <div className="flex h-56 items-end gap-[2px] border-b border-stone-200" role="group" aria-label="当月每日销售额">
+        {daily.map((amount, index) => (
+          <button
+            key={dateOf(index)}
+            type="button"
+            onClick={() => setSelectedIndex(index)}
+            aria-label={`${dateOf(index)} ${formatCurrency(amount)}`}
+            aria-pressed={index === selectedIndex}
+            className="flex h-full min-w-0 flex-1 items-end"
+          >
+            <span
+              className={`block w-full rounded-t-[3px] ${index === selectedIndex ? 'bg-oxblood' : 'bg-brass'}`}
+              style={{ height: amount > 0 && peak > 0 ? `${Math.max(2, (amount / peak) * 100)}%` : '0%' }}
+            />
+          </button>
+        ))}
       </div>
       <div className="mt-1 flex gap-[2px] text-[11px] tabular-nums text-stone-400">
         {daily.map((_, index) => (
           <span key={index} className="min-w-0 flex-1 text-center">{index === 0 || (index + 1) % 5 === 0 ? index + 1 : ''}</span>
         ))}
       </div>
-      <p className="mt-2 text-xs text-stone-400">最高单日 {formatCurrency(peak)}；鼠标停在柱子上查看当天金额，深红色为今天。</p>
+      <p className="mt-2 text-xs text-stone-400">点任意一天的柱子查看金额；最高单日 {formatCurrency(peak)}。</p>
     </div>
   );
 }
@@ -370,18 +382,18 @@ export function DailySalesChart({ daily, monthKey, formatCurrency }: { daily: nu
 function SalesTable({ rows, formatCurrency, emptyText, limit }: { rows: SalesSummary['rows']; formatCurrency: (value: number) => string; emptyText: string; limit?: number }) {
   const visibleRows = limit ? rows.slice(0, limit) : rows;
   return (
-    <div className={limit ? 'overflow-x-auto' : 'data-table-shell'}>
+    <div className="data-table-shell [&_table]:!min-w-0">
       <table className="w-full text-left">
         <thead>
-          <tr><th className="px-5 py-3">#</th><th className="px-5 py-3">款式</th><th className="px-5 py-3 text-right">箱数</th><th className="px-5 py-3 text-right">金额</th></tr>
+          <tr><th className="px-3 py-3 sm:px-5">#</th><th className="px-3 py-3 sm:px-5">款式</th><th className="px-3 py-3 sm:px-5 whitespace-nowrap text-right">箱数</th><th className="px-3 py-3 sm:px-5 whitespace-nowrap text-right">金额</th></tr>
         </thead>
         <tbody>
           {visibleRows.map((row, index) => (
             <tr key={row.productId}>
-              <td className="px-5 py-3 text-xs tabular-nums text-stone-400">{index + 1}</td>
-              <td className="px-5 py-3 text-sm font-semibold text-stone-800">{row.name}</td>
-              <td className="px-5 py-3 text-right text-sm tabular-nums text-stone-600">{formatBoxes(row.boxes)}</td>
-              <td className="px-5 py-3 text-right text-sm font-semibold tabular-nums text-stone-800">{formatCurrency(row.amount)}</td>
+              <td className="px-3 py-3 sm:px-5 text-xs tabular-nums text-stone-400">{index + 1}</td>
+              <td className="px-3 py-3 sm:px-5 text-sm font-semibold text-stone-800">{row.name}</td>
+              <td className="px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums text-stone-600">{formatBoxes(row.boxes)}</td>
+              <td className="px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm font-semibold tabular-nums text-stone-800">{formatCurrency(row.amount)}</td>
             </tr>
           ))}
           {visibleRows.length === 0 && <tr><td colSpan={4} className="px-5 py-10 text-center text-sm text-stone-400">{emptyText}</td></tr>}
@@ -427,40 +439,40 @@ export function InventorySection({ base, formatCurrency }: { base: CountryBase; 
         </div>
       )}
 
-      <div className="data-table-shell max-h-[520px] overflow-y-auto">
+      <div className="data-table-shell max-h-[520px] overflow-y-auto [&_table]:!min-w-0">
         <table className="w-full text-left">
           <thead>
-            {view === 'warnings' && <tr><th className="px-5 py-3">款式</th><th className="px-5 py-3 text-right">库存</th><th className="px-5 py-3 text-right">近30天周均</th><th className="px-5 py-3 text-right">可售天数</th><th className="px-5 py-3">原因</th></tr>}
-            {view === 'stale' && <tr><th className="px-5 py-3">款式</th><th className="px-5 py-3 text-right">库存</th><th className="px-5 py-3 text-right">压货金额</th><th className="px-5 py-3 text-right">最近销售</th><th className="px-5 py-3">原因</th></tr>}
-            {view === 'all' && <tr><th className="px-5 py-3">款式</th><th className="px-5 py-3 text-right">规格</th><th className="px-5 py-3 text-right">库存</th><th className="px-5 py-3 text-right">单价</th><th className="px-5 py-3 text-right">库存金额</th><th className="px-5 py-3">状态</th></tr>}
+            {view === 'warnings' && <tr><th className="px-3 py-3 sm:px-5">款式</th><th className="px-3 py-3 sm:px-5 whitespace-nowrap text-right">库存</th><th className="hidden px-3 py-3 sm:px-5 whitespace-nowrap text-right sm:table-cell">近30天周均</th><th className="px-3 py-3 sm:px-5 whitespace-nowrap text-right">可售天数</th><th className="px-3 py-3 sm:px-5">原因</th></tr>}
+            {view === 'stale' && <tr><th className="px-3 py-3 sm:px-5">款式</th><th className="px-3 py-3 sm:px-5 whitespace-nowrap text-right">库存</th><th className="px-3 py-3 sm:px-5 whitespace-nowrap text-right">压货金额</th><th className="hidden px-3 py-3 sm:px-5 whitespace-nowrap text-right sm:table-cell">最近销售</th><th className="px-3 py-3 sm:px-5">原因</th></tr>}
+            {view === 'all' && <tr><th className="px-3 py-3 sm:px-5">款式</th><th className="hidden px-3 py-3 sm:px-5 whitespace-nowrap text-right sm:table-cell">规格</th><th className="px-3 py-3 sm:px-5 whitespace-nowrap text-right">库存</th><th className="hidden px-3 py-3 sm:px-5 whitespace-nowrap text-right sm:table-cell">单价</th><th className="px-3 py-3 sm:px-5 whitespace-nowrap text-right">库存金额</th><th className="px-3 py-3 sm:px-5">状态</th></tr>}
           </thead>
           <tbody>
             {view === 'warnings' && base.warnings.map((row) => (
               <tr key={row.productId}>
-                <td className="px-5 py-3 text-sm font-semibold text-stone-800">{row.name}</td>
-                <td className="px-5 py-3 text-right text-sm tabular-nums">{formatBoxes(row.stockBoxes)}</td>
-                <td className="px-5 py-3 text-right text-sm tabular-nums text-stone-600">{formatBoxes((row.risk?.avgDailyBoxes30d ?? 0) * 7)}</td>
-                <td className="px-5 py-3 text-right text-sm tabular-nums text-stone-600">{formatCover(row.risk)}</td>
-                <td className="px-5 py-3 text-xs font-semibold text-danger">{row.risk?.warningReasons.join(' / ')}</td>
+                <td className="px-3 py-3 sm:px-5 text-sm font-semibold text-stone-800">{row.name}</td>
+                <td className="px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums">{formatBoxes(row.stockBoxes)}</td>
+                <td className="hidden px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums text-stone-600 sm:table-cell">{formatBoxes((row.risk?.avgDailyBoxes30d ?? 0) * 7)}</td>
+                <td className="px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums text-stone-600">{formatCover(row.risk)}</td>
+                <td className="px-3 py-3 sm:px-5 text-xs font-semibold text-danger">{row.risk?.warningReasons.join(' / ')}</td>
               </tr>
             ))}
             {view === 'stale' && base.stale.map((row) => (
               <tr key={row.productId}>
-                <td className="px-5 py-3 text-sm font-semibold text-stone-800">{row.name}</td>
-                <td className="px-5 py-3 text-right text-sm tabular-nums">{formatBoxes(row.stockBoxes)}</td>
-                <td className="px-5 py-3 text-right text-sm font-semibold tabular-nums">{formatCurrency(row.stockValue)}</td>
-                <td className="px-5 py-3 text-right text-sm tabular-nums text-stone-600">{row.risk && row.risk.daysSinceLastSale !== null ? `${row.risk.daysSinceLastSale} 天前` : '从未销售'}</td>
-                <td className="px-5 py-3 text-xs font-semibold text-ochre">{row.risk?.staleReasons.join(' / ')}</td>
+                <td className="px-3 py-3 sm:px-5 text-sm font-semibold text-stone-800">{row.name}</td>
+                <td className="px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums">{formatBoxes(row.stockBoxes)}</td>
+                <td className="px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm font-semibold tabular-nums">{formatCurrency(row.stockValue)}</td>
+                <td className="hidden px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums text-stone-600 sm:table-cell">{row.risk && row.risk.daysSinceLastSale !== null ? `${row.risk.daysSinceLastSale} 天前` : '从未销售'}</td>
+                <td className="px-3 py-3 sm:px-5 text-xs font-semibold text-ochre">{row.risk?.staleReasons.join(' / ')}</td>
               </tr>
             ))}
             {view === 'all' && allRows.map((row) => (
               <tr key={row.productId}>
-                <td className="px-5 py-3 text-sm font-semibold text-stone-800">{row.name}</td>
-                <td className="px-5 py-3 text-right text-sm tabular-nums text-stone-600">{row.spec} 个/箱</td>
-                <td className="px-5 py-3 text-right text-sm tabular-nums">{formatBoxes(row.stockBoxes)}</td>
-                <td className="px-5 py-3 text-right text-sm tabular-nums text-stone-600">{formatCurrency(row.price)}</td>
-                <td className="px-5 py-3 text-right text-sm tabular-nums">{formatCurrency(row.stockValue)}</td>
-                <td className="px-5 py-3 text-xs font-semibold">
+                <td className="px-3 py-3 sm:px-5 text-sm font-semibold text-stone-800">{row.name}</td>
+                <td className="hidden px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums text-stone-600 sm:table-cell">{row.spec} 个/箱</td>
+                <td className="px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums">{formatBoxes(row.stockBoxes)}</td>
+                <td className="hidden px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums text-stone-600 sm:table-cell">{formatCurrency(row.price)}</td>
+                <td className="px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums">{formatCurrency(row.stockValue)}</td>
+                <td className="px-3 py-3 sm:px-5 text-xs font-semibold">
                   {!row.isActive ? <span className="text-stone-400">已下架</span>
                     : row.risk?.isWarning ? <span className="text-danger">{row.risk.warningReasons[0]}</span>
                     : row.risk?.isStale ? <span className="text-ochre">滞销</span>
@@ -488,16 +500,16 @@ export function CargoSection({ base }: { base: CountryBase }) {
         </div>
         <p className="text-xs text-stone-500">在途 {base.cargo.inTransitCount} 柜 · {base.cargo.inTransitBoxes} 箱　到港 {base.cargo.arrivedCount} 柜 · {base.cargo.arrivedBoxes} 箱</p>
       </div>
-      <div className="data-table-shell">
+      <div className="data-table-shell [&_table]:!min-w-0">
         <table className="w-full text-left">
-          <thead><tr><th className="px-5 py-3">货柜号</th><th className="px-5 py-3">状态</th><th className="px-5 py-3">预计到港</th><th className="px-5 py-3 text-right">箱数</th></tr></thead>
+          <thead><tr><th className="px-3 py-3 sm:px-5">货柜号</th><th className="px-3 py-3 sm:px-5">状态</th><th className="px-3 py-3 sm:px-5">预计到港</th><th className="px-3 py-3 sm:px-5 whitespace-nowrap text-right">箱数</th></tr></thead>
           <tbody>
             {base.cargoRows.map((row) => (
               <tr key={row.id}>
-                <td className="px-5 py-3 text-sm font-semibold text-stone-800">{row.containerNumber}</td>
-                <td className="px-5 py-3 text-xs font-semibold"><span className={row.status === '到港' ? 'text-forest' : 'text-brass'}>{row.status}</span></td>
-                <td className="px-5 py-3 text-sm tabular-nums text-stone-600">{row.arrivalDate ?? '待定'}</td>
-                <td className="px-5 py-3 text-right text-sm tabular-nums">{row.cargoBoxes} 箱</td>
+                <td className="px-3 py-3 sm:px-5 text-sm font-semibold text-stone-800">{row.containerNumber}</td>
+                <td className="px-3 py-3 sm:px-5 text-xs font-semibold"><span className={row.status === '到港' ? 'text-forest' : 'text-brass'}>{row.status}</span></td>
+                <td className="px-3 py-3 sm:px-5 text-sm tabular-nums text-stone-600">{row.arrivalDate ?? '待定'}</td>
+                <td className="px-3 py-3 sm:px-5 whitespace-nowrap text-right text-sm tabular-nums">{row.cargoBoxes} 箱</td>
               </tr>
             ))}
             {base.cargoRows.length === 0 && <tr><td colSpan={4} className="px-5 py-10 text-center text-sm text-stone-400">暂无在途或到港货柜</td></tr>}
@@ -525,7 +537,7 @@ export function CountryDetail({ country, period, base, sales }: { country: Count
             </div>
           </div>
           {period.mode === 'month' && sales.daily
-            ? <div className="px-5 py-5"><DailySalesChart daily={sales.daily} monthKey={period.month} formatCurrency={country.formatCurrency} /></div>
+            ? <div className="px-5 py-5"><DailySalesChart key={period.month} daily={sales.daily} monthKey={period.month} formatCurrency={country.formatCurrency} /></div>
             : <SalesTable rows={sales.summary.rows} formatCurrency={country.formatCurrency} emptyText="当天暂无销售" />}
         </section>
         {period.mode === 'month' && (
@@ -555,9 +567,8 @@ function CountryPage({ country, period }: { country: CountryConfig; period: Peri
   return <CountryDetail country={country} period={period} base={base.data} sales={sales.data} />;
 }
 
-export function GroupOverviewHeader({ tab, onTabChange, mode, onModeChange, date, onDateChange, month, onMonthChange }: {
-  tab: Tab;
-  onTabChange: (tab: Tab) => void;
+export function GroupOverviewHeader({ tab, mode, onModeChange, date, onDateChange, month, onMonthChange }: {
+  tab: GroupTab;
   mode: PeriodMode;
   onModeChange: (mode: PeriodMode) => void;
   date: string;
@@ -567,21 +578,16 @@ export function GroupOverviewHeader({ tab, onTabChange, mode, onModeChange, date
 }) {
   const today = toLocalDateInputValue(new Date());
   return (
-    <div className="page-heading-row flex-wrap">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <span className="eyebrow">GROUP OVERVIEW</span>
-        <h1 className="display-title mt-1 text-3xl">两国总览</h1>
-        <p className="mt-1 text-sm text-stone-500">只读查看多哥与尼日利亚的销售、库存和货柜；两国货币不同，不做合计。</p>
+        <h1 className="display-title mt-1 text-3xl">{tab === 'compare' ? '两国对比' : COUNTRIES[tab].name}</h1>
+        <p className="mt-1 text-sm text-stone-500">只读查看销售、库存和货柜{tab === 'compare' ? '；两国货币不同，不做合计' : ''}。</p>
       </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="segmented-control flex">
-          {([['compare', '两国对比'], ['togo', '多哥'], ['nigeria', '尼日利亚']] as const).map(([value, label]) => (
-            <button key={value} type="button" onClick={() => onTabChange(value)} className={`segmented-control-item px-3 py-2 text-xs font-semibold ${tab === value ? 'segmented-control-item-active' : ''}`}>{label}</button>
-          ))}
-        </div>
-        <div className="segmented-control flex">
+      <div className="flex items-center gap-3">
+        <div className="segmented-control flex shrink-0">
           {([['day', '按日'], ['month', '按月']] as const).map(([value, label]) => (
-            <button key={value} type="button" onClick={() => onModeChange(value)} className={`segmented-control-item px-3 py-2 text-xs font-semibold ${mode === value ? 'segmented-control-item-active' : ''}`}>{label}</button>
+            <button key={value} type="button" onClick={() => onModeChange(value)} className={`segmented-control-item px-4 py-2 text-sm font-semibold ${mode === value ? 'segmented-control-item-active' : ''}`}>{label}</button>
           ))}
         </div>
         {mode === 'day'
@@ -592,9 +598,8 @@ export function GroupOverviewHeader({ tab, onTabChange, mode, onModeChange, date
   );
 }
 
-export function GroupOverviewView() {
+export function GroupOverviewView({ tab, onOpenCountry }: { tab: GroupTab; onOpenCountry: (country: CountryKey) => void }) {
   const today = toLocalDateInputValue(new Date());
-  const [tab, setTab] = useState<Tab>('compare');
   const [mode, setMode] = useState<PeriodMode>('day');
   const [date, setDate] = useState(today);
   const [month, setMonth] = useState(today.slice(0, 7));
@@ -602,12 +607,12 @@ export function GroupOverviewView() {
 
   return (
     <div className="space-y-6">
-      <GroupOverviewHeader tab={tab} onTabChange={setTab} mode={mode} onModeChange={setMode} date={date} onDateChange={setDate} month={month} onMonthChange={setMonth} />
+      <GroupOverviewHeader tab={tab} mode={mode} onModeChange={setMode} date={date} onDateChange={setDate} month={month} onMonthChange={setMonth} />
       {tab === 'compare'
         ? (
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-            <CompareCard country={COUNTRIES.togo} period={period} onOpen={() => setTab('togo')} />
-            <CompareCard country={COUNTRIES.nigeria} period={period} onOpen={() => setTab('nigeria')} />
+            <CompareCard country={COUNTRIES.togo} period={period} onOpen={() => onOpenCountry('togo')} />
+            <CompareCard country={COUNTRIES.nigeria} period={period} onOpen={() => onOpenCountry('nigeria')} />
           </div>
         )
         : <CountryPage key={tab} country={COUNTRIES[tab]} period={period} />}

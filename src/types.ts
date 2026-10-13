@@ -216,7 +216,9 @@ export type View =
   | 'products'
   | 'expenses'
   | 'debts'
-  | 'group-overview';
+  | 'group-overview'
+  | 'group-togo'
+  | 'group-nigeria';
 
 export interface Toast {
   id: number;

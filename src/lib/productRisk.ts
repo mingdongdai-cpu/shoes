@@ -59,3 +59,58 @@ export function calculateProductRisk(input: ProductRiskInput, now: Date): Produc
     staleReasons
   };
 }
+
+export interface RiskProductInput {
+  id: string;
+  spec: number;
+  stock: number;
+  createdAt: Date | null;
+  lastOutAt: Date | null;
+}
+
+export interface RiskTransactionInput {
+  productId: string;
+  type: 'in' | 'out';
+  quantity: number;
+  occurredAt: Date;
+}
+
+export function calculateRiskByProduct(
+  products: readonly RiskProductInput[],
+  transactions: readonly RiskTransactionInput[],
+  now: Date
+): Record<string, ProductRiskMetrics> {
+  const lookbackStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  lookbackStart.setDate(lookbackStart.getDate() - SALES_LOOKBACK_DAYS);
+
+  const recentOutQtyByProduct: Record<string, number> = {};
+  const lastSaleByProduct: Record<string, Date | null> = {};
+  for (const product of products) {
+    recentOutQtyByProduct[product.id] = 0;
+    lastSaleByProduct[product.id] = product.lastOutAt;
+  }
+
+  for (const transaction of transactions) {
+    if (transaction.type !== 'out' || !(transaction.productId in recentOutQtyByProduct)) continue;
+    if (transaction.occurredAt >= lookbackStart) {
+      recentOutQtyByProduct[transaction.productId] += transaction.quantity;
+    }
+    const currentLastSale = lastSaleByProduct[transaction.productId];
+    if (!currentLastSale || transaction.occurredAt > currentLastSale) {
+      lastSaleByProduct[transaction.productId] = transaction.occurredAt;
+    }
+  }
+
+  const metricsMap: Record<string, ProductRiskMetrics> = {};
+  for (const product of products) {
+    metricsMap[product.id] = calculateProductRisk({
+      productId: product.id,
+      spec: product.spec,
+      stock: product.stock,
+      createdAt: product.createdAt,
+      lastSaleAt: lastSaleByProduct[product.id],
+      outQuantity30d: recentOutQtyByProduct[product.id]
+    }, now);
+  }
+  return metricsMap;
+}

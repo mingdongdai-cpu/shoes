@@ -489,7 +489,7 @@ service cloud.firestore {
     }
 
     match /cargoContainers/{containerId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isBoss();
       allow create: if isAdmin() && isValidCargoContainer(request.resource.data);
       allow update: if isAdmin() &&
         isValidCargoContainer(request.resource.data) &&

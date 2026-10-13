@@ -36,7 +36,7 @@ import {
   type Transaction as FirestoreWriteTransaction,
   type DocumentData
 } from 'firebase/firestore';
-import { CARGO_CONTAINER_STATUSES, type Product, type OrderProduct, type CustomerOrder, type CustomerOrderItem, type CustomerOrderSync, type CargoContainer, type CargoContainerItem, type CargoContainerStatus, type OrderCashCount, type OrderDailyExpense, type CashDenominationCounts, type CashBalance, type ProductRiskMetrics, type Transaction, type User, type View, type Toast, type Expense, type Debt, type DebtPayment, type DebtPaymentTarget, type SalesPeriodData, type DashboardMetrics, type AnalyticsOverview, type AnalyticsMonth } from './types';
+import { CARGO_CONTAINER_STATUSES, type Product, type OrderProduct, type CustomerOrder, type CustomerOrderItem, type CustomerOrderSync, type CargoContainer, type CargoContainerItem, type CargoContainerStatus, type OrderCashCount, type OrderDailyExpense, type CashDenominationCounts, type CashBalance, type Transaction, type User, type View, type Toast, type Expense, type Debt, type DebtPayment, type DebtPaymentTarget, type SalesPeriodData, type DashboardMetrics, type AnalyticsOverview, type AnalyticsMonth } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
 import { CustomerOrdersView, OrderDebtsView, OrderPriceListView } from './components/OrderViews';
 import { OrderAccountingView } from './components/OrderAccountingView';
@@ -52,7 +52,7 @@ import { isCustomerOrderDebt, isOrderDate, normalizeCustomerOrderDebtHistory, no
 import { calculateCashTotal, normalizeCashCounts } from './lib/orderAccounting';
 import { buildAnalyticsDelta, IN_TOTAL_BASELINE_VALUE, type AnalyticsDelta, type AnalyticsExpenseInput, type AnalyticsTransactionInput } from './lib/analytics';
 import { aggregateCustomerOrdersForInventory } from './lib/customerOrderSync';
-import { calculateProductRisk, SALES_LOOKBACK_DAYS } from './lib/productRisk';
+import { calculateRiskByProduct } from './lib/productRisk';
 import { resolveSettlementValue } from './lib/debtRecords';
 import { calculatePaidAmountAfterPaymentChange, getDebtPaymentKey, mapDebtPaymentDoc } from './lib/debtPayments';
 import { applyCashCountDelta, calculateCashContributionAfterCountChange, calculateCashCountTotal, calculateCurrentInventoryTotal, calculateOutstandingDebtTotal } from './lib/homeOverview';
@@ -826,48 +826,22 @@ export default function App() {
     return products.filter((product) => product.isActive !== false);
   }, [products]);
 
-  const productRiskMetricsByProduct = useMemo(() => {
-    const now = new Date();
-    const lookbackStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    lookbackStart.setDate(lookbackStart.getDate() - SALES_LOOKBACK_DAYS);
-
-    const recentOutQtyByProduct: Record<string, number> = {};
-    const lastSaleByProduct: Record<string, Date | null> = {};
-
-    for (const product of activeProducts) {
-      recentOutQtyByProduct[product.id] = 0;
-      lastSaleByProduct[product.id] = product.lastOutAt?.toDate() ?? null;
-    }
-
-    for (const transaction of transactions) {
-      if (transaction.type !== 'out') continue;
-      if (!(transaction.productId in recentOutQtyByProduct)) continue;
-      const occurredAt = timestampToDate(transaction.occurredAt);
-
-      if (occurredAt >= lookbackStart) {
-        recentOutQtyByProduct[transaction.productId] += transaction.quantity;
-      }
-
-      const currentLastSale = lastSaleByProduct[transaction.productId];
-      if (!currentLastSale || occurredAt > currentLastSale) {
-        lastSaleByProduct[transaction.productId] = occurredAt;
-      }
-    }
-
-    const metricsMap: Record<string, ProductRiskMetrics> = {};
-    for (const product of activeProducts) {
-      metricsMap[product.id] = calculateProductRisk({
-        productId: product.id,
-        spec: product.spec,
-        stock: product.stock,
-        createdAt: product.createdAt?.toDate() ?? null,
-        lastSaleAt: lastSaleByProduct[product.id],
-        outQuantity30d: recentOutQtyByProduct[product.id]
-      }, now);
-    }
-
-    return metricsMap;
-  }, [activeProducts, transactions]);
+  const productRiskMetricsByProduct = useMemo(() => calculateRiskByProduct(
+    activeProducts.map((product) => ({
+      id: product.id,
+      spec: product.spec,
+      stock: product.stock,
+      createdAt: product.createdAt?.toDate() ?? null,
+      lastOutAt: product.lastOutAt?.toDate() ?? null
+    })),
+    transactions.map((transaction) => ({
+      productId: transaction.productId,
+      type: transaction.type,
+      quantity: transaction.quantity,
+      occurredAt: timestampToDate(transaction.occurredAt)
+    })),
+    new Date()
+  ), [activeProducts, transactions]);
 
   const warnings = useMemo(() => {
     return activeProducts.filter((product) => productRiskMetricsByProduct[product.id]?.isWarning);

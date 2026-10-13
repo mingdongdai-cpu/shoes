@@ -102,7 +102,7 @@ const writeStyledXlsx = async (
   XLSX.writeFile(workbook, fileName);
 };
 
-function PickerChip({
+export function PickerChip({
   type,
   value,
   onChange,

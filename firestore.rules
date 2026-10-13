@@ -116,6 +116,14 @@ service cloud.firestore {
       );
     }
 
+    // Read-only group account that compares Togo and Nigeria on the overview page.
+    function isBoss() {
+      return isAuthenticated() && (
+        roleOf(request.auth.uid) == 'boss' ||
+        request.auth.token.email == "boss@topstar.com"
+      );
+    }
+
     function hasOnlyAllowedFields(fields) {
       return request.resource.data.keys().hasOnly(fields);
     }
@@ -394,7 +402,7 @@ service cloud.firestore {
     // Products collection
     match /products/{productId} {
       // Staff and admins can read products
-      allow read: if isStaff();
+      allow read: if isStaff() || isBoss();
       
       // Only admins can create, update, or delete products. The client only exposes
       // deletion after a fresh query confirms that the product has no transactions.
@@ -413,7 +421,7 @@ service cloud.firestore {
     // Transactions collection
     match /transactions/{transactionId} {
       // Staff and admins can read transactions
-      allow read: if isStaff();
+      allow read: if isStaff() || isBoss();
       
       // Only admins can create, update, or delete transactions
       allow create: if isAdmin() && isValidNewTransaction(request.resource.data);
@@ -437,7 +445,7 @@ service cloud.firestore {
 
     // Debts collection
     match /debts/{debtId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isBoss();
       allow create: if isAdmin() && isValidDebt(request.resource.data);
       allow update: if isAdmin() && isValidDebtUpdate(request.resource.data);
       allow delete: if false;
@@ -462,7 +470,7 @@ service cloud.firestore {
     // Customer orders are created by order-entry accounts. Their creator or an
     // admin can edit or delete them. The date and authorship remain immutable.
     match /customerOrders/{orderId} {
-      allow read: if isAdmin() || isOrderUser();
+      allow read: if isAdmin() || isOrderUser() || isBoss();
       allow create: if isOrderUser() && isValidNewCustomerOrder(request.resource.data);
       allow update: if (
         isValidCustomerOrderBusinessUpdate(request.resource.data) &&
@@ -491,7 +499,7 @@ service cloud.firestore {
     }
 
     match /orderCashCounts/{cashDate} {
-      allow read: if isOrderUser() || isAdmin();
+      allow read: if isOrderUser() || isAdmin() || isBoss();
       allow create: if isOrderUser() &&
         isValidOrderCashCount(request.resource.data, cashDate) &&
         request.resource.data.operatorUid == request.auth.uid;
@@ -503,7 +511,7 @@ service cloud.firestore {
     }
 
     match /cashBalances/{balanceId} {
-      allow read: if balanceId == 'current' && (isOrderUser() || isAdmin());
+      allow read: if balanceId == 'current' && (isOrderUser() || isAdmin() || isBoss());
       allow create: if balanceId == 'current' && isAdmin() &&
         isValidCashBalance(request.resource.data) &&
         request.resource.data.operatorUid == request.auth.uid;
@@ -543,13 +551,13 @@ service cloud.firestore {
 
     // Read-optimized totals maintained atomically with inventory and expense writes.
     match /analytics/{documentId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isBoss();
       allow create, update: if isAdmin();
       allow delete: if false;
     }
 
     match /analyticsMonths/{monthKey} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isBoss();
       allow create, update: if isAdmin();
       allow delete: if false;
     }

@@ -155,7 +155,7 @@ export interface Transaction {
 export interface User {
   uid: string;
   username: string;
-  role: 'admin' | 'staff' | 'order';
+  role: 'admin' | 'staff' | 'order' | 'boss';
 }
 
 export interface Expense {
@@ -215,7 +215,8 @@ export type View =
   | 'cargo-containers'
   | 'products'
   | 'expenses'
-  | 'debts';
+  | 'debts'
+  | 'group-overview';
 
 export interface Toast {
   id: number;

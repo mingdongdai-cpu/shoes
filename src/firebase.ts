@@ -14,3 +14,16 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+
+const nigeriaFirebaseConfig = {
+  apiKey: "AIzaSyBmPTX-qyeU5qd74hi5dCHU3zWclu2NlJA",
+  authDomain: "nigeria-shoes-store.firebaseapp.com",
+  projectId: "nigeria-shoes-store",
+  storageBucket: "nigeria-shoes-store.firebasestorage.app",
+  messagingSenderId: "83713957251",
+  appId: "1:83713957251:web:2ed54f94c50dbd8af76ab6"
+};
+
+const nigeriaApp = initializeApp(nigeriaFirebaseConfig, 'nigeria');
+export const nigeriaDb = getFirestore(nigeriaApp);
+export const nigeriaAuth = getAuth(nigeriaApp);

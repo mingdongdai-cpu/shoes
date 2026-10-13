@@ -5,6 +5,7 @@ import {
   BarChart3,
   ClipboardList,
   Container,
+  Globe2,
   HandCoins,
   Home,
   LogOut,
@@ -86,6 +87,10 @@ const orderNavigation: Record<OrderLanguage, NavigationItem[]> = {
   ],
 };
 
+const bossNavigation: NavigationItem[] = [
+  { label: '两国总览', view: 'group-overview', icon: Globe2 },
+];
+
 function OrderLanguagePicker({ language, onChange }: { language: OrderLanguage; onChange: (language: OrderLanguage) => void }) {
   return (
     <div role="group" aria-label={language === 'fr' ? 'Langue' : language === 'zh' ? '语言' : 'Language'} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-600/60 bg-stone-800/60 p-1">
@@ -138,8 +143,10 @@ function NavigationButton({
 
 export function AppShell({ user, currentView, onViewChange, onLogout, orderLanguage = 'fr', onOrderLanguageChange, children }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const roleLabel = user.role === 'admin' ? '管理员' : user.role === 'order' ? orderLanguage === 'zh' ? '订单录入' : orderLanguage === 'en' ? 'Orders' : 'Saisie' : '查询员';
-  const logoutLabel = orderLanguage === 'zh' ? '退出登录' : orderLanguage === 'en' ? 'Log out' : 'Se déconnecter';
+  const roleLabel = user.role === 'admin' ? '管理员' : user.role === 'boss' ? '老板' : user.role === 'order' ? orderLanguage === 'zh' ? '订单录入' : orderLanguage === 'en' ? 'Orders' : 'Saisie' : '查询员';
+  const logoutLabel = user.role !== 'order' || orderLanguage === 'zh' ? '退出登录' : orderLanguage === 'en' ? 'Log out' : 'Se déconnecter';
+  const simpleNavigation = user.role === 'order' ? orderNavigation[orderLanguage] : user.role === 'boss' ? bossNavigation : null;
+  const simpleNavigationLabel = user.role === 'boss' || orderLanguage === 'zh' ? '总览' : orderLanguage === 'en' ? 'ORDERS' : 'COMMANDES';
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -167,16 +174,16 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
     ...(user.role === 'admin' ? [customerOrdersNavigation] : []),
   ];
 
-  if (user.role === 'order') {
+  if (simpleNavigation) {
     return (
       <div className="app-shell min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)]">
         <aside className="app-sidebar hidden md:flex">
           <Brand />
 
-          <nav className="mt-10 flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label={orderLanguage === 'zh' ? '订单导航' : orderLanguage === 'en' ? 'Order navigation' : 'Navigation commandes'}>
-            <span className="shell-nav-label">{orderLanguage === 'zh' ? '订单' : orderLanguage === 'en' ? 'ORDERS' : 'COMMANDES'}</span>
+          <nav className="mt-10 flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label={simpleNavigationLabel}>
+            <span className="shell-nav-label">{user.role === 'boss' ? simpleNavigationLabel : orderLanguage === 'zh' ? '订单' : simpleNavigationLabel}</span>
             <div className="space-y-1">
-              {orderNavigation[orderLanguage].map((item) => (
+              {simpleNavigation.map((item) => (
                 <NavigationButton
                   key={item.view}
                   item={item}
@@ -187,7 +194,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
             </div>
           </nav>
 
-          {onOrderLanguageChange && <div className="px-4 pb-4"><OrderLanguagePicker language={orderLanguage} onChange={onOrderLanguageChange} /></div>}
+          {user.role === 'order' && onOrderLanguageChange && <div className="px-4 pb-4"><OrderLanguagePicker language={orderLanguage} onChange={onOrderLanguageChange} /></div>}
 
           <div className="sidebar-account">
             <span className="account-status" aria-hidden="true" />
@@ -204,7 +211,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
 
         <header className="mobile-shell-header md:hidden">
           <Brand compact />
-          {onOrderLanguageChange && <OrderLanguagePicker language={orderLanguage} onChange={onOrderLanguageChange} />}
+          {user.role === 'order' && onOrderLanguageChange && <OrderLanguagePicker language={orderLanguage} onChange={onOrderLanguageChange} />}
           <button type="button" onClick={onLogout} className="button-secondary button-icon" title={logoutLabel}>
             <LogOut size={18} />
             <span className="sr-only">{logoutLabel}</span>
@@ -214,7 +221,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
         <main className="app-main min-w-0">{children}</main>
 
         <nav className="mobile-navigation order-mobile-navigation md:hidden" aria-label={orderLanguage === 'zh' ? '手机订单导航' : orderLanguage === 'en' ? 'Mobile order navigation' : 'Navigation commandes mobile'}>
-          {orderNavigation[orderLanguage].map((item) => (
+          {simpleNavigation.map((item) => (
             <NavigationButton
               key={item.view}
               item={item}

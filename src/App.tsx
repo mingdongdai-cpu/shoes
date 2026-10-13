@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo, useRef, Component } from 'react';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, auth } from './firebase';
+import { db, auth, nigeriaAuth } from './firebase';
 import { 
   signInWithEmailAndPassword, 
   signOut, 
@@ -41,6 +41,7 @@ import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, O
 import { CustomerOrdersView, OrderDebtsView, OrderPriceListView } from './components/OrderViews';
 import { OrderAccountingView } from './components/OrderAccountingView';
 import { CargoContainersView } from './components/CargoContainersView';
+import { GroupOverviewView } from './components/GroupOverviewView';
 import { areCargoContainerDatesValid } from './lib/cargoContainers';
 import { AppShell } from './components/AppShell';
 import { orderText, type OrderLanguage } from './lib/orderLanguage';
@@ -592,7 +593,8 @@ export default function App() {
     const builtInRoles: Record<string, User['role']> = {
       'admin@topstar.com': 'admin',
       'staff@topstar.com': 'staff',
-      'order@topstar.com': 'order'
+      'order@topstar.com': 'order',
+      'boss@topstar.com': 'boss'
     };
     const clearLocalSession = () => {
       setUser(null);
@@ -629,7 +631,7 @@ export default function App() {
             const email = (firebaseUser.email ?? '').toLowerCase();
             const profileSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
             const profileRole = profileSnap.exists() ? profileSnap.data().role : null;
-            const role = profileRole === 'admin' || profileRole === 'staff' || profileRole === 'order'
+            const role = profileRole === 'admin' || profileRole === 'staff' || profileRole === 'order' || profileRole === 'boss'
               ? profileRole
               : builtInRoles[email];
 
@@ -645,7 +647,7 @@ export default function App() {
               username: firebaseUser.email?.split('@')[0] || firebaseUser.uid,
               role
             });
-            setCurrentView('home');
+            setCurrentView(role === 'boss' ? 'group-overview' : 'home');
           } catch (error) {
             handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
             clearLocalSession();
@@ -667,7 +669,7 @@ export default function App() {
 
   // --- Firebase Data Sync ---
   useEffect(() => {
-    if (!user || !auth.currentUser) return;
+    if (!user || !auth.currentUser || user.role === 'boss') return;
 
     if (user.role === 'order') {
       const unsubscribeOrderProducts = onSnapshot(
@@ -876,6 +878,7 @@ export default function App() {
   }, [activeProducts, productRiskMetricsByProduct]);
 
   const handleViewChange = (nextView: View) => {
+    if (user?.role === 'boss') return;
     if (user?.role === 'order') {
       if (nextView === 'home' || nextView === 'order-entry' || nextView === 'order-accounting' || nextView === 'order-debts') {
         setCurrentView(nextView);
@@ -888,6 +891,14 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (user?.role === 'boss' && currentView !== 'group-overview') {
+      setCurrentView('group-overview');
+      return;
+    }
+    if (user?.role !== 'boss' && currentView === 'group-overview') {
+      setCurrentView('home');
+      return;
+    }
     if (user?.role === 'order' && currentView !== 'home' && currentView !== 'order-entry' && currentView !== 'order-accounting' && currentView !== 'order-debts') {
       setCurrentView('home');
       return;
@@ -1337,10 +1348,26 @@ export default function App() {
       const emailAliasMap: Record<string, string> = {
         admin: 'admin@topstar.com',
         staff: 'staff@topstar.com',
-        order: 'order@topstar.com'
+        order: 'order@topstar.com',
+        boss: 'boss@topstar.com'
       };
       const email = emailAliasMap[normalized] ?? normalized;
-      await signInWithEmailAndPassword(auth, email, pass);
+      if (email === 'boss@topstar.com') {
+        try {
+          await setPersistence(nigeriaAuth, browserSessionPersistence);
+          await signInWithEmailAndPassword(nigeriaAuth, email, pass);
+        } catch (error) {
+          console.error('Nigeria login failed:', error);
+          showToast('尼日利亚系统登录失败，请确认两边账号密码一致', 'error');
+          return false;
+        }
+      }
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+      } catch (error) {
+        if (email === 'boss@topstar.com') await signOut(nigeriaAuth);
+        throw error;
+      }
       showToast(email === 'order@topstar.com' ? orderMessage('Connexion réussie', '登录成功', 'Logged in') : '登录成功');
       return true;
     } catch (error: unknown) {
@@ -1364,6 +1391,7 @@ export default function App() {
   const handleLogout = async () => {
     const isOrderUser = user?.role === 'order';
     try {
+      await signOut(nigeriaAuth);
       await signOut(auth);
       showToast(isOrderUser ? orderText(orderLanguage, 'Déconnexion réussie', '已退出登录', 'Logged out') : '已退出登录');
       setOrderLanguage('fr');
@@ -3185,6 +3213,7 @@ export default function App() {
                   onHistoryQueryChange={setStockHistoryRequest}
                 />
               )}
+              {user.role === 'boss' && currentView === 'group-overview' && <GroupOverviewView />}
               {user.role === 'order' && currentView === 'home' && (
                 <OrderPriceListView
                   products={orderProducts}

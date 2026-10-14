@@ -322,7 +322,7 @@ service cloud.firestore {
              data.remark is string && data.remark.size() <= 1000 &&
              data.cargoBoxes is int && data.cargoBoxes > 0 &&
              data.items is list && data.items.size() <= 100 &&
-             data.operatorUid is string && data.operatorUid == request.auth.uid &&
+             data.operatorUid is string &&
              data.createdAt is timestamp &&
              data.updatedAt is timestamp;
     }
@@ -490,7 +490,9 @@ service cloud.firestore {
 
     match /cargoContainers/{containerId} {
       allow read: if isStaff() || isBoss();
-      allow create: if isAdmin() && isValidCargoContainer(request.resource.data);
+      allow create: if isAdmin() &&
+        isValidCargoContainer(request.resource.data) &&
+        request.resource.data.operatorUid == request.auth.uid;
       allow update: if isAdmin() &&
         isValidCargoContainer(request.resource.data) &&
         request.resource.data.operatorUid == resource.data.operatorUid &&

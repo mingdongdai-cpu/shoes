@@ -233,8 +233,8 @@ export function AppShell({ user, currentView, onViewChange, onLogout, notificati
           <Brand compact />
           {user.role === 'order' && onOrderLanguageChange && <OrderLanguagePicker language={orderLanguage} onChange={onOrderLanguageChange} />}
           <div className="flex items-center gap-2">
-            <NotificationButton enabled={notificationsEnabled} onEnable={onEnableNotifications} className="sidebar-logout" />
-            <button type="button" onClick={onLogout} className="sidebar-logout" title={logoutLabel}>
+            <NotificationButton enabled={notificationsEnabled} onEnable={onEnableNotifications} className="button-secondary button-icon" />
+            <button type="button" onClick={onLogout} className="button-secondary button-icon" title={logoutLabel}>
               <LogOut size={18} />
               <span className="sr-only">{logoutLabel}</span>
             </button>
@@ -317,8 +317,8 @@ export function AppShell({ user, currentView, onViewChange, onLogout, notificati
       <header className="mobile-shell-header md:hidden">
         <Brand compact />
         <div className="flex items-center gap-2">
-          <NotificationButton enabled={notificationsEnabled} onEnable={onEnableNotifications} className="sidebar-logout" />
-          <button type="button" onClick={onLogout} className="sidebar-logout" title="退出登录">
+          <NotificationButton enabled={notificationsEnabled} onEnable={onEnableNotifications} className="button-secondary button-icon" />
+          <button type="button" onClick={onLogout} className="button-secondary button-icon" title="退出登录">
             <LogOut size={18} />
             <span className="sr-only">退出登录</span>
           </button>

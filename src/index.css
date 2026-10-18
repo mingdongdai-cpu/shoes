@@ -424,6 +424,7 @@ tbody tr:hover {
 }
 
 .brand-name-compact {
+  color: var(--ink);
   font-size: 17px;
 }
 
@@ -531,7 +532,8 @@ tbody tr:hover {
   color: #d18a8d;
 }
 
-.sidebar-logout.notification-button-on {
+.sidebar-logout.notification-button-on,
+.button-icon.notification-button-on {
   color: var(--brass);
   cursor: default;
 }
@@ -548,10 +550,9 @@ tbody tr:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #343632;
-  background: var(--charcoal);
-  /* The iPhone status bar is translucent, so the dark header extends beneath it. */
-  padding: calc(11px + env(safe-area-inset-top)) 16px 11px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(247, 245, 241, 0.96);
+  padding: 11px 16px;
 }
 
 .mobile-navigation {
@@ -830,7 +831,7 @@ tbody tr:hover {
 
   .login-brand-panel {
     min-height: 230px;
-    padding: calc(28px + env(safe-area-inset-top)) 24px 24px;
+    padding: 28px 24px 24px;
   }
 
   .login-brand-mark {

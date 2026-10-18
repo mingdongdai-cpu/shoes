@@ -170,6 +170,17 @@ export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string,
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  useEffect(() => {
+    // Match the iPhone status bar to the dark brand panel at the top of the mobile login page.
+    const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!themeColor) return;
+    const previous = themeColor.content;
+    themeColor.content = '#202220';
+    return () => {
+      themeColor.content = previous;
+    };
+  }, []);
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;

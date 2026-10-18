@@ -532,6 +532,12 @@ tbody tr:hover {
   color: #d18a8d;
 }
 
+.sidebar-logout.notification-button-on,
+.button-icon.notification-button-on {
+  color: var(--brass);
+  cursor: default;
+}
+
 .app-main {
   font-family: var(--font-sans);
   padding: 34px 36px 54px;

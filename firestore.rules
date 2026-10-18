@@ -488,6 +488,19 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /pushTokens/{token} {
+      // role lets each country's sender pick recipients; it must match the signed-in account.
+      allow create, update: if request.resource.data.keys().hasOnly(['uid', 'role', 'updatedAt']) &&
+        (
+          (request.resource.data.role == 'admin' && isAdmin()) ||
+          (request.resource.data.role == 'staff' && isStaff() && !isAdmin()) ||
+          (request.resource.data.role == 'boss' && isBoss())
+        ) &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.updatedAt == request.time;
+      allow delete: if isAuthenticated();
+    }
+
     match /cargoContainers/{containerId} {
       allow read: if isStaff() || isBoss();
       allow create: if isAdmin() &&

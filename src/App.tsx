@@ -7,11 +7,13 @@ import React, { useState, useEffect, useMemo, useRef, Component } from 'react';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, nigeriaAuth } from './firebase';
+import { enablePush, isPushEnabledOnDevice, isPushSupported, registerPush, unregisterPush } from './lib/push';
 import { 
   signInWithEmailAndPassword, 
   signOut, 
   onAuthStateChanged,
   setPersistence,
+  browserLocalPersistence,
   browserSessionPersistence
 } from 'firebase/auth';
 import { 
@@ -148,6 +150,26 @@ const formatStock = (total: number, spec: number) => {
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('zh-CN').format(amount) + ' XOF';
+};
+
+const REMEMBER_LOGIN_KEY = 'topstar.rememberLoginUntil';
+const REMEMBER_LOGIN_DAYS = 30;
+
+const readRememberLoginUntil = () => {
+  try {
+    return Number(localStorage.getItem(REMEMBER_LOGIN_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+};
+
+const writeRememberLoginUntil = (until: number | null) => {
+  try {
+    if (until) localStorage.setItem(REMEMBER_LOGIN_KEY, String(until));
+    else localStorage.removeItem(REMEMBER_LOGIN_KEY);
+  } catch {
+    // Without storage the login simply stays session-only.
+  }
 };
 
 const getTogoMonth = () => {
@@ -536,6 +558,8 @@ export default function App() {
   const [previousMonthToDateSales, setPreviousMonthToDateSales] = useState<number | null>(null);
   const [homeCustomerOrderDebtTotal, setHomeCustomerOrderDebtTotal] = useState(0);
   const [currentView, setCurrentView] = useState<View>('home');
+  // null hides the notification button: wrong role, or this browser cannot receive web push.
+  const [pushEnabled, setPushEnabled] = useState<boolean | null>(null);
 
   useEffect(() => {
     document.documentElement.lang = user?.role === 'order' ? orderLanguage : 'zh';
@@ -617,9 +641,16 @@ export default function App() {
       setHomeCustomerOrderDebtTotal(0);
     };
 
-    // Set persistence to session-based (requires re-login after closing browser)
-    setPersistence(auth, browserSessionPersistence)
-      .then(() => {
+    // Remembered logins survive closing the app for 30 days; all others end with the session.
+    const rememberLoginUntil = readRememberLoginUntil();
+    const isLoginRemembered = rememberLoginUntil > Date.now();
+    const persistence = isLoginRemembered ? browserLocalPersistence : browserSessionPersistence;
+    Promise.all([setPersistence(auth, persistence), setPersistence(nigeriaAuth, persistence)])
+      .then(async () => {
+        if (rememberLoginUntil > 0 && !isLoginRemembered) {
+          writeRememberLoginUntil(null);
+          await Promise.all([signOut(nigeriaAuth), signOut(auth)]);
+        }
         unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
           if (!firebaseUser) {
             clearLocalSession();
@@ -666,6 +697,23 @@ export default function App() {
       if (unsubscribe) unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    setPushEnabled(null);
+    if (!user || user.role === 'order') return;
+    const role = user.role;
+    let cancelled = false;
+    isPushSupported().then((supported) => {
+      if (cancelled || !supported) return;
+      const enabled = isPushEnabledOnDevice();
+      setPushEnabled(enabled);
+      // Re-register on every launch so a rotated FCM token replaces the stored one.
+      if (enabled) registerPush(user.uid, role).catch((error) => console.error('Refresh push token failed:', error));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, user?.role]);
 
   // --- Firebase Data Sync ---
   useEffect(() => {
@@ -1320,8 +1368,9 @@ export default function App() {
   }, [analyticsMonths, products, dashboardHotMonth]);
 
   // --- Actions ---
-  const handleLogin = async (username: string, pass: string) => {
+  const handleLogin = async (username: string, pass: string, rememberLogin: boolean) => {
     const normalized = username.trim().toLowerCase();
+    const persistence = rememberLogin ? browserLocalPersistence : browserSessionPersistence;
     try {
       const emailAliasMap: Record<string, string> = {
         admin: 'admin@topstar.com',
@@ -1332,7 +1381,7 @@ export default function App() {
       const email = emailAliasMap[normalized] ?? normalized;
       if (email === 'boss@topstar.com') {
         try {
-          await setPersistence(nigeriaAuth, browserSessionPersistence);
+          await setPersistence(nigeriaAuth, persistence);
           await signInWithEmailAndPassword(nigeriaAuth, email, pass);
         } catch (error) {
           console.error('Nigeria login failed:', error);
@@ -1341,11 +1390,13 @@ export default function App() {
         }
       }
       try {
+        await setPersistence(auth, persistence);
         await signInWithEmailAndPassword(auth, email, pass);
       } catch (error) {
         if (email === 'boss@topstar.com') await signOut(nigeriaAuth);
         throw error;
       }
+      writeRememberLoginUntil(rememberLogin ? Date.now() + REMEMBER_LOGIN_DAYS * 24 * 60 * 60 * 1000 : null);
       showToast(email === 'order@topstar.com' ? orderMessage('Connexion réussie', '登录成功', 'Logged in') : '登录成功');
       return true;
     } catch (error: unknown) {
@@ -1369,12 +1420,30 @@ export default function App() {
   const handleLogout = async () => {
     const isOrderUser = user?.role === 'order';
     try {
+      await unregisterPush();
+      setPushEnabled(false);
+      writeRememberLoginUntil(null);
       await signOut(nigeriaAuth);
       await signOut(auth);
       showToast(isOrderUser ? orderText(orderLanguage, 'Déconnexion réussie', '已退出登录', 'Logged out') : '已退出登录');
       setOrderLanguage('fr');
     } catch (error) {
       showToast(isOrderUser ? orderText(orderLanguage, 'Échec de la déconnexion', '退出失败', 'Could not log out') : '退出失败', 'error');
+    }
+  };
+
+  const handleEnableNotifications = async () => {
+    if (!user || user.role === 'order') return;
+    try {
+      if (!await enablePush(user.uid, user.role)) {
+        showToast('未允许通知，请在系统设置里打开本应用的通知权限', 'error');
+        return;
+      }
+      setPushEnabled(true);
+      showToast('通知已开启');
+    } catch (error) {
+      console.error('Enable notifications failed:', error);
+      showToast('开启通知失败，请稍后重试', 'error');
     }
   };
 
@@ -3055,6 +3124,8 @@ export default function App() {
         currentView={currentView}
         onViewChange={handleViewChange}
         onLogout={handleLogout}
+        notificationsEnabled={pushEnabled}
+        onEnableNotifications={handleEnableNotifications}
         orderLanguage={orderLanguage}
         onOrderLanguageChange={setOrderLanguage}
       >

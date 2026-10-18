@@ -18,6 +18,8 @@ test('staff can see cargo navigation and details without cargo editing controls'
     currentView: 'cargo-containers',
     onViewChange: () => {},
     onLogout: () => {},
+    notificationsEnabled: null,
+    onEnableNotifications: () => {},
     children: null,
   }));
   assert.match(staffShell, /货柜情况/);

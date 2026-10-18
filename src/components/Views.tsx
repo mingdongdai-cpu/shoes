@@ -163,18 +163,30 @@ export function PickerChip({
 
 // --- Views ---
 
-export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string) => Promise<boolean> }) => {
+export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string, rememberLogin: boolean) => Promise<boolean> }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberLogin, setRememberLogin] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    // Match the iPhone status bar to the dark brand panel at the top of the mobile login page.
+    const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!themeColor) return;
+    const previous = themeColor.content;
+    themeColor.content = '#202220';
+    return () => {
+      themeColor.content = previous;
+    };
+  }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
     setSubmitting(true);
     setErrorMessage('');
-    const success = await handleLogin(username, password);
+    const success = await handleLogin(username, password, rememberLogin);
     if (!success) {
       setErrorMessage('登录失败，请检查账号或密码。');
     }
@@ -233,6 +245,15 @@ export const LoginView = ({ handleLogin }: { handleLogin: (u: string, p: string)
                 className="w-full rounded-lg px-4 py-3"
               />
             </div>
+            <label className="flex w-fit cursor-pointer items-center gap-2.5 text-sm text-stone-600">
+              <input
+                type="checkbox"
+                checked={rememberLogin}
+                onChange={(e) => setRememberLogin(e.target.checked)}
+                className="h-4 w-4 accent-[var(--oxblood)]"
+              />
+              30 天免登录
+            </label>
             <button
               type="submit"
               disabled={submitting}

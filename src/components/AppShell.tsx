@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   BarChart3,
+  Bell,
+  BellRing,
   ClipboardList,
   Container,
   Globe2,
@@ -25,6 +27,8 @@ interface AppShellProps {
   currentView: View;
   onViewChange: (view: View) => void;
   onLogout: () => void;
+  notificationsEnabled: boolean | null;
+  onEnableNotifications: () => void;
   orderLanguage?: OrderLanguage;
   onOrderLanguageChange?: (language: OrderLanguage) => void;
   children: ReactNode;
@@ -106,6 +110,18 @@ function OrderLanguagePicker({ language, onChange }: { language: OrderLanguage; 
   );
 }
 
+function NotificationButton({ enabled, onEnable, className }: { enabled: boolean | null; onEnable: () => void; className: string }) {
+  if (enabled === null) return null;
+  const label = enabled ? '通知已开启' : '开启通知';
+  const Icon = enabled ? BellRing : Bell;
+  return (
+    <button type="button" onClick={onEnable} disabled={enabled} className={`${className} ${enabled ? 'notification-button-on' : ''}`} title={label}>
+      <Icon size={17} />
+      <span className="sr-only">{label}</span>
+    </button>
+  );
+}
+
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="brand-lockup">
@@ -144,7 +160,7 @@ function NavigationButton({
   );
 }
 
-export function AppShell({ user, currentView, onViewChange, onLogout, orderLanguage = 'fr', onOrderLanguageChange, children }: AppShellProps) {
+export function AppShell({ user, currentView, onViewChange, onLogout, notificationsEnabled, onEnableNotifications, orderLanguage = 'fr', onOrderLanguageChange, children }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const roleLabel = user.role === 'admin' ? '管理员' : user.role === 'boss' ? '老板' : user.role === 'order' ? orderLanguage === 'zh' ? '订单录入' : orderLanguage === 'en' ? 'Orders' : 'Saisie' : '查询员';
   const logoutLabel = user.role !== 'order' || orderLanguage === 'zh' ? '退出登录' : orderLanguage === 'en' ? 'Log out' : 'Se déconnecter';
@@ -205,6 +221,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
               <strong className="block truncate text-sm font-semibold text-stone-100">{user.username}</strong>
               <span className="block text-[11px] tracking-[0.08em] text-stone-500">{roleLabel}</span>
             </span>
+            <NotificationButton enabled={notificationsEnabled} onEnable={onEnableNotifications} className="sidebar-logout" />
             <button type="button" onClick={onLogout} className="sidebar-logout" title={logoutLabel}>
               <LogOut size={17} />
               <span className="sr-only">{logoutLabel}</span>
@@ -215,10 +232,13 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
         <header className="mobile-shell-header md:hidden">
           <Brand compact />
           {user.role === 'order' && onOrderLanguageChange && <OrderLanguagePicker language={orderLanguage} onChange={onOrderLanguageChange} />}
-          <button type="button" onClick={onLogout} className="button-secondary button-icon" title={logoutLabel}>
-            <LogOut size={18} />
-            <span className="sr-only">{logoutLabel}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <NotificationButton enabled={notificationsEnabled} onEnable={onEnableNotifications} className="button-secondary button-icon" />
+            <button type="button" onClick={onLogout} className="button-secondary button-icon" title={logoutLabel}>
+              <LogOut size={18} />
+              <span className="sr-only">{logoutLabel}</span>
+            </button>
+          </div>
         </header>
 
         <main className="app-main min-w-0">{children}</main>
@@ -286,6 +306,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
             <strong className="block truncate text-sm font-semibold text-stone-100">{user.username}</strong>
             <span className="block text-[11px] tracking-[0.08em] text-stone-500">{roleLabel}</span>
           </span>
+          <NotificationButton enabled={notificationsEnabled} onEnable={onEnableNotifications} className="sidebar-logout" />
           <button type="button" onClick={onLogout} className="sidebar-logout" title="退出登录">
             <LogOut size={17} />
             <span className="sr-only">退出登录</span>
@@ -295,10 +316,13 @@ export function AppShell({ user, currentView, onViewChange, onLogout, orderLangu
 
       <header className="mobile-shell-header md:hidden">
         <Brand compact />
-        <button type="button" onClick={onLogout} className="button-secondary button-icon" title="退出登录">
-          <LogOut size={18} />
-          <span className="sr-only">退出登录</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <NotificationButton enabled={notificationsEnabled} onEnable={onEnableNotifications} className="button-secondary button-icon" />
+          <button type="button" onClick={onLogout} className="button-secondary button-icon" title="退出登录">
+            <LogOut size={18} />
+            <span className="sr-only">退出登录</span>
+          </button>
+        </div>
       </header>
 
       <main className="app-main min-w-0">{children}</main>

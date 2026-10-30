@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { calculateProductRisk, type ProductRiskInput } from './productRisk';
+import { calculateProductRisk, findSteadilyStockedProductIds, type ProductRiskInput } from './productRisk';
 
 const now = new Date(2026, 9, 12, 15, 0, 0);
 const daysAgo = (days: number) => new Date(2026, 9, 12 - days, 10, 0, 0);
@@ -66,4 +66,20 @@ test('products created within 30 days are not stale yet', () => {
   const metrics = risk({ outQuantity30d: 0, lastSaleAt: null, createdAt: daysAgo(30) });
   assert.equal(metrics.isStale, true);
   assert.deepEqual(metrics.staleReasons, ['从未销售']);
+});
+
+test('worst-seller candidates must hold 10 boxes through the last 7 days and be listed before them', () => {
+  const product = (id: string, stockBoxes: number, createdDaysAgo = 60) => ({ id, spec, stock: boxes(stockBoxes), createdAt: daysAgo(createdDaysAgo) });
+  const ids = findSteadilyStockedProductIds(
+    [product('steady', 12), product('restocked', 50), product('dipped', 15), product('new', 40, 3), product('low', 9)],
+    [
+      { productId: 'steady', type: 'out', quantity: boxes(2), occurredAt: daysAgo(2) },
+      { productId: 'restocked', type: 'in', quantity: boxes(48), occurredAt: daysAgo(1) },
+      { productId: 'dipped', type: 'in', quantity: boxes(10), occurredAt: daysAgo(2) },
+      { productId: 'dipped', type: 'out', quantity: boxes(4), occurredAt: daysAgo(4) },
+      { productId: 'dipped', type: 'out', quantity: boxes(1), occurredAt: daysAgo(9) }
+    ],
+    now
+  );
+  assert.deepEqual([...ids], ['steady']);
 });

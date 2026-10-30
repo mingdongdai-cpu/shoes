@@ -122,6 +122,18 @@ function NotificationButton({ enabled, onEnable, className }: { enabled: boolean
   );
 }
 
+// Stacked blur layers, each masked to a shorter band, so content blurs more the closer it gets to the screen edge.
+function EdgeBlur({ edge }: { edge: 'top' | 'bottom' }) {
+  return (
+    <div className={`edge-blur edge-blur-${edge} md:hidden`} aria-hidden="true">
+      <span />
+      <span />
+      <span />
+      <span />
+    </div>
+  );
+}
+
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="brand-lockup">
@@ -230,6 +242,8 @@ export function AppShell({ user, currentView, onViewChange, onLogout, notificati
         </aside>
 
         <header className="mobile-shell-header md:hidden">
+        <EdgeBlur edge="top" />
+          <EdgeBlur edge="top" />
           <Brand compact />
           {user.role === 'order' && onOrderLanguageChange && <OrderLanguagePicker language={orderLanguage} onChange={onOrderLanguageChange} />}
           <div className="flex items-center gap-2">
@@ -243,6 +257,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, notificati
 
         <main className="app-main min-w-0">{children}</main>
 
+        <EdgeBlur edge="bottom" />
         <nav className={`mobile-navigation md:hidden ${user.role === 'boss' ? 'boss-mobile-navigation' : 'order-mobile-navigation'}`} aria-label={user.role === 'boss' ? '手机总览导航' : orderLanguage === 'zh' ? '手机订单导航' : orderLanguage === 'en' ? 'Mobile order navigation' : 'Navigation commandes mobile'}>
           {simpleNavigation.map((item) => (
             <NavigationButton
@@ -315,6 +330,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, notificati
       </aside>
 
       <header className="mobile-shell-header md:hidden">
+        <EdgeBlur edge="top" />
         <Brand compact />
         <div className="flex items-center gap-2">
           <NotificationButton enabled={notificationsEnabled} onEnable={onEnableNotifications} className="button-secondary button-icon" />
@@ -327,6 +343,7 @@ export function AppShell({ user, currentView, onViewChange, onLogout, notificati
 
       <main className="app-main min-w-0">{children}</main>
 
+      <EdgeBlur edge="bottom" />
       <nav className="mobile-navigation md:hidden" aria-label="手机底部导航">
         <NavigationButton
           item={{ label: '首页', view: 'home', icon: Home }}

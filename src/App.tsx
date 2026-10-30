@@ -54,7 +54,7 @@ import { isCustomerOrderDebt, isOrderDate, normalizeCustomerOrderDebtHistory, no
 import { calculateCashTotal, normalizeCashCounts } from './lib/orderAccounting';
 import { buildAnalyticsDelta, IN_TOTAL_BASELINE_VALUE, type AnalyticsDelta, type AnalyticsExpenseInput, type AnalyticsTransactionInput } from './lib/analytics';
 import { aggregateCustomerOrdersForInventory } from './lib/customerOrderSync';
-import { calculateRiskByProduct } from './lib/productRisk';
+import { calculateRiskByProduct, findSteadilyStockedProductIds } from './lib/productRisk';
 import { resolveSettlementValue } from './lib/debtRecords';
 import { calculatePaidAmountAfterPaymentChange, getDebtPaymentKey, mapDebtPaymentDoc } from './lib/debtPayments';
 import { applyCashCountDelta, calculateCashContributionAfterCountChange, calculateCashCountTotal, calculateCurrentInventoryTotal, calculateOutstandingDebtTotal } from './lib/homeOverview';
@@ -881,6 +881,22 @@ export default function App() {
       stock: product.stock,
       createdAt: product.createdAt?.toDate() ?? null,
       lastOutAt: product.lastOutAt?.toDate() ?? null
+    })),
+    transactions.map((transaction) => ({
+      productId: transaction.productId,
+      type: transaction.type,
+      quantity: transaction.quantity,
+      occurredAt: timestampToDate(transaction.occurredAt)
+    })),
+    new Date()
+  ), [activeProducts, transactions]);
+
+  const steadilyStockedProductIds = useMemo(() => findSteadilyStockedProductIds(
+    activeProducts.map((product) => ({
+      id: product.id,
+      spec: product.spec,
+      stock: product.stock,
+      createdAt: product.createdAt?.toDate() ?? null
     })),
     transactions.map((transaction) => ({
       productId: transaction.productId,
@@ -3169,6 +3185,7 @@ export default function App() {
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  steadilyStockedProductIds={steadilyStockedProductIds}
                   isRiskDataReady={transactionsView === currentView}
                   products={activeProducts}
                   totalOutQuantityByProduct={totalOutQuantityByProduct}
@@ -3186,6 +3203,7 @@ export default function App() {
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  steadilyStockedProductIds={steadilyStockedProductIds}
                   isRiskDataReady={transactionsView === currentView}
                   products={activeProducts}
                   totalOutQuantityByProduct={totalOutQuantityByProduct}
@@ -3203,6 +3221,7 @@ export default function App() {
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  steadilyStockedProductIds={steadilyStockedProductIds}
                   isRiskDataReady={transactionsView === currentView}
                   products={activeProducts}
                   totalOutQuantityByProduct={totalOutQuantityByProduct}
@@ -3220,6 +3239,7 @@ export default function App() {
                   warnings={warnings}
                   staleProducts={staleProducts}
                   productRiskMetricsByProduct={productRiskMetricsByProduct}
+                  steadilyStockedProductIds={steadilyStockedProductIds}
                   isRiskDataReady={transactionsView === currentView}
                   products={activeProducts}
                   totalOutQuantityByProduct={totalOutQuantityByProduct}

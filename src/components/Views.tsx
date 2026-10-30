@@ -35,6 +35,7 @@ import { buildCustomerOrderTotals, getCustomerOrderOutstanding, shouldShowCustom
 import { CustomerOrdersPanel } from './OrderViews';
 import { calculateAccountingDifference, CASH_DENOMINATIONS } from '../lib/orderAccounting';
 import { compareDebtRecords } from '../lib/debtRecords';
+import { WORST_SELLER_MIN_STOCK_BOXES, WORST_SELLER_STOCKED_DAYS } from '../lib/productRisk';
 import { DebtPaymentDialog, DebtPaymentHistory } from './DebtPayments';
 import type { OrderLanguage } from '../lib/orderLanguage';
 
@@ -1089,6 +1090,7 @@ interface InventoryOverviewViewProps {
   warnings: Product[];
   staleProducts: Product[];
   productRiskMetricsByProduct: Record<string, ProductRiskMetrics>;
+  steadilyStockedProductIds: ReadonlySet<string>;
   isRiskDataReady: boolean;
   products: Product[];
   totalOutQuantityByProduct: Record<string, number>;
@@ -1105,6 +1107,7 @@ export const InventoryOverviewView = ({
   warnings,
   staleProducts,
   productRiskMetricsByProduct,
+  steadilyStockedProductIds,
   isRiskDataReady,
   products,
   totalOutQuantityByProduct,
@@ -1212,7 +1215,7 @@ export const InventoryOverviewView = ({
     return Number.isFinite(days) ? `${days.toFixed(1)} 天` : '∞';
   };
 
-  if ((mode === 'warnings' || mode === 'stale') && !isRiskDataReady) {
+  if (mode !== 'stock' && !isRiskDataReady) {
     return (
       <div className="surface rounded-xl border-stone-200 p-6 text-sm font-semibold text-stone-500 shadow-sm">
         正在读取近 30 天销量，计算中…
@@ -1326,7 +1329,9 @@ export const InventoryOverviewView = ({
     const maxTotalBoxes = soldRows[0]?.totalBoxes ?? 0;
     const peakPeriodBoxes = Math.max(0, ...rankedRows.flatMap((row) => row.boxesByPeriod));
     const bestRows = soldRows.slice(0, 5);
-    const worstRows = [...rankedRows]
+    // Low sales on a style that ran short reflects missing stock, not weak demand.
+    const worstRows = rankedRows
+      .filter((row) => steadilyStockedProductIds.has(row.productId))
       .sort((left, right) => left.totalBoxes - right.totalBoxes || left.name.localeCompare(right.name))
       .slice(0, 5);
     const currentColumnIndex = salesPeriodData.columns.length - 1;
@@ -1341,7 +1346,7 @@ export const InventoryOverviewView = ({
     );
     const rankingPanels = [
       { key: 'best', title: '卖得最好', subtitle: '合计箱数前 5', rows: bestRows, icon: TrendingUp, emptyText: '暂无销量' },
-      { key: 'worst', title: '卖得最差', subtitle: '合计箱数后 5，含无销量', rows: worstRows, icon: TrendingDown, emptyText: '暂无商品' }
+      { key: 'worst', title: '卖得最差', subtitle: `近 ${WORST_SELLER_STOCKED_DAYS} 天库存一直 ${WORST_SELLER_MIN_STOCK_BOXES} 箱以上，合计箱数后 5`, rows: worstRows, icon: TrendingDown, emptyText: '暂无符合条件的商品' }
     ] as const;
 
     return (

@@ -114,3 +114,37 @@ export function calculateRiskByProduct(
   }
   return metricsMap;
 }
+
+export const WORST_SELLER_MIN_STOCK_BOXES = 10;
+export const WORST_SELLER_STOCKED_DAYS = 7;
+
+// Styles that held at least WORST_SELLER_MIN_STOCK_BOXES throughout the last WORST_SELLER_STOCKED_DAYS
+// and were listed before that window; only these can fairly be called worst sellers.
+export function findSteadilyStockedProductIds(
+  products: readonly Omit<RiskProductInput, 'lastOutAt'>[],
+  transactions: readonly RiskTransactionInput[],
+  now: Date
+): Set<string> {
+  const windowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  windowStart.setDate(windowStart.getDate() - WORST_SELLER_STOCKED_DAYS);
+
+  const stockById = new Map(products.map((product) => [product.id, product.stock]));
+  const minStockById = new Map(stockById);
+  const windowTransactions = transactions
+    .filter((transaction) => transaction.occurredAt >= windowStart && stockById.has(transaction.productId))
+    .sort((left, right) => right.occurredAt.getTime() - left.occurredAt.getTime());
+
+  // Replay backwards from the current stock to recover every stock level held inside the window.
+  for (const transaction of windowTransactions) {
+    const before = stockById.get(transaction.productId)! + (transaction.type === 'out' ? transaction.quantity : -transaction.quantity);
+    stockById.set(transaction.productId, before);
+    minStockById.set(transaction.productId, Math.min(minStockById.get(transaction.productId)!, before));
+  }
+
+  return new Set(products
+    .filter((product) => (
+      (!product.createdAt || product.createdAt <= windowStart) &&
+      minStockById.get(product.id)! / (product.spec > 0 ? product.spec : 1) >= WORST_SELLER_MIN_STOCK_BOXES
+    ))
+    .map((product) => product.id));
+}

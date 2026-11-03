@@ -35,7 +35,7 @@ import { buildCustomerOrderTotals, getCustomerOrderOutstanding, shouldShowCustom
 import { CustomerOrdersPanel } from './OrderViews';
 import { calculateAccountingDifference, CASH_DENOMINATIONS } from '../lib/orderAccounting';
 import { compareDebtRecords } from '../lib/debtRecords';
-import { WORST_SELLER_MIN_STOCK_BOXES, WORST_SELLER_STOCKED_DAYS } from '../lib/productRisk';
+import { STALE_COVER_DAYS, WARNING_COVER_DAYS, WORST_SELLER_MIN_STOCK_BOXES, WORST_SELLER_STOCKED_DAYS } from '../lib/productRisk';
 import { DebtPaymentDialog, DebtPaymentHistory } from './DebtPayments';
 import type { OrderLanguage } from '../lib/orderLanguage';
 
@@ -1102,6 +1102,73 @@ interface InventoryOverviewViewProps {
   showToast: (message: string, type?: 'success' | 'error') => void;
 }
 
+type InventoryTone = 'danger' | 'amber' | 'brass' | 'neutral';
+type StockStatusFilter = 'all' | 'warning' | 'stale' | 'normal';
+
+// Desktop column layouts, shared by each list's header and rows.
+const WARNING_LIST_COLUMNS = 'sm:grid-cols-[minmax(0,1.6fr)_1fr_1fr_1.5fr]';
+const STALE_LIST_COLUMNS = 'sm:grid-cols-[minmax(0,1.5fr)_0.8fr_1.6fr_0.7fr_0.8fr_1fr]';
+const STOCK_LIST_COLUMNS = 'sm:grid-cols-[minmax(0,1.6fr)_0.8fr_1fr_1fr_0.8fr_1fr]';
+
+const INVENTORY_TONE_BAR: Record<InventoryTone, string> = {
+  danger: 'before:bg-danger',
+  amber: 'before:bg-ochre',
+  brass: 'before:bg-brass',
+  neutral: 'before:bg-transparent'
+};
+
+const INVENTORY_CHIP_CLASS: Record<'danger' | 'amber' | 'ok', string> = {
+  danger: 'bg-danger/10 text-danger',
+  amber: 'bg-ochre/10 text-ochre',
+  ok: 'bg-forest/10 text-forest'
+};
+
+function InventoryPageHeader({ eyebrow, title, subtitle, action }: { eyebrow: string; title: string; subtitle: string; action?: React.ReactNode }) {
+  return (
+    <div className="section-panel-header">
+      <div className="min-w-0">
+        <span className="eyebrow">{eyebrow}</span>
+        <h2 className="display-title mt-1 text-2xl">{title}</h2>
+        <p className="mt-1 text-xs font-semibold leading-relaxed text-stone-500">{subtitle}</p>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function InventoryKpi({ label, value, unit, tone = 'neutral', className = '' }: { label: string; value: React.ReactNode; unit?: string; tone?: InventoryTone; className?: string }) {
+  return (
+    <div className={`relative overflow-hidden rounded-xl border border-stone-200 bg-white px-4 py-3 before:absolute before:inset-y-0 before:left-0 before:w-[3px] ${INVENTORY_TONE_BAR[tone]} ${className}`}>
+      <p className="text-xs font-semibold text-stone-500">{label}</p>
+      <p className={`mt-1 whitespace-nowrap font-serif text-xl font-semibold sm:text-2xl ${tone === 'danger' ? 'text-danger' : 'text-stone-900'}`}>
+        {value}
+        {unit && <small className="ml-1 font-sans text-xs font-semibold text-stone-500">{unit}</small>}
+      </p>
+    </div>
+  );
+}
+
+function InventoryChip({ tone, children }: { tone: 'danger' | 'amber' | 'ok'; children: React.ReactNode }) {
+  return <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold ${INVENTORY_CHIP_CLASS[tone]}`}>{children}</span>;
+}
+
+function InventoryBar({ percent, className }: { percent: number; className: string }) {
+  return (
+    <span className="block h-1.5 w-full overflow-hidden rounded-full bg-stone-100">
+      <span className={`block h-full rounded-full ${className}`} style={{ width: `${Math.max(0, Math.min(100, percent))}%` }} />
+    </span>
+  );
+}
+
+function InventoryEmpty({ icon: Icon, text }: { icon: typeof Package; text: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+      <Icon className="mb-3 text-stone-300" size={40} />
+      <p className="text-sm font-bold text-stone-400">{text}</p>
+    </div>
+  );
+}
+
 export const InventoryOverviewView = ({
   mode,
   warnings,
@@ -1120,6 +1187,7 @@ export const InventoryOverviewView = ({
 }: InventoryOverviewViewProps) => {
   const [comparisonSearchTerm, setComparisonSearchTerm] = useState('');
   const [stockSearchTerm, setStockSearchTerm] = useState('');
+  const [stockStatusFilter, setStockStatusFilter] = useState<StockStatusFilter>('all');
 
   const sortedWarnings = useMemo(() => {
     if (mode !== 'warnings') return [] as Product[];
@@ -1138,11 +1206,6 @@ export const InventoryOverviewView = ({
     if (mode !== 'stale') return [] as Product[];
     return [...staleProducts].sort((a, b) => (b.stock * b.price) - (a.stock * a.price) || a.name.localeCompare(b.name));
   }, [mode, staleProducts]);
-
-  const formatLastSaleDate = (metrics: ProductRiskMetrics | undefined) => {
-    if (!metrics || metrics.daysSinceLastSale === null) return '暂无销售记录';
-    return `距今天 ${metrics.daysSinceLastSale} 天`;
-  };
 
   const totalSoldByProduct = useMemo(() => {
     if (mode !== 'stock') return {} as Record<string, number>;
@@ -1223,96 +1286,145 @@ export const InventoryOverviewView = ({
     );
   }
 
+  const formatXof = (value: number) => new Intl.NumberFormat('zh-CN').format(Math.round(value));
+
+  const coverBarClass = (days: number) => (
+    days < WARNING_COVER_DAYS / 4 ? 'bg-danger' : days < (WARNING_COVER_DAYS * 2) / 3 ? 'bg-ochre' : 'bg-brass'
+  );
+
   if (mode === 'warnings') {
+    const outOfStockWarnings = sortedWarnings.filter((product) => productRiskMetricsByProduct[product.id]?.isOutOfStock);
+    const lowCoverWarnings = sortedWarnings.filter((product) => !productRiskMetricsByProduct[product.id]?.isOutOfStock);
+    const weeklyWarningBoxes = sortedWarnings.reduce((sum, product) => sum + (productRiskMetricsByProduct[product.id]?.avgDailyBoxes30d ?? 0) * 7, 0);
+    const warningGroups = [
+      { key: 'out', title: '已断货', products: outOfStockWarnings },
+      { key: 'low', title: `可售不足 ${WARNING_COVER_DAYS} 天`, products: lowCoverWarnings }
+    ].filter((group) => group.products.length > 0);
+
     return (
-      <div className="space-y-8">
-        <div className="surface rounded-xl p-6 shadow-sm border-stone-200">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="text-ochre" size={20} />
-              <h2 className="text-lg font-semibold text-stone-800">库存预警（已断货，或按近 30 天销量可售不足 60 天）</h2>
-            </div>
+      <section className="section-panel overflow-hidden">
+        <InventoryPageHeader
+          eyebrow="RESTOCK ALERT"
+          title="库存预警"
+          subtitle={`已断货，或按近 30 天销量可售不足 ${WARNING_COVER_DAYS} 天 · 断货置顶，其余按可售天数从少到多`}
+          action={(
             <button
               type="button"
               onClick={handleExportWarningList}
               disabled={sortedWarnings.length === 0}
-              className="inline-flex items-center justify-center rounded-xl border border-oxblood/25 bg-oxblood px-4 py-2 text-sm font-bold text-white transition-all hover:bg-oxblood disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-300 disabled:text-stone-500 disabled:shadow-none"
+              className="button-primary inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"
             >
-              导出要货列表
+              <Download size={16} />导出要货列表
             </button>
-          </div>
-          {sortedWarnings.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sortedWarnings.map((p: Product) => (
-                <div key={p.id} className="relative overflow-hidden p-5 rounded-xl border border-danger/25 bg-white transition-all">
-                  <div className="relative z-10 font-semibold text-stone-950">{p.name}</div>
-                  <div className="relative z-10 text-sm font-semibold text-stone-600">规格: {p.spec} 个/箱</div>
-                  <div className="relative z-10 mt-1 text-sm font-semibold text-stone-600">
-                    近30天周均销量: {((productRiskMetricsByProduct[p.id]?.avgDailyBoxes30d ?? 0) * 7).toFixed(1)} 箱
-                  </div>
-                  <div className="relative z-10 mt-1 text-xs font-semibold text-stone-600">
-                    可售天数: {formatDaysOfCover(productRiskMetricsByProduct[p.id])}
-                  </div>
-                  <div className="relative z-10 mt-1 text-xs font-bold text-danger">
-                    触发原因: {(productRiskMetricsByProduct[p.id]?.warningReasons ?? []).join(' / ')}
-                  </div>
-                  <div className="relative z-10 mt-2 text-danger font-semibold">
-                    当前库存: {formatStock(p.stock, p.spec)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-forest bg-forest/10 p-4 rounded-xl border border-forest/25">
-              <CheckCircle2 size={18} />
-              <span>库存充足，暂无预警商品</span>
-            </div>
           )}
+        />
+        <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 sm:p-5">
+          <InventoryKpi label="已断货" value={outOfStockWarnings.length} unit="款" tone="danger" />
+          <InventoryKpi label={`可售不足 ${WARNING_COVER_DAYS} 天`} value={lowCoverWarnings.length} unit="款" tone="amber" />
+          <InventoryKpi label="预警款近 30 天周均合计" value={weeklyWarningBoxes.toFixed(1)} unit="箱/周" className="col-span-2 sm:col-span-1" />
         </div>
-      </div>
+
+        {sortedWarnings.length === 0 ? (
+          <div className="mx-4 mb-5 flex items-center gap-2 rounded-xl border border-forest/25 bg-forest/10 p-4 text-sm font-bold text-forest sm:mx-5">
+            <CheckCircle2 size={18} />库存充足，暂无预警商品
+          </div>
+        ) : (
+          <div className="mx-4 mb-5 overflow-hidden rounded-xl border border-stone-200 bg-white sm:mx-5">
+            <div className={`hidden gap-4 border-b ${WARNING_LIST_COLUMNS} border-stone-200 bg-[#f2efe9] px-4 py-2.5 text-xs font-semibold text-stone-500 sm:grid`}>
+              <span>款式</span><span className="text-right">当前库存</span><span className="text-right">近 30 天周均</span><span>可售天数（满格 {WARNING_COVER_DAYS} 天）</span>
+            </div>
+            {warningGroups.map((group) => (
+              <div key={group.key}>
+                <div className="border-b border-stone-100 bg-[#faf8f4] px-4 py-2 text-xs font-bold tracking-wide text-stone-600">{group.title} · {group.products.length} 款</div>
+                <ul className="divide-y divide-stone-100">
+                  {group.products.map((p) => {
+                    const metrics = productRiskMetricsByProduct[p.id];
+                    const days = metrics?.isOutOfStock ? 0 : metrics?.daysOfCover ?? 0;
+                    const weeklyBoxes = ((metrics?.avgDailyBoxes30d ?? 0) * 7).toFixed(1);
+                    return (
+                      <li key={p.id} className={`grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-4 px-4 py-3 ${WARNING_LIST_COLUMNS}`}>
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-stone-900">{p.name}</p>
+                          <p className="mt-0.5 text-xs font-semibold text-stone-500">
+                            {p.spec} 个/箱<span className="sm:hidden"> · 库存 <span className={metrics?.isOutOfStock ? 'text-danger' : ''}>{formatStock(p.stock, p.spec)}</span> · 周均 {weeklyBoxes} 箱</span>
+                          </p>
+                        </div>
+                        <p className={`hidden text-right text-sm font-semibold tabular-nums sm:block ${metrics?.isOutOfStock ? 'text-danger' : 'text-stone-800'}`}>{formatStock(p.stock, p.spec)}</p>
+                        <p className="hidden text-right text-sm font-semibold tabular-nums text-stone-800 sm:block">{weeklyBoxes} 箱</p>
+                        <div className="flex flex-col items-end gap-1.5 sm:flex-row-reverse sm:items-center sm:gap-3">
+                          <span className={`whitespace-nowrap text-sm font-bold tabular-nums ${metrics?.isOutOfStock ? 'text-danger' : 'text-stone-900'}`}>{formatDaysOfCover(metrics)}</span>
+                          <InventoryBar percent={(days / WARNING_COVER_DAYS) * 100} className={coverBarClass(days)} />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     );
   }
 
   if (mode === 'stale') {
+    const staleBoxes = sortedStaleProducts.reduce((sum, product) => sum + product.stock / product.spec, 0);
+    const staleValues = sortedStaleProducts.map((product) => product.stock * product.price);
+    const staleTotalValue = staleValues.reduce((sum, value) => sum + value, 0);
+    const maxStaleValue = staleValues[0] ?? 0;
+
     return (
-      <div className="space-y-8">
-        <div className="rounded-xl p-6 shadow-sm border border-ochre/25 bg-ochre/10">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertTriangle className="text-ochre" size={20} />
-            <h2 className="text-lg font-semibold text-stone-800">滞销品明细（按近 30 天销量可售超过 180 天，含 30 天无销售；上架满 30 天、库存至少 1 箱）</h2>
-          </div>
-          {sortedStaleProducts.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sortedStaleProducts.map((p: Product) => (
-                <div key={p.id} className="relative overflow-hidden p-5 rounded-xl border border-ochre/25 bg-ochre/10 transition-all">
-                  <div className="relative z-10 font-semibold text-stone-950">{p.name}</div>
-                  <div className="relative z-10 text-sm font-semibold text-stone-600">规格: {p.spec} 个/箱</div>
-                  <div className="relative z-10 mt-1 text-sm font-semibold text-stone-600">
-                    最近销售: {formatLastSaleDate(productRiskMetricsByProduct[p.id])}
-                  </div>
-                  <div className="relative z-10 mt-1 text-xs font-semibold text-stone-600">
-                    可售天数: {formatDaysOfCover(productRiskMetricsByProduct[p.id])}
-                  </div>
-                  <div className="relative z-10 mt-1 text-xs font-bold text-ochre">
-                    触发原因: {(productRiskMetricsByProduct[p.id]?.staleReasons ?? []).join(' / ')}
-                  </div>
-                  <div className="relative z-10 mt-2 text-ochre font-semibold">
-                    当前库存: {formatStock(p.stock, p.spec)}
-                  </div>
-                  <div className="relative z-10 mt-1 text-sm font-semibold text-stone-800">
-                    压货金额: {new Intl.NumberFormat('zh-CN').format(Math.round(p.stock * p.price))} XOF
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-forest bg-forest/10 p-4 rounded-xl border border-forest/25">
-              <CheckCircle2 size={18} />
-              <span>暂无滞销品</span>
-            </div>
-          )}
+      <section className="section-panel overflow-hidden">
+        <InventoryPageHeader
+          eyebrow="SLOW MOVERS"
+          title="滞销品"
+          subtitle={`按近 30 天销量可售超过 ${STALE_COVER_DAYS} 天，或 30 天无销售；上架满 30 天、库存至少 1 箱 · 按压货金额从高到低`}
+        />
+        <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 sm:p-5">
+          <InventoryKpi label="滞销款数" value={sortedStaleProducts.length} unit="款" tone="amber" />
+          <InventoryKpi label="压货箱数" value={formatBoxesValue(Math.round(staleBoxes))} unit="箱" />
+          <InventoryKpi label="压货金额" value={formatXof(staleTotalValue)} unit="XOF" tone="brass" className="col-span-2 sm:col-span-1" />
         </div>
-      </div>
+
+        {sortedStaleProducts.length === 0 ? (
+          <div className="mx-4 mb-5 flex items-center gap-2 rounded-xl border border-forest/25 bg-forest/10 p-4 text-sm font-bold text-forest sm:mx-5">
+            <CheckCircle2 size={18} />暂无滞销品
+          </div>
+        ) : (
+          <div className="mx-4 mb-5 overflow-hidden rounded-xl border border-stone-200 bg-white sm:mx-5">
+            <div className={`hidden gap-4 border-b ${STALE_LIST_COLUMNS} border-stone-200 bg-[#f2efe9] px-4 py-2.5 text-xs font-semibold text-stone-500 sm:grid`}>
+              <span>款式</span><span className="text-right">库存</span><span>压货金额（XOF）</span><span className="text-right">可售天数</span><span className="text-right">最近销售</span><span>原因</span>
+            </div>
+            <ul className="divide-y divide-stone-100">
+              {sortedStaleProducts.map((p, index) => {
+                const metrics = productRiskMetricsByProduct[p.id];
+                const daysSinceLastSale = metrics?.daysSinceLastSale ?? null;
+                const lastSale = daysSinceLastSale === null ? '从未销售' : `${daysSinceLastSale} 天前`;
+                const reasons = metrics?.staleReasons ?? [];
+                return (
+                  <li key={p.id} className={`grid grid-cols-[minmax(0,1fr)_8.5rem] items-center gap-4 px-4 py-3 ${STALE_LIST_COLUMNS}`}>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-stone-900">{p.name}</p>
+                      <p className="mt-0.5 text-xs font-semibold text-stone-500">
+                        {p.spec} 个/箱<span className="sm:hidden"> · 库存 {formatStock(p.stock, p.spec)}{daysSinceLastSale !== null && ` · 最近销售 ${lastSale}`}</span>
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1 sm:hidden">{reasons.map((reason) => <InventoryChip key={reason} tone="amber">{reason}</InventoryChip>)}</div>
+                    </div>
+                    <p className="hidden text-right text-sm font-semibold tabular-nums text-stone-800 sm:block">{formatStock(p.stock, p.spec)}</p>
+                    <div className="flex flex-col items-end gap-1.5 sm:flex-row-reverse sm:items-center sm:justify-end sm:gap-3">
+                      <span className="whitespace-nowrap text-sm font-bold tabular-nums text-stone-900">{formatXof(staleValues[index])}</span>
+                      <InventoryBar percent={maxStaleValue > 0 ? (staleValues[index] / maxStaleValue) * 100 : 0} className="bg-brass" />
+                    </div>
+                    <p className="hidden text-right text-sm font-semibold tabular-nums text-stone-800 sm:block">{formatDaysOfCover(metrics)}</p>
+                    <p className="hidden text-right text-sm font-semibold tabular-nums text-stone-600 sm:block">{lastSale}</p>
+                    <div className="hidden flex-wrap gap-1 sm:flex">{reasons.map((reason) => <InventoryChip key={reason} tone="amber">{reason}</InventoryChip>)}</div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </section>
     );
   }
 
@@ -1519,135 +1631,140 @@ export const InventoryOverviewView = ({
     );
   }
 
+  const stockStatusOf = (product: Product): StockStatusFilter => {
+    const metrics = productRiskMetricsByProduct[product.id];
+    if (metrics?.isWarning) return 'warning';
+    if (metrics?.isStale) return 'stale';
+    return 'normal';
+  };
+  const stockStatusCounts = { all: products.length, warning: 0, stale: 0, normal: 0 };
+  if (isRiskDataReady) {
+    for (const product of products) stockStatusCounts[stockStatusOf(product)] += 1;
+  }
+  const filteredStockProducts = isRiskDataReady && stockStatusFilter !== 'all'
+    ? visibleStockProducts.filter((product) => stockStatusOf(product) === stockStatusFilter)
+    : visibleStockProducts;
+  const totalStockBoxes = products.reduce((sum, product) => sum + product.stock / product.spec, 0);
+  const totalStockValue = products.reduce((sum, product) => sum + product.stock * product.price, 0);
+  const stockFilters = [
+    ['all', '全部'],
+    ['warning', '预警'],
+    ['stale', '滞销'],
+    ['normal', '正常']
+  ] as const;
+
   return (
-    <div className="space-y-6 sm:space-y-8">
-      <div className="surface rounded-xl border-stone-200 p-4 shadow-sm sm:rounded-xl sm:p-8">
-        <div className="mb-5 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-oxblood/10 rounded-xl border border-oxblood/25">
-              <Package className="text-oxblood" size={24} />
-            </div>
-            <h2 className="text-xl font-semibold text-stone-800 tracking-tight">全店商品库存概览</h2>
+    <section className="section-panel overflow-hidden">
+      <InventoryPageHeader
+        eyebrow="STOCK OVERVIEW"
+        title="库存总览"
+        subtitle="全部在售款式 · 按累计销量从高到低"
+        action={(
+          <button
+            type="button"
+            onClick={handleExportRemainingStock}
+            disabled={sortedProducts.length === 0}
+            className="button-primary inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download size={16} />导出剩余库存
+          </button>
+        )}
+      />
+      <div className="grid grid-cols-2 gap-3 p-4 sm:p-5 lg:grid-cols-4">
+        <InventoryKpi label="在售款式" value={products.length} unit="款" />
+        <InventoryKpi label="库存总箱数" value={formatBoxesValue(Math.round(totalStockBoxes))} unit="箱" />
+        <InventoryKpi label="库存货值" value={formatXof(totalStockValue)} unit="XOF" tone="brass" />
+        <InventoryKpi
+          label="需要关注"
+          value={isRiskDataReady ? (
+            <span className="flex gap-1.5 pt-1.5 font-sans">
+              <InventoryChip tone="danger">预警 {stockStatusCounts.warning}</InventoryChip>
+              <InventoryChip tone="amber">滞销 {stockStatusCounts.stale}</InventoryChip>
+            </span>
+          ) : <span className="font-sans text-sm text-stone-400">计算中…</span>}
+        />
+      </div>
+
+      <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        {isRiskDataReady ? (
+          <div className="segmented-control flex overflow-x-auto">
+            {stockFilters.map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                onClick={() => setStockStatusFilter(value)}
+                className={`segmented-control-item flex-1 whitespace-nowrap px-3 py-2 text-xs font-semibold ${stockStatusFilter === value ? 'segmented-control-item-active' : ''}`}
+              >
+                {label} {stockStatusCounts[value]}
+              </button>
+            ))}
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative w-full sm:w-56">
-              <Search
-                size={16}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400"
-              />
-              <input
-                type="search"
-                value={stockSearchTerm}
-                onChange={(event) => setStockSearchTerm(event.target.value)}
-                placeholder="搜索产品型号"
-                aria-label="搜索库存产品"
-                className="h-10 w-full rounded-xl border border-stone-200 bg-white pl-9 pr-9 text-sm font-bold text-stone-700 outline-none transition-all placeholder:text-stone-400 focus:border-oxblood/45 focus:bg-white focus:ring-2 focus:ring-oxblood/25"
-              />
-              {stockSearchTerm && (
-                <button
-                  type="button"
-                  onClick={() => setStockSearchTerm('')}
-                  aria-label="清空库存产品搜索"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-stone-400 transition-colors hover:bg-white hover:text-stone-700"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
+        ) : <span className="text-xs font-semibold text-stone-400">正在读取近 30 天销量，状态计算中…</span>}
+        <div className="relative w-full sm:w-56">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input
+            type="search"
+            value={stockSearchTerm}
+            onChange={(event) => setStockSearchTerm(event.target.value)}
+            placeholder="搜索产品型号"
+            aria-label="搜索库存产品"
+            className="h-10 w-full rounded-xl border border-stone-200 bg-white pl-9 pr-9 text-sm font-semibold text-stone-700 outline-none placeholder:text-stone-400 focus:border-brass"
+          />
+          {stockSearchTerm && (
             <button
               type="button"
-              onClick={handleExportRemainingStock}
-              disabled={sortedProducts.length === 0}
-              className="inline-flex items-center justify-center rounded-xl border border-oxblood/25 bg-oxblood px-4 py-2 text-sm font-bold text-white transition-all hover:bg-oxblood disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-300 disabled:text-stone-500 disabled:shadow-none"
+              onClick={() => setStockSearchTerm('')}
+              aria-label="清空库存产品搜索"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-stone-400 hover:text-stone-700"
             >
-              导出剩余库存
+              <X size={14} />
             </button>
-            <div className="text-sm font-bold text-stone-400 bg-white px-4 py-1.5 rounded-full border border-stone-200">
-              {normalizedStockSearchTerm
-                ? `显示 ${visibleStockProducts.length} / 共 ${products.length} 款`
-                : `共 ${products.length} 款商品`}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
-          {visibleStockProducts.map((p: Product) => {
-            const riskMetrics = productRiskMetricsByProduct[p.id];
-            const isLowStock = isRiskDataReady && (riskMetrics?.isWarning ?? false);
-            const soldQuantity = totalSoldByProduct[p.id] ?? 0;
-            return (
-              <div
-                key={p.id}
-                className={`relative group overflow-hidden rounded-xl border p-5 transition-colors sm:p-6 ${
-                  isLowStock
-                    ? 'bg-danger/10 border-danger/25'
-                    : 'bg-white border-stone-200'
-                }`}
-              >
-                {isLowStock && (
-                  <span className="absolute right-3 top-3 z-20 inline-flex items-center gap-1 rounded-full bg-danger px-2.5 py-1 text-[11px] font-semibold text-white">
-                    <AlertTriangle size={11} />
-                    {riskMetrics?.warningReasons[0]}
-                  </span>
-                )}
-
-                <div className="relative z-10 flex flex-col h-full">
-                  <div className="mb-4">
-                    <div className="text-lg font-semibold text-stone-900 group-hover:text-oxblood transition-colors line-clamp-1">{p.name}</div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[11px] font-bold text-stone-400 uppercase tracking-widest bg-white px-2 py-0.5 rounded border border-stone-200">规格: {p.spec}</span>
-                      <span className="text-[11px] font-bold text-oxblood/80 uppercase tracking-widest bg-oxblood/10 px-2 py-0.5 rounded border border-oxblood/25">{p.price} XOF</span>
-                    </div>
-                    <div className="mt-1 text-[11px] font-bold text-stone-500">
-                      总销量: {formatStock(soldQuantity, p.spec)}
-                    </div>
-                  </div>
-
-                  <div className="mt-auto pt-4 border-t border-stone-200">
-                    <div className="text-[11px] font-bold text-stone-400 uppercase tracking-widest mb-2">当前可用库存</div>
-                    <div className="flex items-baseline gap-1">
-                      <span className={`text-2xl font-semibold tracking-tight ${isLowStock ? 'text-danger' : 'text-stone-900'}`}>
-                        {Math.floor(p.stock / p.spec)}
-                      </span>
-                      <span className="text-sm font-bold text-stone-400">箱</span>
-                      {p.stock % p.spec > 0 && (
-                        <>
-                          <span className="text-lg font-semibold text-stone-400 mx-1">+</span>
-                          <span className={`text-xl font-semibold tracking-tight ${isLowStock ? 'text-danger' : 'text-stone-900'}`}>
-                            {p.stock % p.spec}
-                          </span>
-                          <span className="text-sm font-bold text-stone-400">个</span>
-                        </>
-                      )}
-                    </div>
-
-                    <div className="mt-4 h-2 bg-white rounded-full overflow-hidden border border-stone-200">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${Math.min((p.stock / (p.spec * 100)) * 100, 100)}%` }}
-                        className={`h-full rounded-full ${isLowStock ? 'bg-danger' : 'bg-oxblood'}`}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          {products.length === 0 && (
-            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white rounded-xl border-2 border-dashed border-stone-200">
-              <Package className="text-stone-300 mb-4" size={48} />
-              <div className="text-stone-400 font-bold">暂无商品数据，请前往“商品管理”添加</div>
-            </div>
-          )}
-          {products.length > 0 && visibleStockProducts.length === 0 && (
-            <div className="col-span-full py-20 flex flex-col items-center justify-center bg-white rounded-xl border-2 border-dashed border-stone-200">
-              <Search className="text-stone-300 mb-4" size={48} />
-              <div className="text-stone-400 font-bold">未找到匹配商品</div>
-            </div>
           )}
         </div>
       </div>
-    </div>
+
+      <div className="mx-4 mb-5 overflow-hidden rounded-xl border border-stone-200 bg-white sm:mx-5">
+        <div className={`hidden gap-4 border-b ${STOCK_LIST_COLUMNS} border-stone-200 bg-[#f2efe9] px-4 py-2.5 text-xs font-semibold text-stone-500 sm:grid`}>
+          <span>款式</span><span className="text-right">单价</span><span className="text-right">当前库存</span><span className="text-right">累计销量</span><span className="text-right">可售天数</span><span>状态</span>
+        </div>
+        {products.length === 0 ? (
+          <InventoryEmpty icon={Package} text="暂无商品数据，请前往“商品管理”添加" />
+        ) : filteredStockProducts.length === 0 ? (
+          <InventoryEmpty icon={Search} text="未找到匹配商品" />
+        ) : (
+          <ul className="divide-y divide-stone-100">
+            {filteredStockProducts.map((p) => {
+              const metrics = productRiskMetricsByProduct[p.id];
+              const status = isRiskDataReady ? stockStatusOf(p) : null;
+              const statusChip = status === 'warning'
+                ? <InventoryChip tone={metrics?.isOutOfStock ? 'danger' : 'amber'}>{metrics?.warningReasons[0]}</InventoryChip>
+                : status === 'stale'
+                  ? <InventoryChip tone="amber">滞销</InventoryChip>
+                  : status === 'normal' ? <InventoryChip tone="ok">正常</InventoryChip> : null;
+              const soldQuantity = totalSoldByProduct[p.id] ?? 0;
+              return (
+                <li key={p.id} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 ${STOCK_LIST_COLUMNS}`}>
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-stone-900">{p.name}</p>
+                    <p className="mt-0.5 text-xs font-semibold text-stone-500">
+                      {p.spec} 个/箱<span className="sm:hidden"> · {formatXof(p.price)} XOF · 累计 {formatStock(soldQuantity, p.spec)}</span>
+                    </p>
+                  </div>
+                  <p className="hidden text-right text-sm font-semibold tabular-nums text-stone-800 sm:block">{formatXof(p.price)}</p>
+                  <div className="flex flex-col items-end gap-1 sm:block sm:text-right">
+                    <span className={`whitespace-nowrap text-sm font-bold tabular-nums ${status === 'warning' ? 'text-danger' : 'text-stone-900'}`}>{formatStock(p.stock, p.spec)}</span>
+                    <span className="sm:hidden">{statusChip}</span>
+                  </div>
+                  <p className="hidden text-right text-sm font-semibold tabular-nums text-stone-800 sm:block">{formatStock(soldQuantity, p.spec)}</p>
+                  <p className="hidden text-right text-sm font-semibold tabular-nums text-stone-600 sm:block">{isRiskDataReady ? formatDaysOfCover(metrics) : '—'}</p>
+                  <div className="hidden sm:block">{statusChip}</div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 };
 

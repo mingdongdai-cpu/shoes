@@ -1469,7 +1469,6 @@ export default function App() {
     containerNumber,
     billOfLadingNumber,
     arrivalDate,
-    stockedDate,
     status,
     remark,
     cargoBoxes,
@@ -1479,7 +1478,6 @@ export default function App() {
     containerNumber: string;
     billOfLadingNumber: string;
     arrivalDate: string | null;
-    stockedDate: string | null;
     status: CargoContainerStatus;
     remark: string;
     cargoBoxes: number;
@@ -1499,11 +1497,11 @@ export default function App() {
       Number.isInteger(item.spec) && item.spec > 0 &&
       Number.isInteger(item.boxes) && item.boxes > 0 &&
       item.quantity === item.spec * item.boxes
-    ));
+    )) && new Set(items.map((item) => item.productId)).size === items.length;
     if (
       !normalizedNumber || normalizedNumber.length > 80 ||
       !normalizedBillNumber || normalizedBillNumber.length > 80 ||
-      !areCargoContainerDatesValid(status, arrivalDate, stockedDate) ||
+      (arrivalDate !== null && !isOrderDate(arrivalDate)) ||
       !CARGO_CONTAINER_STATUSES.includes(status) ||
       normalizedRemark.length > 1000 ||
       !Number.isInteger(cargoBoxes) || cargoBoxes <= 0 ||
@@ -1528,6 +1526,9 @@ export default function App() {
         const previousStockInIds = previous?.stockInTransactionIds ?? [];
         const stockIn = status === '到库' && previous?.status !== '到库' && items.length > 0;
         const revertStockIn = status !== '到库' && previousStockInIds.length > 0;
+        // Becoming stocked dates it today; staying stocked keeps the original date.
+        const stockedDate = status !== '到库' ? null : previous?.status === '到库' ? previous.stockedDate : getLocalToday();
+        if (!areCargoContainerDatesValid(status, arrivalDate, stockedDate)) throw new Error('到库日期无效，请联系管理员核对该货柜');
         if (status === '到库' && previousStockInIds.length > 0 && !areCargoContainerItemsEqual(previous!.items, items)) {
           throw new Error('该货柜已自动入库，不能修改产品明细；请先改回到港再修改');
         }
@@ -1614,7 +1615,8 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'cargoContainers/transactions/products');
-      showToast(error instanceof Error ? error.message : '货柜保存失败，未写入任何数据', 'error');
+      // Firestore errors carry a code and an English message; only our own checks are worth showing as-is.
+      showToast(error instanceof Error && !('code' in error) ? error.message : '货柜保存失败，未写入任何数据', 'error');
       return false;
     }
   };

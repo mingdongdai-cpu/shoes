@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CalendarDays, ChevronDown, Container, FileText, Package, Pencil, Plus, Ship, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronDown, Container, FileText, Package, Pencil, Plus, Ship, Trash2, X, XCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CARGO_CONTAINER_STATUSES, type CargoContainer, type CargoContainerItem, type CargoContainerStatus, type Product } from '../types';
 import { buildCargoContainerItems, compareCargoContainers, findCargoItemProduct, getCargoContainerCardDate, resolveCargoContainerBoxes } from '../lib/cargoContainers';
@@ -15,7 +15,6 @@ interface CargoContainersViewProps {
     containerNumber: string;
     billOfLadingNumber: string;
     arrivalDate: string | null;
-    stockedDate: string | null;
     status: CargoContainerStatus;
     remark: string;
     cargoBoxes: number;
@@ -40,6 +39,68 @@ function getStatusClass(status: CargoContainerStatus): string {
   return 'bg-brass/10 text-brass';
 }
 
+// Type-to-filter product field, matching the stock in/out product search.
+function CargoProductPicker({ products, productId, productName, disabled, onChange }: {
+  products: Product[];
+  productId: string;
+  productName: string;
+  disabled: boolean;
+  onChange: (productId: string, productName: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedProduct = products.find((product) => product.id === productId);
+  const filteredProducts = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    return keyword ? products.filter((product) => product.name.toLowerCase().includes(keyword)) : products;
+  }, [products, query]);
+  const displayValue = selectedProduct ? selectedProduct.name : productId ? `${productName}（商品管理中没有）` : query;
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={displayValue}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          if (productId) onChange('', '');
+          setIsOpen(true);
+        }}
+        onFocus={() => setIsOpen(true)}
+        onBlur={() => setIsOpen(false)}
+        disabled={disabled}
+        placeholder="输入商品名称搜索..."
+        className="w-full rounded-lg px-3 py-2.5 pr-9 font-bold"
+      />
+      {productId && !disabled && (
+        <button type="button" onClick={() => { onChange('', ''); setQuery(''); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600" aria-label="清除产品"><XCircle size={16} /></button>
+      )}
+      {isOpen && !productId && (
+        <div className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-stone-200 bg-white shadow-sm">
+          {filteredProducts.length > 0 ? filteredProducts.map((product) => (
+            <button
+              key={product.id}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange(product.id, product.name);
+                setQuery('');
+                setIsOpen(false);
+              }}
+              className="w-full border-b border-stone-200 px-4 py-3 text-left transition-colors last:border-0 hover:bg-oxblood/10"
+            >
+              <div className="font-bold text-stone-900">{product.name}</div>
+              <div className="text-xs font-bold text-stone-500">规格: {product.spec} 个/箱</div>
+            </button>
+          )) : (
+            <div className="px-4 py-3 text-sm font-bold italic text-stone-400">未找到匹配商品</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CargoContainersView({ containers, products, canEdit, saveCargoContainer }: CargoContainersViewProps) {
   const nextLineId = useRef(1);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -48,6 +109,7 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
   const [containerNumber, setContainerNumber] = useState('');
   const [billOfLadingNumber, setBillOfLadingNumber] = useState('');
   const [arrivalDate, setArrivalDate] = useState('');
+  const [stockConfirmCargo, setStockConfirmCargo] = useState<CargoContainer | null>(null);
   const [saveBlocker, setSaveBlocker] = useState<{ title: string; description: string; names: string[] } | null>(null);
   const [status, setStatus] = useState<CargoContainerStatus | ''>('');
   const [remark, setRemark] = useState('');
@@ -151,6 +213,53 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
     }
   };
 
+  const getSaveBlocker = (
+    itemLines: readonly Pick<DraftLine, 'productId' | 'productName'>[],
+    becomesStocked: boolean
+  ): { title: string; description: string; names: string[] } | null => {
+    if (becomesStocked && itemLines.length === 0) {
+      return { title: '没有产品明细', description: '到库会自动入库，请先在“货柜产品”中录入产品和箱数，再改为到库保存。', names: [] };
+    }
+    const missingNames = itemLines
+      .filter((line) => !findCargoItemProduct(products, line.productId, line.productName))
+      .map((line) => line.productName);
+    return missingNames.length > 0
+      ? { title: '商品管理中没有这些商品', description: '请先在商品管理补录或重新上架同名商品，再回来保存货柜；本次没有保存，也没有入库。', names: missingNames }
+      : null;
+  };
+
+  const requestStockArrivedContainer = (cargo: CargoContainer) => {
+    const blocker = getSaveBlocker(cargo.items, true);
+    if (blocker) setSaveBlocker(blocker);
+    else setStockConfirmCargo(cargo);
+  };
+
+  const stockArrivedContainer = async (cargo: CargoContainer) => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const items = buildCargoContainerItems(cargo.items.map((item) => ({
+        product: findCargoItemProduct(products, item.productId, item.productName)!,
+        boxes: item.boxes
+      })));
+      await saveCargoContainer({
+        id: cargo.id,
+        containerNumber: cargo.containerNumber,
+        billOfLadingNumber: cargo.billOfLadingNumber,
+        arrivalDate: cargo.arrivalDate,
+        status: '到库',
+        remark: cargo.remark,
+        cargoBoxes: resolveCargoContainerBoxes(items, cargo.cargoBoxes),
+        items
+      });
+    } catch (error) {
+      setSaveBlocker({ title: '无法到库', description: error instanceof Error ? error.message : '货柜内容无效，请打开编辑检查产品明细。', names: [] });
+    } finally {
+      setIsSaving(false);
+      setStockConfirmCargo(null);
+    }
+  };
+
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     if (isSaving) return;
@@ -187,17 +296,10 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
       if (enteredLines.some((line) => !line.productId || !line.boxes.trim())) {
         throw new Error('产品和箱数需要成对填写');
       }
-      if (status === '到库' && editingContainer?.status !== '到库' && enteredLines.length === 0) {
+      const blocker = getSaveBlocker(enteredLines, status === '到库' && editingContainer?.status !== '到库');
+      if (blocker) {
         setErrorMessage('');
-        setSaveBlocker({ title: '没有产品明细', description: '到库会自动入库，请先在“货柜产品”中录入产品和箱数，再改为到库保存。', names: [] });
-        return;
-      }
-      const missingNames = enteredLines
-        .filter((line) => !findCargoItemProduct(products, line.productId, line.productName))
-        .map((line) => line.productName);
-      if (missingNames.length > 0) {
-        setErrorMessage('');
-        setSaveBlocker({ title: '商品管理中没有这些商品', description: '请先在商品管理补录或重新上架同名商品，再回来保存货柜；本次没有保存，也没有入库。', names: missingNames });
+        setSaveBlocker(blocker);
         return;
       }
       const draftLines = enteredLines.map((line) => ({
@@ -217,8 +319,7 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
         status,
         remark: remark.trim(),
         cargoBoxes: resolvedBoxes,
-        items,
-        stockedDate: status !== '到库' ? null : editingContainer?.status === '到库' ? editingContainer.stockedDate : getLocalToday()
+        items
       });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '货柜内容无效');
@@ -341,7 +442,12 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
                       </span>
                       <ChevronDown size={19} className={`text-stone-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
                     </button>
-                    {canEdit && <button type="button" onClick={() => openEditForm(cargo)} className="button-icon m-4 ml-0 shrink-0 text-[var(--forest)]" aria-label={`编辑货柜 ${cargo.containerNumber}`}><Pencil size={17} /></button>}
+                    {canEdit && (
+                      <div className="flex shrink-0 flex-col items-center justify-center gap-2 py-3 pr-4">
+                        <button type="button" onClick={() => openEditForm(cargo)} className="button-icon text-[var(--forest)]" aria-label={`编辑货柜 ${cargo.containerNumber}`}><Pencil size={17} /></button>
+                        {cargo.status === '到港' && <button type="button" onClick={() => requestStockArrivedContainer(cargo)} disabled={isSaving} className="button-primary rounded-lg px-3 py-1.5 text-sm font-bold disabled:opacity-50" aria-label={`货柜 ${cargo.containerNumber} 到库`}>到库</button>}
+                      </div>
+                    )}
                   </div>
 
                   {expanded && (
@@ -401,7 +507,7 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
                   <div className="flex items-center justify-between gap-4"><div><h3 className="text-base font-bold text-stone-900">货柜产品</h3><p className="mt-1 text-xs text-stone-500">{itemsLocked ? '该货柜已按以下明细自动入库；改回到港或在途会扣回这些库存，之后才能修改明细。' : '改为到库必须先录入产品明细；保存后以下产品会按当天日期自动入库。'}</p></div><button type="button" onClick={addLine} disabled={itemsLocked} className="button-secondary flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold"><Plus size={16} />添加产品</button></div>
                   {lines.length > 0 && <div className="space-y-3">{lines.map((line, index) => (
                     <div key={line.id} className="grid gap-3 rounded-xl border border-stone-200 bg-stone-50 p-4 sm:grid-cols-[minmax(0,1fr)_160px_auto] sm:items-end">
-                      <label className="space-y-2 text-sm font-bold text-stone-700"><span>产品 {index + 1}</span><select value={line.productId} onChange={(event) => updateLine(line.id, { productId: event.target.value, productName: sortedProducts.find((product) => product.id === event.target.value)?.name ?? '' })} disabled={itemsLocked} className="w-full rounded-lg px-3 py-2.5"><option value="">请选择产品</option>{line.productId && !sortedProducts.some((product) => product.id === line.productId) && <option value={line.productId}>{line.productName}（商品管理中没有）</option>}{sortedProducts.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.spec} 个/箱</option>)}</select></label>
+                      <div className="space-y-2 text-sm font-bold text-stone-700"><span>产品 {index + 1}</span><CargoProductPicker products={sortedProducts} productId={line.productId} productName={line.productName} disabled={itemsLocked} onChange={(productId, productName) => updateLine(line.id, { productId, productName })} /></div>
                       <label className="space-y-2 text-sm font-bold text-stone-700"><span>箱数</span><input type="number" min="1" step="1" inputMode="numeric" value={line.boxes} onChange={(event) => updateLine(line.id, { boxes: event.target.value })} disabled={itemsLocked} placeholder="输入箱数" className="w-full rounded-lg px-3 py-2.5" /></label>
                       <button type="button" onClick={() => removeLine(line.id)} disabled={itemsLocked} className="button-secondary button-icon text-danger disabled:opacity-40" aria-label={`删除产品 ${index + 1}`}><Trash2 size={17} /></button>
                     </div>
@@ -414,6 +520,30 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
                   <button type="submit" disabled={isSaving} className="button-primary flex items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-bold disabled:opacity-50"><Package size={17} />{isSaving ? '保存中…' : editingContainer ? '保存修改' : '保存货柜'}</button>
                 </div>
               </form>
+            </motion.section>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {canEdit && stockConfirmCargo && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-stone-950/40 p-4">
+            <motion.section initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} role="alertdialog" aria-modal="true" aria-labelledby="cargo-stock-confirm-title" className="surface w-full max-w-sm rounded-xl border border-stone-200">
+              <div className="border-b border-stone-200 px-6 py-5">
+                <h2 id="cargo-stock-confirm-title" className="text-xl font-bold text-stone-900">确认货柜到库？</h2>
+                <p className="mt-1 text-sm text-stone-500">确认后货柜改为到库，以下产品按今天 {getLocalToday()} 自动入库。</p>
+              </div>
+              <div className="px-6 py-4">
+                <p className="font-bold text-stone-900">{stockConfirmCargo.containerNumber}</p>
+                <ul className="mt-2 divide-y divide-stone-100 text-sm">
+                  {stockConfirmCargo.items.map((item) => <li key={item.productId} className="flex justify-between gap-4 py-2"><span className="font-semibold text-stone-800">{item.productName}</span><span className="text-stone-600">{item.boxes.toLocaleString('zh-CN')} 箱</span></li>)}
+                </ul>
+                <p className="mt-2 border-t border-stone-200 pt-3 text-right text-sm font-bold text-stone-900">合计 {stockConfirmCargo.cargoBoxes.toLocaleString('zh-CN')} 箱</p>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-stone-200 px-6 py-4">
+                <button type="button" onClick={() => setStockConfirmCargo(null)} disabled={isSaving} className="button-secondary rounded-lg px-5 py-3 text-sm font-bold">取消</button>
+                <button type="button" onClick={() => void stockArrivedContainer(stockConfirmCargo)} disabled={isSaving} className="button-primary rounded-lg px-5 py-3 text-sm font-bold disabled:opacity-50">{isSaving ? '入库中…' : '确认到库'}</button>
+              </div>
             </motion.section>
           </div>
         )}

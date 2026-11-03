@@ -311,7 +311,7 @@ service cloud.firestore {
     }
 
     function isValidCargoContainer(data) {
-      return data.keys().hasOnly(['containerNumber', 'billOfLadingNumber', 'arrivalDate', 'stockedDate', 'status', 'remark', 'cargoBoxes', 'items', 'operatorUid', 'createdAt', 'updatedAt']) &&
+      return data.keys().hasOnly(['containerNumber', 'billOfLadingNumber', 'arrivalDate', 'stockedDate', 'status', 'remark', 'cargoBoxes', 'items', 'stockInTransactionIds', 'operatorUid', 'createdAt', 'updatedAt']) &&
              data.containerNumber is string && data.containerNumber.size() > 0 && data.containerNumber.size() <= 80 &&
              data.billOfLadingNumber is string && data.billOfLadingNumber.size() > 0 && data.billOfLadingNumber.size() <= 80 &&
              (data.arrivalDate == null || (data.arrivalDate is string && data.arrivalDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))) &&
@@ -322,6 +322,11 @@ service cloud.firestore {
              data.remark is string && data.remark.size() <= 1000 &&
              data.cargoBoxes is int && data.cargoBoxes > 0 &&
              data.items is list && data.items.size() <= 100 &&
+             // Stock-in record ids only exist while the container is stocked.
+             (!('stockInTransactionIds' in data) || (
+               data.stockInTransactionIds is list && data.stockInTransactionIds.size() <= 100 &&
+               (data.status == '到库' || data.stockInTransactionIds.size() == 0)
+             )) &&
              data.operatorUid is string &&
              data.createdAt is timestamp &&
              data.updatedAt is timestamp;

@@ -44,7 +44,7 @@ import { CustomerOrdersView, OrderDebtsView, OrderPriceListView } from './compon
 import { OrderAccountingView } from './components/OrderAccountingView';
 import { CargoContainersView } from './components/CargoContainersView';
 import { GroupOverviewView } from './components/GroupOverviewView';
-import { areCargoContainerDatesValid } from './lib/cargoContainers';
+import { areCargoContainerDatesValid, areCargoContainerItemsEqual, buildCargoStockInRemark } from './lib/cargoContainers';
 import { AppShell } from './components/AppShell';
 import { orderText, type OrderLanguage } from './lib/orderLanguage';
 import { formatDateTimeLabel, getPreviousMonthToDateRange, getRangeByMonth, getRangeByPeriod, isWithinRange, getLocalToday, timestampToDate, toIsoWeekInputValue, type ReportPeriod } from './lib/timeWindow';
@@ -477,6 +477,7 @@ function mapCargoContainerDoc(id: string, data: DocumentData): CargoContainer {
     remark: String(data.remark ?? ''),
     cargoBoxes: Number(data.cargoBoxes ?? 0),
     items,
+    stockInTransactionIds: Array.isArray(data.stockInTransactionIds) ? data.stockInTransactionIds.map(String) : [],
     operatorUid: String(data.operatorUid ?? ''),
     createdAt,
     updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : createdAt
@@ -1518,31 +1519,102 @@ export default function App() {
 
     try {
       const now = Timestamp.now();
-      const values = {
-        containerNumber: normalizedNumber,
-        billOfLadingNumber: normalizedBillNumber,
-        arrivalDate,
-        stockedDate,
-        status,
-        remark: normalizedRemark,
-        cargoBoxes,
-        items,
-        updatedAt: now
-      };
-      if (id) {
-        await updateDoc(doc(db, 'cargoContainers', id), values);
-      } else {
-        await addDoc(collection(db, 'cargoContainers'), {
-          ...values,
-          operatorUid: auth.currentUser.uid,
-          createdAt: now
-        });
-      }
-      showToast(id ? '货柜资料已更新' : '货柜已保存');
+      const operatorUid = auth.currentUser.uid;
+      const containerRef = id ? doc(db, 'cargoContainers', id) : doc(collection(db, 'cargoContainers'));
+      const result = await runTransaction(db, async (trx) => {
+        const previousSnap = id ? await trx.get(containerRef) : null;
+        if (previousSnap && !previousSnap.exists()) throw new Error('货柜不存在');
+        const previous = previousSnap ? mapCargoContainerDoc(previousSnap.id, previousSnap.data()!) : null;
+        const previousStockInIds = previous?.stockInTransactionIds ?? [];
+        const stockIn = status === '到库' && previous?.status !== '到库' && items.length > 0;
+        const revertStockIn = status !== '到库' && previousStockInIds.length > 0;
+        if (status === '到库' && previousStockInIds.length > 0 && !areCargoContainerItemsEqual(previous!.items, items)) {
+          throw new Error('该货柜已自动入库，不能修改产品明细；请先改回到港再修改');
+        }
+
+        // Firestore transactions require every read before the first write.
+        const stockInProducts = stockIn
+          ? await Promise.all(items.map((item) => trx.get(doc(db, 'products', item.productId))))
+          : [];
+        const revertTransactions = revertStockIn
+          ? (await Promise.all(previousStockInIds.map((transactionId) => trx.get(doc(db, 'transactions', transactionId)))))
+              .filter((snapshot) => snapshot.exists())
+              .map((snapshot) => mapTransactionDoc(snapshot.id, snapshot.data()))
+          : [];
+        const revertProductIds = [...new Set(revertTransactions.map((transaction) => transaction.productId))];
+        const revertProducts = await Promise.all(revertProductIds.map((productId) => trx.get(doc(db, 'products', productId))));
+
+        let stockInTransactionIds = status === '到库' ? previousStockInIds : [];
+        if (stockIn) {
+          const remarkText = buildCargoStockInRemark(normalizedNumber, stockedDate!);
+          const createdTransactions = items.map((item, index) => {
+            const snapshot = stockInProducts[index];
+            if (!snapshot.exists()) throw new Error(`商品“${item.productName}”在商品管理中不存在`);
+            const productData = snapshot.data() as Product;
+            if (productData.isActive === false) throw new Error(`商品“${item.productName}”已下架，无法入库`);
+            if (Number(productData.spec) !== item.spec) throw new Error(`商品“${item.productName}”规格已变化，请重新打开货柜保存`);
+            const nextStock = getStockAfterBatchTransaction(Number(productData.stock ?? 0), 'in', item.quantity);
+            if (!Number.isSafeInteger(nextStock)) throw new Error('入库库存数值超出范围');
+            const transactionRef = doc(collection(db, 'transactions'));
+            const transactionData = {
+              productId: item.productId,
+              type: 'in' as const,
+              quantity: item.quantity,
+              unitPrice: Number(productData.price ?? 0),
+              occurredAt: now,
+              operatorUid,
+              remark: remarkText
+            };
+            trx.set(transactionRef, transactionData);
+            trx.update(snapshot.ref, { stock: nextStock });
+            return { id: transactionRef.id, ...transactionData };
+          });
+          writeAnalyticsDelta(trx, buildAnalyticsDelta({ afterTransactions: createdTransactions.map(analyticsTransactionInput) }));
+          stockInTransactionIds = createdTransactions.map((transaction) => transaction.id);
+        }
+        if (revertStockIn) {
+          revertProducts.forEach((snapshot) => {
+            if (!snapshot.exists()) return;
+            const productData = snapshot.data() as Product;
+            const quantity = revertTransactions
+              .filter((transaction) => transaction.productId === snapshot.id)
+              .reduce((total, transaction) => total + transaction.quantity, 0);
+            const nextStock = getStockAfterTransactionDeletion(Number(productData.stock ?? 0), 'in', quantity);
+            if (nextStock < 0) throw new Error(`商品“${String(productData.name ?? snapshot.id)}”的入库库存已被卖出，不能撤回到库`);
+            trx.update(snapshot.ref, { stock: nextStock });
+          });
+          revertTransactions.forEach((transaction) => trx.delete(doc(db, 'transactions', transaction.id)));
+          writeAnalyticsDelta(trx, buildAnalyticsDelta({ beforeTransactions: revertTransactions.map(analyticsTransactionInput) }));
+        }
+
+        const values = {
+          containerNumber: normalizedNumber,
+          billOfLadingNumber: normalizedBillNumber,
+          arrivalDate,
+          stockedDate,
+          status,
+          remark: normalizedRemark,
+          cargoBoxes,
+          items,
+          stockInTransactionIds,
+          updatedAt: now
+        };
+        if (previous) {
+          trx.update(containerRef, values);
+        } else {
+          trx.set(containerRef, { ...values, operatorUid, createdAt: now });
+        }
+        return { stockedIn: stockIn ? items.length : 0, reverted: revertStockIn };
+      });
+      showToast(
+        result.stockedIn > 0 ? `货柜已到库，${result.stockedIn} 个产品已入库`
+          : result.reverted ? '货柜状态已更新，到库入库已撤回'
+          : id ? '货柜资料已更新' : '货柜已保存'
+      );
       return true;
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'cargoContainers');
-      showToast('货柜保存失败', 'error');
+      handleFirestoreError(error, OperationType.WRITE, 'cargoContainers/transactions/products');
+      showToast(error instanceof Error ? error.message : '货柜保存失败，未写入任何数据', 'error');
       return false;
     }
   };

@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronDown, Container, FileText, Package, Pencil, Plus, Ship, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronDown, Container, FileText, Package, Pencil, Plus, Ship, Trash2, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CARGO_CONTAINER_STATUSES, type CargoContainer, type CargoContainerItem, type CargoContainerStatus, type Product } from '../types';
-import { buildCargoContainerItems, compareCargoContainers, getCargoContainerCardDate, resolveCargoContainerBoxes } from '../lib/cargoContainers';
+import { buildCargoContainerItems, compareCargoContainers, findCargoItemProduct, getCargoContainerCardDate, resolveCargoContainerBoxes } from '../lib/cargoContainers';
 import { isOrderDate } from '../lib/customerOrders';
+import { getLocalToday } from '../lib/timeWindow';
 
 interface CargoContainersViewProps {
   containers: CargoContainer[];
@@ -22,11 +23,10 @@ interface CargoContainersViewProps {
   }) => Promise<boolean>;
 }
 
-type CargoContainerSaveInput = Parameters<CargoContainersViewProps['saveCargoContainer']>[0];
-
 interface DraftLine {
   id: number;
   productId: string;
+  productName: string;
   boxes: string;
 }
 
@@ -48,8 +48,7 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
   const [containerNumber, setContainerNumber] = useState('');
   const [billOfLadingNumber, setBillOfLadingNumber] = useState('');
   const [arrivalDate, setArrivalDate] = useState('');
-  const [stockedDate, setStockedDate] = useState('');
-  const [pendingStockSave, setPendingStockSave] = useState<Omit<CargoContainerSaveInput, 'stockedDate'> | null>(null);
+  const [saveBlocker, setSaveBlocker] = useState<{ title: string; description: string; names: string[] } | null>(null);
   const [status, setStatus] = useState<CargoContainerStatus | ''>('');
   const [remark, setRemark] = useState('');
   const [cargoBoxes, setCargoBoxes] = useState('');
@@ -85,8 +84,6 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
     setContainerNumber('');
     setBillOfLadingNumber('');
     setArrivalDate('');
-    setStockedDate('');
-    setPendingStockSave(null);
     setStatus('');
     setRemark('');
     setCargoBoxes('');
@@ -108,13 +105,17 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
     setRemark(cargo.remark);
     setCargoBoxes(String(cargo.cargoBoxes));
     setLines(cargo.items.map((item) => {
-      const line = { id: nextLineId.current, productId: item.productId, boxes: String(item.boxes) };
+      const product = findCargoItemProduct(products, item.productId, item.productName);
+      const line = { id: nextLineId.current, productId: product?.id ?? item.productId, productName: item.productName, boxes: String(item.boxes) };
       nextLineId.current += 1;
       return line;
     }));
     setErrorMessage('');
     setIsFormOpen(true);
   };
+
+  // Stocked-in items must stay as recorded; changing them needs the stock to be taken back first.
+  const itemsLocked = editingContainer !== null && editingContainer.stockInTransactionIds.length > 0 && status === '到库';
 
   const closeForm = () => {
     if (isSaving) return;
@@ -123,11 +124,11 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
   };
 
   const addLine = () => {
-    setLines((current) => [...current, { id: nextLineId.current, productId: '', boxes: '' }]);
+    setLines((current) => [...current, { id: nextLineId.current, productId: '', productName: '', boxes: '' }]);
     nextLineId.current += 1;
   };
 
-  const updateLine = (id: number, patch: Partial<Pick<DraftLine, 'productId' | 'boxes'>>) => {
+  const updateLine = (id: number, patch: Partial<Pick<DraftLine, 'productId' | 'productName' | 'boxes'>>) => {
     setLines((current) => current.map((line) => line.id === id ? { ...line, ...patch } : line));
   };
 
@@ -135,7 +136,7 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
     setLines((current) => current.filter((line) => line.id !== id));
   };
 
-  const persistCargoContainer = async (input: CargoContainerSaveInput) => {
+  const persistCargoContainer = async (input: Parameters<typeof saveCargoContainer>[0]) => {
     setIsSaving(true);
     try {
       const saved = await saveCargoContainer(input);
@@ -186,16 +187,29 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
       if (enteredLines.some((line) => !line.productId || !line.boxes.trim())) {
         throw new Error('产品和箱数需要成对填写');
       }
-      const draftLines = enteredLines.map((line) => {
-        const product = products.find((item) => item.id === line.productId);
-        if (!product) throw new Error('请选择有效的产品');
-        return { product, boxes: Number(line.boxes) };
-      });
+      if (status === '到库' && editingContainer?.status !== '到库' && enteredLines.length === 0) {
+        setErrorMessage('');
+        setSaveBlocker({ title: '没有产品明细', description: '到库会自动入库，请先在“货柜产品”中录入产品和箱数，再改为到库保存。', names: [] });
+        return;
+      }
+      const missingNames = enteredLines
+        .filter((line) => !findCargoItemProduct(products, line.productId, line.productName))
+        .map((line) => line.productName);
+      if (missingNames.length > 0) {
+        setErrorMessage('');
+        setSaveBlocker({ title: '商品管理中没有这些商品', description: '请先在商品管理补录或重新上架同名商品，再回来保存货柜；本次没有保存，也没有入库。', names: missingNames });
+        return;
+      }
+      const draftLines = enteredLines.map((line) => ({
+        product: findCargoItemProduct(products, line.productId, line.productName)!,
+        boxes: Number(line.boxes)
+      }));
       const items = buildCargoContainerItems(draftLines);
       const resolvedBoxes = resolveCargoContainerBoxes(items, Number(cargoBoxes));
       if (resolvedBoxes !== Number(cargoBoxes)) throw new Error('货物总箱数须与产品箱数合计一致');
 
-      const input = {
+      setErrorMessage('');
+      void persistCargoContainer({
         id: editingContainer?.id,
         containerNumber: normalizedNumber,
         billOfLadingNumber: normalizedBillNumber,
@@ -203,29 +217,12 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
         status,
         remark: remark.trim(),
         cargoBoxes: resolvedBoxes,
-        items
-      };
-      setErrorMessage('');
-      if (status === '到库') {
-        setStockedDate(editingContainer?.status === '到库' ? editingContainer.stockedDate ?? '' : '');
-        setPendingStockSave(input);
-      } else {
-        void persistCargoContainer({ ...input, stockedDate: null });
-      }
+        items,
+        stockedDate: status !== '到库' ? null : editingContainer?.status === '到库' ? editingContainer.stockedDate : getLocalToday()
+      });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '货柜内容无效');
     }
-  };
-
-  const confirmStockDate = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!pendingStockSave || isSaving) return;
-    if (!isOrderDate(stockedDate)) {
-      setErrorMessage('请选择有效的到库日期');
-      return;
-    }
-    setErrorMessage('');
-    void persistCargoContainer({ ...pendingStockSave, stockedDate });
   };
 
   const toggleExpanded = (id: string) => {
@@ -396,17 +393,17 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
                   <label className="space-y-2 text-sm font-bold text-stone-700"><span>提单号 <span aria-hidden="true" className="text-danger">*</span></span><input value={billOfLadingNumber} onChange={(event) => setBillOfLadingNumber(event.target.value)} placeholder="例如：NGRI60788000" maxLength={80} required className="w-full rounded-lg px-4 py-3" /></label>
                   <label className="space-y-2 text-sm font-bold text-stone-700"><span>预计到港日期（可选）</span><input type="date" value={arrivalDate} onChange={(event) => setArrivalDate(event.target.value)} className="w-full rounded-lg px-4 py-3" /></label>
                   <label className="space-y-2 text-sm font-bold text-stone-700"><span>当前状态 <span aria-hidden="true" className="text-danger">*</span></span><select value={status} onChange={(event) => setStatus(event.target.value as CargoContainerStatus | '')} required className="w-full rounded-lg px-4 py-3"><option value="">请选择状态</option>{CARGO_CONTAINER_STATUSES.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-                  <label className="space-y-2 text-sm font-bold text-stone-700 sm:col-span-2"><span>货物总箱数 <span aria-hidden="true" className="text-danger">*</span></span><input type="number" min="1" step="1" inputMode="numeric" value={cargoBoxes} onChange={(event) => setCargoBoxes(event.target.value)} placeholder="请输入货物总箱数" required className="w-full rounded-lg px-4 py-3" /><span className="block text-xs font-normal text-stone-500">填写的总箱数须与产品明细箱数合计一致。</span></label>
+                  <label className="space-y-2 text-sm font-bold text-stone-700 sm:col-span-2"><span>货物总箱数 <span aria-hidden="true" className="text-danger">*</span></span><input type="number" min="1" step="1" inputMode="numeric" value={cargoBoxes} onChange={(event) => setCargoBoxes(event.target.value)} disabled={itemsLocked} placeholder="请输入货物总箱数" required className="w-full rounded-lg px-4 py-3" /><span className="block text-xs font-normal text-stone-500">填写的总箱数须与产品明细箱数合计一致。</span></label>
                   <label className="space-y-2 text-sm font-bold text-stone-700 sm:col-span-2"><span>备注</span><textarea value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="填写中转、卸船或其他说明" maxLength={1000} rows={3} className="w-full resize-y rounded-lg px-4 py-3" /></label>
                 </div>
 
                 <section className="space-y-3">
-                  <div className="flex items-center justify-between gap-4"><div><h3 className="text-base font-bold text-stone-900">货柜产品</h3><p className="mt-1 text-xs text-stone-500">源文件没有产品型号时可以不填写，后续可编辑补充。</p></div><button type="button" onClick={addLine} className="button-secondary flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold"><Plus size={16} />添加产品</button></div>
+                  <div className="flex items-center justify-between gap-4"><div><h3 className="text-base font-bold text-stone-900">货柜产品</h3><p className="mt-1 text-xs text-stone-500">{itemsLocked ? '该货柜已按以下明细自动入库；改回到港或在途会扣回这些库存，之后才能修改明细。' : '改为到库必须先录入产品明细；保存后以下产品会按当天日期自动入库。'}</p></div><button type="button" onClick={addLine} disabled={itemsLocked} className="button-secondary flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold"><Plus size={16} />添加产品</button></div>
                   {lines.length > 0 && <div className="space-y-3">{lines.map((line, index) => (
                     <div key={line.id} className="grid gap-3 rounded-xl border border-stone-200 bg-stone-50 p-4 sm:grid-cols-[minmax(0,1fr)_160px_auto] sm:items-end">
-                      <label className="space-y-2 text-sm font-bold text-stone-700"><span>产品 {index + 1}</span><select value={line.productId} onChange={(event) => updateLine(line.id, { productId: event.target.value })} className="w-full rounded-lg px-3 py-2.5"><option value="">请选择产品</option>{sortedProducts.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.spec} 个/箱</option>)}</select></label>
-                      <label className="space-y-2 text-sm font-bold text-stone-700"><span>箱数</span><input type="number" min="1" step="1" inputMode="numeric" value={line.boxes} onChange={(event) => updateLine(line.id, { boxes: event.target.value })} placeholder="输入箱数" className="w-full rounded-lg px-3 py-2.5" /></label>
-                      <button type="button" onClick={() => removeLine(line.id)} className="button-secondary button-icon text-danger" aria-label={`删除产品 ${index + 1}`}><Trash2 size={17} /></button>
+                      <label className="space-y-2 text-sm font-bold text-stone-700"><span>产品 {index + 1}</span><select value={line.productId} onChange={(event) => updateLine(line.id, { productId: event.target.value, productName: sortedProducts.find((product) => product.id === event.target.value)?.name ?? '' })} disabled={itemsLocked} className="w-full rounded-lg px-3 py-2.5"><option value="">请选择产品</option>{line.productId && !sortedProducts.some((product) => product.id === line.productId) && <option value={line.productId}>{line.productName}（商品管理中没有）</option>}{sortedProducts.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.spec} 个/箱</option>)}</select></label>
+                      <label className="space-y-2 text-sm font-bold text-stone-700"><span>箱数</span><input type="number" min="1" step="1" inputMode="numeric" value={line.boxes} onChange={(event) => updateLine(line.id, { boxes: event.target.value })} disabled={itemsLocked} placeholder="输入箱数" className="w-full rounded-lg px-3 py-2.5" /></label>
+                      <button type="button" onClick={() => removeLine(line.id)} disabled={itemsLocked} className="button-secondary button-icon text-danger disabled:opacity-40" aria-label={`删除产品 ${index + 1}`}><Trash2 size={17} /></button>
                     </div>
                   ))}</div>}
                 </section>
@@ -423,18 +420,20 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
       </AnimatePresence>
 
       <AnimatePresence>
-        {canEdit && pendingStockSave && (
+        {canEdit && saveBlocker && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-stone-950/40 p-4">
-            <motion.section initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} role="dialog" aria-modal="true" aria-labelledby="cargo-stock-date-title" className="surface w-full max-w-sm rounded-xl border border-stone-200">
-              <div className="border-b border-stone-200 px-6 py-5">
-                <h2 id="cargo-stock-date-title" className="text-xl font-bold text-stone-900">确认到库日期</h2>
-                <p className="mt-1 text-sm text-stone-500">确认后才会将货柜状态保存为“到库”。</p>
+            <motion.section initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} role="alertdialog" aria-modal="true" aria-labelledby="cargo-save-blocker-title" className="surface w-full max-w-sm rounded-xl border border-stone-200">
+              <div className="flex items-start gap-3 border-b border-stone-200 px-6 py-5">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger"><AlertTriangle size={20} /></span>
+                <div>
+                  <h2 id="cargo-save-blocker-title" className="text-xl font-bold text-stone-900">{saveBlocker.title}</h2>
+                  <p className="mt-1 text-sm text-stone-500">{saveBlocker.description}</p>
+                </div>
               </div>
-              <form onSubmit={confirmStockDate} className="space-y-5 p-6">
-                <label className="block space-y-2 text-sm font-bold text-stone-700"><span>到库日期 <span aria-hidden="true" className="text-danger">*</span></span><input type="date" value={stockedDate} onChange={(event) => setStockedDate(event.target.value)} required className="w-full rounded-lg px-4 py-3" autoFocus /></label>
-                {errorMessage && <p role="alert" className="rounded-lg border border-danger/25 bg-danger/10 px-4 py-3 text-sm font-semibold text-danger">{errorMessage}</p>}
-                <div className="flex justify-end gap-3"><button type="button" onClick={() => { setPendingStockSave(null); setErrorMessage(''); }} disabled={isSaving} className="button-secondary rounded-lg px-5 py-3 text-sm font-bold">取消</button><button type="submit" disabled={isSaving} className="button-primary rounded-lg px-5 py-3 text-sm font-bold disabled:opacity-50">{isSaving ? '保存中…' : '确认保存'}</button></div>
-              </form>
+              {saveBlocker.names.length > 0 && <ul className="divide-y divide-stone-100 border-b border-stone-200 px-6">
+                {saveBlocker.names.map((name) => <li key={name} className="py-3 font-bold text-stone-900">{name}</li>)}
+              </ul>}
+              <div className="flex justify-end px-6 py-4"><button type="button" onClick={() => setSaveBlocker(null)} className="button-primary rounded-lg px-5 py-3 text-sm font-bold">知道了</button></div>
             </motion.section>
           </div>
         )}

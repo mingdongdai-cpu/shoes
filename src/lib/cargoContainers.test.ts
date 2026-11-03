@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { Timestamp } from 'firebase/firestore';
 import { AppShell } from '../components/AppShell';
 import { CargoContainersView } from '../components/CargoContainersView';
-import { areCargoContainerDatesValid, buildCargoContainerItems, compareCargoContainers, getCargoContainerCardDate, getCargoContainerTotalBoxes, resolveCargoContainerBoxes } from './cargoContainers';
+import { areCargoContainerDatesValid, areCargoContainerItemsEqual, buildCargoContainerItems, buildCargoStockInRemark, findCargoItemProduct, compareCargoContainers, getCargoContainerCardDate, getCargoContainerTotalBoxes, resolveCargoContainerBoxes } from './cargoContainers';
 import { CARGO_CONTAINER_STATUSES, type CargoContainer } from '../types';
 
 test('cargo container status options are the three canonical workflow states', () => {
@@ -35,6 +35,7 @@ test('staff can see cargo navigation and details without cargo editing controls'
     remark: '',
     cargoBoxes: 10,
     items: [],
+    stockInTransactionIds: [],
     operatorUid: 'admin-1',
     createdAt: Timestamp.fromMillis(1),
     updatedAt: Timestamp.fromMillis(1),
@@ -130,4 +131,23 @@ test('resolveCargoContainerBoxes uses product lines when present and source tota
   assert.equal(resolveCargoContainerBoxes(items, 999), 12);
   assert.equal(resolveCargoContainerBoxes([], 956), 956);
   assert.throws(() => resolveCargoContainerBoxes([], 0), /货物总箱数/);
+});
+
+test('findCargoItemProduct matches by id first, then by trimmed product name', () => {
+  const products = [{ id: 'p-new', name: 'A100' }, { id: 'p-2', name: 'B200' }];
+  assert.equal(findCargoItemProduct(products, 'p-2', 'A100')?.id, 'p-2');
+  assert.equal(findCargoItemProduct(products, 'p-deleted', ' A100 ')?.id, 'p-new');
+  assert.equal(findCargoItemProduct(products, 'p-deleted', 'C300'), undefined);
+  assert.equal(findCargoItemProduct(products, 'p-deleted', ''), undefined);
+});
+
+test('cargo stock-in remark names the container and stock date', () => {
+  assert.equal(buildCargoStockInRemark('TCNU4672626', '2026-11-03'), '来自货柜 TCNU4672626，2026-11-03 到库入库');
+});
+
+test('areCargoContainerItemsEqual compares product, boxes and quantity in order', () => {
+  const item = { productId: 'p-1', productName: 'A100', spec: 12, boxes: 3, quantity: 36 };
+  assert.equal(areCargoContainerItemsEqual([item], [{ ...item, productName: 'renamed' }]), true);
+  assert.equal(areCargoContainerItemsEqual([item], [{ ...item, boxes: 4, quantity: 48 }]), false);
+  assert.equal(areCargoContainerItemsEqual([item], []), false);
 });

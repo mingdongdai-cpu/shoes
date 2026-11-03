@@ -101,6 +101,7 @@ export interface CargoContainer {
   remark: string;
   cargoBoxes: number;
   items: CargoContainerItem[];
+  stockInTransactionIds: string[]; // Stock-in records written when the container was stocked
   operatorUid: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;

@@ -74,3 +74,26 @@ export function resolveCargoContainerBoxes(items: readonly CargoContainerItem[],
   }
   return fallbackBoxes;
 }
+
+// Prefer the product the line was entered with; fall back to the same name so a re-created or re-listed product still matches.
+export function findCargoItemProduct<T extends Pick<Product, 'id' | 'name'>>(
+  products: readonly T[],
+  productId: string,
+  productName: string
+): T | undefined {
+  const normalizedName = productName.trim();
+  return products.find((product) => product.id === productId) ??
+    (normalizedName ? products.find((product) => product.name.trim() === normalizedName) : undefined);
+}
+
+export function buildCargoStockInRemark(containerNumber: string, stockedDate: string): string {
+  return `来自货柜 ${containerNumber}，${stockedDate} 到库入库`;
+}
+
+export function areCargoContainerItemsEqual(left: readonly CargoContainerItem[], right: readonly CargoContainerItem[]): boolean {
+  return left.length === right.length && left.every((item, index) => (
+    item.productId === right[index].productId &&
+    item.boxes === right[index].boxes &&
+    item.quantity === right[index].quantity
+  ));
+}

@@ -1109,6 +1109,7 @@ type StockStatusFilter = 'all' | 'warning' | 'stale' | 'normal';
 const WARNING_LIST_COLUMNS = 'sm:grid-cols-[minmax(0,1.6fr)_1fr_1fr_1.5fr]';
 const STALE_LIST_COLUMNS = 'sm:grid-cols-[minmax(0,1.5fr)_0.8fr_1.6fr_0.7fr_0.8fr_1fr]';
 const STOCK_LIST_COLUMNS = 'sm:grid-cols-[minmax(0,1.6fr)_0.8fr_1fr_1fr_0.8fr_1fr]';
+const PRODUCT_LIST_COLUMNS = 'sm:grid-cols-[minmax(0,1.5fr)_0.7fr_0.8fr_0.9fr_1fr_0.7fr_7.5rem]';
 
 const INVENTORY_TONE_BAR: Record<InventoryTone, string> = {
   danger: 'before:bg-danger',
@@ -1117,10 +1118,11 @@ const INVENTORY_TONE_BAR: Record<InventoryTone, string> = {
   neutral: 'before:bg-transparent'
 };
 
-const INVENTORY_CHIP_CLASS: Record<'danger' | 'amber' | 'ok', string> = {
+const INVENTORY_CHIP_CLASS: Record<'danger' | 'amber' | 'ok' | 'muted', string> = {
   danger: 'bg-danger/10 text-danger',
   amber: 'bg-ochre/10 text-ochre',
-  ok: 'bg-forest/10 text-forest'
+  ok: 'bg-forest/10 text-forest',
+  muted: 'bg-stone-100 text-stone-500'
 };
 
 function InventoryPageHeader({ eyebrow, title, subtitle, action }: { eyebrow: string; title: string; subtitle: string; action?: React.ReactNode }) {
@@ -1148,7 +1150,7 @@ function InventoryKpi({ label, value, unit, tone = 'neutral', className = '' }: 
   );
 }
 
-function InventoryChip({ tone, children }: { tone: 'danger' | 'amber' | 'ok'; children: React.ReactNode }) {
+function InventoryChip({ tone, children }: { tone: 'danger' | 'amber' | 'ok' | 'muted'; children: React.ReactNode }) {
   return <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold ${INVENTORY_CHIP_CLASS[tone]}`}>{children}</span>;
 }
 
@@ -3863,10 +3865,16 @@ export const ProductsView = ({
   const [editBoxes, setEditBoxes] = useState('0');
   const [editItems, setEditItems] = useState('0');
   const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [productStatusFilter, setProductStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const normalizedProductSearchTerm = normalizeModelKey(productSearchTerm);
-  const visibleProducts = normalizedProductSearchTerm
-    ? products.filter((product) => normalizeModelKey(product.name).includes(normalizedProductSearchTerm))
-    : products;
+  const activeProductCount = products.filter((product) => product.isActive !== false).length;
+  const productStatusCounts = { all: products.length, active: activeProductCount, inactive: products.length - activeProductCount };
+  const visibleProducts = products.filter((product) => (
+    (productStatusFilter === 'all' || (productStatusFilter === 'active') === (product.isActive !== false)) &&
+    (!normalizedProductSearchTerm || normalizeModelKey(product.name).includes(normalizedProductSearchTerm))
+  ));
+  const isAdmin = user?.role === 'admin';
 
   const handleExportProductList = async () => {
     try {
@@ -3954,7 +3962,7 @@ export const ProductsView = ({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <AnimatePresence>
         {editingProduct && (
           <div className="fixed inset-0 bg-black/35 z-50 flex items-center justify-center p-4">
@@ -4121,235 +4129,126 @@ export const ProductsView = ({
         )}
       </AnimatePresence>
 
-      {/* Add Product Form */}
-      <div className="surface rounded-xl p-5 shadow-sm border-stone-200 sm:p-8">
-        <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-oxblood/10 rounded-xl border border-oxblood/25">
-              <Plus size={20} className="text-oxblood" />
-            </div>
-            <h2 className="whitespace-nowrap text-xl font-semibold text-stone-800 tracking-tight">
-              {isBatchMode ? 'Excel 批量导入商品' : '添加新商品'}
-            </h2>
-          </div>
-          <button
-            onClick={() => setIsBatchMode(!isBatchMode)}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-oxblood/10 text-oxblood rounded-xl font-bold text-sm hover:bg-oxblood/15 transition-all border border-oxblood/25"
-          >
-            <ArrowLeftRight size={16} />
-            {isBatchMode ? '切换为 单个添加' : '切换为 Excel批量导入'}
-          </button>
-        </div>
-
-        {isBatchMode ? (
-          <div className="space-y-4">
-            <div className="bg-ochre/10 border border-ochre/25 rounded-xl p-4 text-sm text-ochre">
-              <p className="font-bold mb-1">导入说明：</p>
-              <ul className="list-disc list-inside space-y-1 opacity-80">
-                <li>请在 Excel 中排列：商品名称 | 规格 | 单价 | 初始库存箱数</li>
-                <li>框选数据并复制 (Ctrl+C)，在下方文本框粘贴 (Ctrl+V)</li>
-                <li>系统将自动识别 Tab 分隔的数据</li>
-              </ul>
-            </div>
-            <textarea
-              value={batchText}
-              onChange={(e) => setBatchText(e.target.value)}
-              placeholder="在此粘贴 Excel 数据..."
-              className="w-full h-48 rounded-xl border-stone-200 bg-white focus:ring-oxblood/25 focus:border-oxblood p-4 text-sm font-bold"
-            />
-            <button
-              onClick={handleBatchImport}
-              disabled={user?.role !== 'admin' || !batchText.trim()}
-              className={`w-full font-bold py-4 rounded-xl shadow-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${
-                user?.role !== 'admin' || !batchText.trim()
-                  ? 'bg-stone-200/50 text-stone-400 cursor-not-allowed shadow-none'
-                  : 'bg-forest hover:bg-forest/85 text-white '
-              }`}
+      <AnimatePresence>
+        {isAddProductOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" onMouseDown={() => setIsAddProductOpen(false)}>
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              onMouseDown={(event) => event.stopPropagation()}
+              className="surface max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-stone-200"
             >
-              <CheckCircle2 size={20} />
-              {user?.role !== 'admin' ? '无权限' : '验证并开始批量导入'}
-            </button>
+              <div className="flex items-start justify-between border-b border-stone-200 px-6 py-5">
+                <div><span className="eyebrow">NEW PRODUCT</span><h3 className="mt-1 text-xl font-bold text-stone-900">添加商品</h3></div>
+                <button type="button" onClick={() => setIsAddProductOpen(false)} className="button-secondary button-icon" aria-label="关闭"><X size={18} /></button>
+              </div>
+              <div className="px-6 pt-5">
+                <div className="segmented-control flex">
+                  {([[false, '单个添加'], [true, 'Excel 批量导入']] as const).map(([value, label]) => (
+                    <button key={label} type="button" onClick={() => setIsBatchMode(value)} className={`segmented-control-item flex-1 px-3 py-2 text-sm font-semibold ${isBatchMode === value ? 'segmented-control-item-active' : ''}`}>{label}</button>
+                  ))}
+                </div>
+              </div>
+              {isBatchMode ? (
+                <div className="space-y-4 p-6">
+                  <div className="rounded-xl border border-ochre/25 bg-ochre/10 p-4 text-sm text-ochre">
+                    <p className="mb-1 font-bold">导入说明</p>
+                    <ul className="list-inside list-disc space-y-1 opacity-80">
+                      <li>Excel 中按列排列：商品名称 | 规格 | 单价 | 初始库存箱数</li>
+                      <li>框选复制后粘贴到下方，系统自动识别 Tab 分隔</li>
+                    </ul>
+                  </div>
+                  <textarea value={batchText} onChange={(e) => setBatchText(e.target.value)} placeholder="在此粘贴 Excel 数据..." className="h-44 w-full rounded-xl border-stone-200 bg-white p-4 text-sm font-semibold" />
+                  <button type="button" onClick={handleBatchImport} disabled={!isAdmin || !batchText.trim()} className="button-primary flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold disabled:opacity-50">
+                    <CheckCircle2 size={18} />验证并开始批量导入
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmit} className="space-y-4 p-6">
+                  <label className="block space-y-2 text-sm font-bold text-stone-700"><span>产品名称</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：JN176A" className="w-full rounded-lg px-4 py-3 font-semibold" /></label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className="block space-y-2 text-sm font-bold text-stone-700"><span>规格（个/箱）</span><input type="number" min="1" value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="36" className="w-full rounded-lg px-4 py-3 font-semibold" /></label>
+                    <label className="block space-y-2 text-sm font-bold text-stone-700"><span>单价（XOF/个）</span><input type="number" min="0" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="2500" className="w-full rounded-lg px-4 py-3 font-semibold" /></label>
+                  </div>
+                  {spec && price && <p className="text-xs font-semibold text-stone-500">箱价 {formatCurrency(Number(spec) * Number(price))}</p>}
+                  <button type="submit" disabled={!isAdmin} className="button-primary w-full rounded-lg py-3 text-sm font-bold disabled:opacity-50">添加商品</button>
+                </form>
+              )}
+            </motion.div>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
-            <div>
-              <label className="block text-sm font-bold text-stone-600 uppercase tracking-widest mb-2">产品名称</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="例如：AJ1 芝加哥"
-                className="w-full rounded-xl border-stone-200 bg-white focus:ring-oxblood/25 focus:border-oxblood py-3 font-bold"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-stone-600 uppercase tracking-widest mb-2">规格 (一箱多少个)</label>
-              <input
-                type="number"
-                min="1"
-                value={spec}
-                onChange={(e) => setSpec(e.target.value)}
-                placeholder="12"
-                className="w-full rounded-xl border-stone-200 bg-white focus:ring-oxblood/25 focus:border-oxblood py-3 font-bold"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-stone-600 uppercase tracking-widest mb-2">单价 (XOF/个)</label>
-              <input
-                type="number"
-                min="0"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                placeholder="5000"
-                className="w-full rounded-xl border-stone-200 bg-white focus:ring-oxblood/25 focus:border-oxblood py-3 font-bold"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={user?.role !== 'admin'}
-              className={`font-bold py-3.5 rounded-xl shadow-sm transition-all active:scale-95 ${
-                user?.role !== 'admin'
-                  ? 'bg-stone-200/50 text-stone-400 cursor-not-allowed shadow-none'
-                  : 'bg-oxblood hover:bg-oxblood/85 text-white '
-              }`}
-            >
-              {user?.role !== 'admin' ? '无权限' : '添加商品'}
-            </button>
-          </form>
         )}
-      </div>
+      </AnimatePresence>
 
-      {/* Product List */}
-      <div className="surface rounded-xl p-8 shadow-sm border-stone-200">
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-xl font-semibold text-stone-800 tracking-tight flex items-center gap-2">
-            <Package size={24} className="text-stone-600" />
-            商品列表维护
-          </h2>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <label className="relative block sm:w-64">
-              <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-              <input
-                type="search"
-                aria-label="搜索产品型号"
-                placeholder="搜索产品型号"
-                value={productSearchTerm}
-                onChange={(event) => setProductSearchTerm(event.target.value)}
-                className="w-full rounded-xl border-stone-200 bg-white py-3 pl-10 pr-3 text-sm font-semibold text-stone-700 focus:border-oxblood focus:ring-[#7c3037]"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={handleExportProductList}
-              disabled={products.length === 0}
-              className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold shadow-sm transition-all active:scale-95 ${
-                products.length === 0
-                  ? 'cursor-not-allowed bg-stone-200/50 text-stone-400 shadow-none'
-                  : 'bg-oxblood text-white hover:bg-oxblood/85'
-              }`}
-            >
-              <Download size={17} />
-              导出表格
-            </button>
+      <section className="section-panel overflow-hidden">
+        <InventoryPageHeader
+          eyebrow="PRODUCTS"
+          title="商品管理"
+          subtitle="维护款式、规格、单价和在售状态 · 已产生流水的商品只能下架，不能删除"
+          action={(
+            <div className="flex shrink-0 gap-2">
+              <button type="button" onClick={handleExportProductList} disabled={products.length === 0} className="button-secondary inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold disabled:opacity-50"><Download size={16} />导出表格</button>
+              {isAdmin && <button type="button" onClick={() => setIsAddProductOpen(true)} className="button-primary inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold"><Plus size={16} />添加商品</button>}
+            </div>
+          )}
+        />
+        <div className="grid grid-cols-3 gap-3 p-4 sm:p-5">
+          <InventoryKpi label="全部商品" value={productStatusCounts.all} unit="款" />
+          <InventoryKpi label="在售" value={productStatusCounts.active} unit="款" tone="brass" />
+          <InventoryKpi label="已下架" value={productStatusCounts.inactive} unit="款" />
+        </div>
+
+        <div className="flex flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="segmented-control flex">
+            {([['all', '全部'], ['active', '在售'], ['inactive', '已下架']] as const).map(([value, label]) => (
+              <button key={value} type="button" onClick={() => setProductStatusFilter(value)} className={`segmented-control-item flex-1 whitespace-nowrap px-3 py-2 text-xs font-semibold ${productStatusFilter === value ? 'segmented-control-item-active' : ''}`}>{label} {productStatusCounts[value]}</button>
+            ))}
+          </div>
+          <div className="relative w-full sm:w-56">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+            <input type="search" aria-label="搜索产品型号" placeholder="搜索产品型号" value={productSearchTerm} onChange={(event) => setProductSearchTerm(event.target.value)} className="h-10 w-full rounded-xl border border-stone-200 bg-white pl-9 pr-3 text-sm font-semibold text-stone-700 outline-none placeholder:text-stone-400 focus:border-brass" />
           </div>
         </div>
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full min-w-[720px] whitespace-nowrap text-left">
-            <thead>
-              <tr className="border-b border-stone-200">
-                <th className="py-2 font-bold text-stone-500 text-xs uppercase tracking-wider">产品名称</th>
-                <th className="py-2 font-bold text-stone-500 text-xs uppercase tracking-wider">规格</th>
-                <th className="py-2 font-bold text-stone-500 text-xs uppercase tracking-wider">单价</th>
-                <th className="py-2 font-bold text-stone-500 text-xs uppercase tracking-wider">箱价</th>
-                <th className="py-2 font-bold text-stone-500 text-xs uppercase tracking-wider">当前库存</th>
-                <th className="py-2 font-bold text-stone-500 text-xs uppercase tracking-wider">状态</th>
-                <th className="py-2 font-bold text-stone-500 text-xs uppercase tracking-wider text-right">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/10">
-              {visibleProducts.map((p: Product) => (
-                <tr key={p.id} className="hover:bg-white transition-colors">
-                  <td className="py-4 text-sm font-bold text-stone-900">{p.name}</td>
-                  <td className="py-4 text-sm text-stone-600 font-bold">{p.spec} 个/箱</td>
-                  <td className="py-4 text-sm text-stone-600 font-bold">{formatCurrency(p.price)}</td>
-                  <td className="py-4 text-sm text-oxblood font-semibold">{formatCurrency(p.price * p.spec)}</td>
-                  <td className="py-4 text-sm text-stone-600 font-bold">{formatStock(p.stock, p.spec)}</td>
-                  <td className="py-4 text-sm">
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      p.isActive !== false
-                        ? 'bg-forest/10 text-forest border border-forest/25'
-                        : 'bg-stone-100/80 text-stone-500 border border-stone-200/70'
-                    }`}>
-                      {p.isActive !== false ? '在售' : '已下架'}
-                    </span>
-                  </td>
-                  <td className="py-4 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await toggleProductActive(p.id, p.isActive === false);
-                        }}
-                        disabled={user?.role !== 'admin'}
-                        className={`p-2 rounded-lg transition-all ${
-                          user?.role !== 'admin'
-                            ? 'text-stone-300 cursor-not-allowed'
-                            : (p.isActive !== false
-                              ? 'text-ochre hover:bg-ochre/10'
-                              : 'text-forest hover:bg-forest/10')
-                        }`}
-                        title={
-                          user?.role !== 'admin'
-                            ? '无权限'
-                            : (p.isActive !== false ? '下架商品（保留历史数据）' : '重新上架商品')
-                        }
-                      >
-                        {p.isActive !== false ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openEditStockModal(p)}
-                        disabled={user?.role !== 'admin'}
-                        className={`p-2 rounded-lg transition-all ${
-                          user?.role !== 'admin'
-                            ? 'text-stone-300 cursor-not-allowed'
-                            : 'text-oxblood hover:bg-oxblood/10'
-                        }`}
-                        title={user?.role !== 'admin' ? '无权限' : '编辑库存'}
-                      >
-                        <Pencil size={18} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPendingDeleteProduct(p)}
-                        disabled={user?.role !== 'admin'}
-                        className={`p-2 rounded-lg transition-all ${
-                          user?.role !== 'admin'
-                            ? 'text-stone-300 cursor-not-allowed'
-                            : 'text-danger hover:bg-danger/10'
-                        }`}
-                        title={user?.role !== 'admin' ? '无权限' : '删除未产生流水的商品'}
-                      >
-                        <Trash2 size={18} />
-                      </button>
+
+        <div className="mx-4 mb-5 overflow-hidden rounded-xl border border-stone-200 bg-white sm:mx-5">
+          <div className={`hidden gap-4 border-b border-stone-200 bg-[#f2efe9] px-4 py-2.5 text-xs font-semibold text-stone-500 sm:grid ${PRODUCT_LIST_COLUMNS}`}>
+            <span>款式</span><span className="text-right">规格</span><span className="text-right">单价</span><span className="text-right">箱价</span><span className="text-right">当前库存</span><span>状态</span><span className="text-right">操作</span>
+          </div>
+          {visibleProducts.length === 0 ? (
+            <InventoryEmpty icon={products.length === 0 ? Package : Search} text={products.length === 0 ? '暂无商品数据' : '未找到匹配的产品型号'} />
+          ) : (
+            <ul className="divide-y divide-stone-100">
+              {visibleProducts.map((p) => {
+                const isActive = p.isActive !== false;
+                const actions = (
+                  <div className="flex items-center gap-1 sm:justify-end">
+                    <button type="button" onClick={() => openEditStockModal(p)} disabled={!isAdmin} className="rounded-lg p-2 text-oxblood hover:bg-oxblood/10 disabled:text-stone-300" title="编辑商品"><Pencil size={16} /></button>
+                    <button type="button" onClick={() => void toggleProductActive(p.id, !isActive)} disabled={!isAdmin} className={`rounded-lg p-2 disabled:text-stone-300 ${isActive ? 'text-ochre hover:bg-ochre/10' : 'text-forest hover:bg-forest/10'}`} title={isActive ? '下架商品（保留历史数据）' : '重新上架商品'}>{isActive ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                    <button type="button" onClick={() => setPendingDeleteProduct(p)} disabled={!isAdmin} className="rounded-lg p-2 text-danger hover:bg-danger/10 disabled:text-stone-300" title="删除未产生流水的商品"><Trash2 size={16} /></button>
+                  </div>
+                );
+                return (
+                  <li key={p.id} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-4 py-3 ${PRODUCT_LIST_COLUMNS} ${isActive ? '' : 'bg-stone-50/60'}`}>
+                    <div className="min-w-0">
+                      <p className={`truncate font-semibold ${isActive ? 'text-stone-900' : 'text-stone-400'}`}>{p.name}</p>
+                      <p className="mt-0.5 text-xs font-semibold text-stone-500 sm:hidden">{p.spec} 个/箱 · {formatCurrency(p.price)} · 箱价 {formatCurrency(p.price * p.spec)}</p>
                     </div>
-                  </td>
-                </tr>
-              ))}
-              {products.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-stone-400 font-bold">暂无商品数据</td>
-                </tr>
-              )}
-              {products.length > 0 && visibleProducts.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-stone-400 font-bold">未找到匹配的产品型号</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    <p className="hidden text-right text-sm font-semibold tabular-nums text-stone-700 sm:block">{p.spec} 个/箱</p>
+                    <p className="hidden text-right text-sm font-semibold tabular-nums text-stone-700 sm:block">{formatCurrency(p.price)}</p>
+                    <p className="hidden text-right text-sm font-bold tabular-nums text-oxblood sm:block">{formatCurrency(p.price * p.spec)}</p>
+                    <div className="flex flex-col items-end gap-1 sm:block sm:text-right">
+                      <span className="whitespace-nowrap text-sm font-bold tabular-nums text-stone-900">{formatStock(p.stock, p.spec)}</span>
+                      <span className="sm:hidden"><InventoryChip tone={isActive ? 'ok' : 'muted'}>{isActive ? '在售' : '已下架'}</InventoryChip></span>
+                    </div>
+                    <div className="hidden sm:block"><InventoryChip tone={isActive ? 'ok' : 'muted'}>{isActive ? '在售' : '已下架'}</InventoryChip></div>
+                    <div className="col-span-2 -ml-2 -mb-1 sm:col-span-1 sm:m-0">{actions}</div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
-      </div>
+      </section>
     </div>
   );
 };

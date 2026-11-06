@@ -116,7 +116,7 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
   const [cargoBoxes, setCargoBoxes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-  const [expandedStatuses, setExpandedStatuses] = useState<Set<CargoContainerStatus>>(() => new Set(['在途']));
+  const [expandedStatus, setExpandedStatus] = useState<CargoContainerStatus | null>('在途');
   const [errorMessage, setErrorMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -335,13 +335,9 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
     });
   };
 
+  // Only one status group is open at a time; opening another closes the current one.
   const toggleStatus = (statusToToggle: CargoContainerStatus) => {
-    setExpandedStatuses((current) => {
-      const next = new Set(current);
-      if (next.has(statusToToggle)) next.delete(statusToToggle);
-      else next.add(statusToToggle);
-      return next;
-    });
+    setExpandedStatus((current) => current === statusToToggle ? null : statusToToggle);
   };
 
   return (
@@ -408,7 +404,7 @@ export function CargoContainersView({ containers, products, canEdit, saveCargoCo
           <div className="divide-y divide-stone-200">
             {CARGO_CONTAINER_STATUSES.map((groupStatus) => {
               const groupContainers = sortedContainers.filter((cargo) => cargo.status === groupStatus);
-              const groupExpanded = expandedStatuses.has(groupStatus);
+              const groupExpanded = expandedStatus === groupStatus;
               return (
                 <section key={groupStatus} aria-label={`${groupStatus}货柜`}>
                   <h3>

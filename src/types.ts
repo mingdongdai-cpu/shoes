@@ -107,6 +107,18 @@ export interface CargoContainer {
   updatedAt: Timestamp;
 }
 
+// One entry per manual stock edit made in product management.
+export interface ProductStockAdjustment {
+  id: string;
+  productId: string;
+  productName: string;
+  spec: number;
+  stockBefore: number; // Total items
+  stockAfter: number; // Total items
+  operatorUid: string;
+  createdAt: Timestamp;
+}
+
 export type CashDenomination = 10000 | 5000 | 2000 | 1000 | 500 | 200 | 100 | 50;
 export type CashDenominationKey = `${CashDenomination}`;
 export type CashDenominationCounts = Record<CashDenominationKey, number>;

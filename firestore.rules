@@ -518,6 +518,22 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Append-only log of manual stock edits made in product management.
+    match /productStockAdjustments/{adjustmentId} {
+      allow read: if isStaff();
+      allow create: if isAdmin() &&
+        request.resource.data.keys().hasOnly(['productId', 'productName', 'spec', 'stockBefore', 'stockAfter', 'operatorUid', 'createdAt']) &&
+        request.resource.data.productId is string &&
+        request.resource.data.productName is string && request.resource.data.productName.size() > 0 && request.resource.data.productName.size() < 100 &&
+        request.resource.data.spec is int && request.resource.data.spec > 0 &&
+        request.resource.data.stockBefore is int && request.resource.data.stockBefore >= 0 &&
+        request.resource.data.stockAfter is int && request.resource.data.stockAfter >= 0 &&
+        request.resource.data.stockAfter != request.resource.data.stockBefore &&
+        request.resource.data.operatorUid == request.auth.uid &&
+        request.resource.data.createdAt is timestamp;
+      allow update, delete: if false;
+    }
+
     match /orderCashCounts/{cashDate} {
       allow read: if isOrderUser() || isAdmin() || isBoss();
       allow create: if isOrderUser() &&

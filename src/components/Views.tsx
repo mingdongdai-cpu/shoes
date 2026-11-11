@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Timestamp } from 'firebase/firestore';
-import { CustomerOrder, CustomerOrderItem, DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, Transaction, User, Expense, Debt, DebtPayment, DebtPaymentTarget, SalesPeriodData, OrderCashCount, OrderDailyExpense } from '../types';
+import { CustomerOrder, CustomerOrderItem, DashboardMetrics, OrderProduct, Product, ProductRiskMetrics, ProductStockAdjustment, Transaction, User, Expense, Debt, DebtPayment, DebtPaymentTarget, SalesPeriodData, OrderCashCount, OrderDailyExpense } from '../types';
 import { formatDateInputValue, formatDateTimeLabel, getRangeByMonth, isWithinRange, parseIsoWeek, toIsoWeekInputValue, toLocalDateInputValue, type ReportPeriod } from '../lib/timeWindow';
 import { findUniqueProductByName } from '../lib/productNames';
 import { buildCustomerOrderTotals, getCustomerOrderOutstanding, shouldShowCustomerOrderInDebtHistory } from '../lib/customerOrders';
@@ -3833,7 +3833,8 @@ interface ProductsViewProps {
   products: Product[];
   addProduct: (name: string, spec: number, price: number) => Promise<boolean>;
   deleteProduct: (id: string) => Promise<boolean>;
-  updateProductStock: (id: string, newStock: number, nextName?: string, nextSpec?: number, nextPrice?: number) => Promise<boolean>;
+  updateProductStock: (id: string, newStock: number | undefined, nextName?: string, nextSpec?: number, nextPrice?: number) => Promise<boolean>;
+  stockAdjustments: ProductStockAdjustment[];
   toggleProductActive: (id: string, nextActive: boolean) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error') => void;
   formatCurrency: (value: number) => string;
@@ -3852,7 +3853,7 @@ interface ProductsViewProps {
 }
 
 export const ProductsView = ({
-  user, products, addProduct, deleteProduct, updateProductStock, toggleProductActive, showToast, formatCurrency, formatStock,
+  user, products, addProduct, deleteProduct, updateProductStock, stockAdjustments, toggleProductActive, showToast, formatCurrency, formatStock,
   name, setName, spec, setSpec, price, setPrice, isBatchMode, setIsBatchMode, batchText, setBatchText,
   handleBatchImport
 }: ProductsViewProps) => {
@@ -3866,6 +3867,15 @@ export const ProductsView = ({
   const [editItems, setEditItems] = useState('0');
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [isStockHistoryOpen, setIsStockHistoryOpen] = useState(false);
+  const [pendingProductEdit, setPendingProductEdit] = useState<{
+    changes: Array<{ label: string; before: string; after: string }>;
+    newStock: number | undefined;
+    name: string;
+    spec: number;
+    price: number;
+  } | null>(null);
+  const [isSavingProductEdit, setIsSavingProductEdit] = useState(false);
   const [productStatusFilter, setProductStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const normalizedProductSearchTerm = normalizeModelKey(productSearchTerm);
   const activeProductCount = products.filter((product) => product.isActive !== false).length;
@@ -3922,7 +3932,7 @@ export const ProductsView = ({
     setEditItems((product.stock % baseSpec).toString());
   };
 
-  const handleSaveStock = async () => {
+  const handleSaveStock = () => {
     if (!editingProduct) return;
     const boxesValue = Number.parseInt(editBoxes, 10) || 0;
     const itemsValue = Number.parseInt(editItems, 10) || 0;
@@ -3949,13 +3959,37 @@ export const ProductsView = ({
     }
 
     const totalStock = boxesValue * nextSpec + itemsValue;
+    const changes = [
+      { label: '商品名', before: editingProduct.name, after: nextName },
+      { label: '规格', before: `${editingProduct.spec} 个/箱`, after: `${nextSpec} 个/箱` },
+      { label: '单价', before: formatCurrency(editingProduct.price), after: formatCurrency(priceValue) },
+      { label: '库存', before: formatStock(editingProduct.stock, editingProduct.spec), after: formatStock(totalStock, nextSpec) }
+    ].filter((change) => change.before !== change.after);
+    if (changes.length === 0) {
+      showToast('没有修改任何内容', 'error');
+      return;
+    }
+    setPendingProductEdit({
+      changes,
+      newStock: totalStock === editingProduct.stock ? undefined : totalStock,
+      name: nextName,
+      spec: nextSpec,
+      price: priceValue
+    });
+  };
+
+  const confirmProductEdit = async () => {
+    if (!editingProduct || !pendingProductEdit || isSavingProductEdit) return;
+    setIsSavingProductEdit(true);
     const success = await updateProductStock(
       editingProduct.id,
-      totalStock,
-      nextName,
-      nextSpec,
-      priceValue
+      pendingProductEdit.newStock,
+      pendingProductEdit.name,
+      pendingProductEdit.spec,
+      pendingProductEdit.price
     );
+    setIsSavingProductEdit(false);
+    setPendingProductEdit(null);
     if (success) {
       setEditingProduct(null);
     }
@@ -4042,7 +4076,7 @@ export const ProductsView = ({
                 </div>
 
                 <div className="text-xs font-semibold text-stone-500 bg-oxblood/10 border border-oxblood/25 rounded-xl px-3 py-2">
-                  修改当前库存或单价不会改写历史流水；已产生流水的商品不能修改规格。
+                  修改当前库存或单价不会改写历史流水，改库存会记入“库存修改记录”；已产生流水的商品不能修改规格。
                 </div>
 
                 <div className="flex gap-3 pt-2">
@@ -4062,6 +4096,43 @@ export const ProductsView = ({
                     保存修改
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {editingProduct && pendingProductEdit && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="product-edit-confirm-title"
+              className="surface w-full max-w-sm rounded-xl border border-stone-200"
+            >
+              <div className="border-b border-stone-200 px-6 py-5">
+                <h3 id="product-edit-confirm-title" className="text-xl font-bold text-stone-900">确认修改？</h3>
+                <p className="mt-1 text-sm text-stone-500">商品 <span className="font-bold text-stone-800">{editingProduct.name}</span> 将做以下修改，确认后才会保存。</p>
+              </div>
+              <ul className="divide-y divide-stone-100 px-6">
+                {pendingProductEdit.changes.map((change) => (
+                  <li key={change.label} className="py-3">
+                    <p className="text-xs font-bold text-stone-500">{change.label}</p>
+                    <p className="mt-1 text-sm font-semibold text-stone-800">
+                      <span className="text-stone-500 line-through">{change.before}</span>
+                      <span className="mx-2 text-stone-400">→</span>
+                      <span className="font-bold text-oxblood">{change.after}</span>
+                    </p>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex justify-end gap-3 border-t border-stone-200 px-6 py-4">
+                <button type="button" onClick={() => setPendingProductEdit(null)} disabled={isSavingProductEdit} className="button-secondary rounded-lg px-5 py-3 text-sm font-bold">返回修改</button>
+                <button type="button" onClick={() => void confirmProductEdit()} disabled={isSavingProductEdit} className="button-primary rounded-lg px-5 py-3 text-sm font-bold disabled:opacity-50">{isSavingProductEdit ? '保存中…' : '确认修改'}</button>
               </div>
             </motion.div>
           </div>
@@ -4180,13 +4251,58 @@ export const ProductsView = ({
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {isStockHistoryOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" onMouseDown={() => setIsStockHistoryOpen(false)}>
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              onMouseDown={(event) => event.stopPropagation()}
+              className="surface flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border border-stone-200"
+            >
+              <div className="flex items-start justify-between border-b border-stone-200 px-6 py-5">
+                <div>
+                  <span className="eyebrow">STOCK EDITS</span>
+                  <h3 className="mt-1 text-xl font-bold text-stone-900">库存修改记录</h3>
+                  <p className="mt-1 text-xs font-semibold text-stone-500">在商品管理里直接改库存时自动记录，最近 200 条</p>
+                </div>
+                <button type="button" onClick={() => setIsStockHistoryOpen(false)} className="button-secondary button-icon" aria-label="关闭"><X size={18} /></button>
+              </div>
+              {stockAdjustments.length === 0 ? (
+                <InventoryEmpty icon={History} text="还没有库存修改记录" />
+              ) : (
+                <ul className="divide-y divide-stone-100 overflow-y-auto">
+                  {stockAdjustments.map((item) => {
+                    const increased = item.stockAfter > item.stockBefore;
+                    return (
+                      <li key={item.id} className="px-6 py-3">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <p className="truncate font-semibold text-stone-900">{item.productName}</p>
+                          <p className="shrink-0 text-xs font-semibold tabular-nums text-stone-500">{formatDateTimeLabel(item.createdAt)}</p>
+                        </div>
+                        <p className="mt-1 text-sm font-semibold text-stone-700">
+                          从 {formatStock(item.stockBefore, item.spec)} 改为 <span className={increased ? 'text-forest' : 'text-danger'}>{formatStock(item.stockAfter, item.spec)}</span>
+                          <span className="ml-2 text-xs text-stone-500">（{increased ? '增加' : '减少'} {formatStock(Math.abs(item.stockAfter - item.stockBefore), item.spec)}）</span>
+                        </p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <section className="section-panel overflow-hidden">
         <InventoryPageHeader
           eyebrow="PRODUCTS"
           title="商品管理"
           subtitle="维护款式、规格、单价和在售状态 · 已产生流水的商品只能下架，不能删除"
           action={(
-            <div className="flex shrink-0 gap-2">
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button type="button" onClick={() => setIsStockHistoryOpen(true)} className="button-secondary inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold"><History size={16} />库存修改记录</button>
               <button type="button" onClick={handleExportProductList} disabled={products.length === 0} className="button-secondary inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold disabled:opacity-50"><Download size={16} />导出表格</button>
               {isAdmin && <button type="button" onClick={() => setIsAddProductOpen(true)} className="button-primary inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold"><Plus size={16} />添加商品</button>}
             </div>

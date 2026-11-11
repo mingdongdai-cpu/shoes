@@ -38,7 +38,7 @@ import {
   type Transaction as FirestoreWriteTransaction,
   type DocumentData
 } from 'firebase/firestore';
-import { CARGO_CONTAINER_STATUSES, type Product, type OrderProduct, type CustomerOrder, type CustomerOrderItem, type CustomerOrderSync, type CargoContainer, type CargoContainerItem, type CargoContainerStatus, type OrderCashCount, type OrderDailyExpense, type CashDenominationCounts, type CashBalance, type Transaction, type User, type View, type Toast, type Expense, type Debt, type DebtPayment, type DebtPaymentTarget, type SalesPeriodData, type DashboardMetrics, type AnalyticsOverview, type AnalyticsMonth } from './types';
+import { CARGO_CONTAINER_STATUSES, type Product, type OrderProduct, type CustomerOrder, type CustomerOrderItem, type CustomerOrderSync, type CargoContainer, type CargoContainerItem, type CargoContainerStatus, type ProductStockAdjustment, type OrderCashCount, type OrderDailyExpense, type CashDenominationCounts, type CashBalance, type Transaction, type User, type View, type Toast, type Expense, type Debt, type DebtPayment, type DebtPaymentTarget, type SalesPeriodData, type DashboardMetrics, type AnalyticsOverview, type AnalyticsMonth } from './types';
 import { LoginView, HomeView, DashboardView, InventoryOverviewView, StockView, OrderEntryView, ProductsView, ExpensesView, DebtsView } from './components/Views';
 import { CustomerOrdersView, OrderDebtsView, OrderPriceListView } from './components/OrderViews';
 import { OrderAccountingView } from './components/OrderAccountingView';
@@ -85,6 +85,11 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   return errInfo;
+}
+
+// Our own checks throw plain Errors with a Chinese message; Firestore errors carry a code and an English one.
+function actionErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && !('code' in error) ? error.message : fallback;
 }
 
 interface ErrorBoundaryProps {
@@ -484,6 +489,19 @@ function mapCargoContainerDoc(id: string, data: DocumentData): CargoContainer {
   };
 }
 
+function mapProductStockAdjustmentDoc(id: string, data: DocumentData): ProductStockAdjustment {
+  return {
+    id,
+    productId: String(data.productId),
+    productName: String(data.productName),
+    spec: Number(data.spec),
+    stockBefore: Number(data.stockBefore),
+    stockAfter: Number(data.stockAfter),
+    operatorUid: String(data.operatorUid),
+    createdAt: requireTimestamp(data.createdAt, 'productStockAdjustments.createdAt')
+  };
+}
+
 function mapOrderCashCountDoc(id: string, data: DocumentData): OrderCashCount {
   const counts = normalizeCashCounts(data.counts);
   return {
@@ -545,6 +563,7 @@ export default function App() {
   const [customerOrders, setCustomerOrders] = useState<CustomerOrder[]>([]);
   const [customerOrderSync, setCustomerOrderSync] = useState<CustomerOrderSync | null>(null);
   const [cargoContainers, setCargoContainers] = useState<CargoContainer[]>([]);
+  const [productStockAdjustments, setProductStockAdjustments] = useState<ProductStockAdjustment[]>([]);
   const [orderCashCounts, setOrderCashCounts] = useState<OrderCashCount[]>([]);
   const [orderDailyExpenses, setOrderDailyExpenses] = useState<OrderDailyExpense[]>([]);
   const [debtRepaymentTotal, setDebtRepaymentTotal] = useState(0);
@@ -851,6 +870,17 @@ export default function App() {
       cancelled = true;
     };
   }, [user, currentView, selectedMonth]);
+
+  useEffect(() => {
+    setProductStockAdjustments([]);
+    if (!user || (user.role !== 'admin' && user.role !== 'staff') || currentView !== 'products') return;
+
+    return onSnapshot(
+      query(collection(db, 'productStockAdjustments'), orderBy('createdAt', 'desc'), limit(200)),
+      (snapshot) => setProductStockAdjustments(snapshot.docs.map((itemDoc) => mapProductStockAdjustmentDoc(itemDoc.id, itemDoc.data()))),
+      (error) => handleFirestoreError(error, OperationType.GET, 'productStockAdjustments')
+    );
+  }, [user, currentView]);
 
   // --- Toast Logic ---
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -1615,8 +1645,7 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'cargoContainers/transactions/products');
-      // Firestore errors carry a code and an English message; only our own checks are worth showing as-is.
-      showToast(error instanceof Error && !('code' in error) ? error.message : '货柜保存失败，未写入任何数据', 'error');
+      showToast(actionErrorMessage(error, '货柜保存失败，未写入任何数据'), 'error');
       return false;
     }
   };
@@ -1881,7 +1910,7 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `customerOrderSyncs/${orderDate}`);
-      showToast(error instanceof Error ? error.message : '客户订单同步失败', 'error');
+      showToast(actionErrorMessage(error, '客户订单同步失败'), 'error');
       return false;
     }
   };
@@ -1964,7 +1993,7 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `customerOrderSyncs/${orderDate}`);
-      showToast(error instanceof Error ? error.message : '撤销同步失败', 'error');
+      showToast(actionErrorMessage(error, '撤销同步失败'), 'error');
       return false;
     }
   };
@@ -2230,13 +2259,14 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'products');
+      showToast(actionErrorMessage(error, '商品添加失败，请稍后重试'), 'error');
       return false;
     }
   };
 
   const updateProductStock = async (
     id: string,
-    newStock: number,
+    newStock: number | undefined,
     nextName?: string,
     nextSpec?: number,
     nextPrice?: number
@@ -2245,7 +2275,7 @@ export default function App() {
       showToast('权限不足', 'error');
       return false;
     }
-    if (!Number.isFinite(newStock) || newStock < 0 || !Number.isInteger(newStock)) {
+    if (newStock !== undefined && (!Number.isInteger(newStock) || newStock < 0)) {
       showToast('库存数量必须是非负整数', 'error');
       return false;
     }
@@ -2281,7 +2311,11 @@ export default function App() {
 
     try {
       const productRef = doc(db, 'products', id);
-      const patch: { stock: number; name?: string; spec?: number; price?: number } = { stock: newStock };
+      // Stock is written only when the admin edited it, so saving a rename or price never rewinds a sale made meanwhile.
+      const patch: { stock?: number; name?: string; spec?: number; price?: number } = {};
+      if (newStock !== undefined) {
+        patch.stock = newStock;
+      }
       if (normalizedName !== undefined) {
         patch.name = normalizedName;
       }
@@ -2305,21 +2339,41 @@ export default function App() {
         }
       }
 
-      const batch = writeBatch(db);
-      batch.update(productRef, patch);
-      const catalogChanged = normalizedName !== undefined || nextSpec !== undefined || nextPrice !== undefined;
-      if (targetProduct.isActive && catalogChanged) {
-        batch.set(doc(db, 'orderCatalog', id), {
-          name: normalizedName ?? targetProduct.name,
-          spec: nextSpec ?? targetProduct.spec,
-          price: nextPrice ?? targetProduct.price
-        });
+      const operatorUid = auth.currentUser?.uid;
+      if (!operatorUid) {
+        showToast('登录状态异常，请重新登录', 'error');
+        return false;
       }
-      await batch.commit();
-      showToast('商品信息与库存修改成功');
+      const catalogChanged = normalizedName !== undefined || nextSpec !== undefined || nextPrice !== undefined;
+      await runTransaction(db, async (trx) => {
+        const productSnap = await trx.get(productRef);
+        if (!productSnap.exists()) throw new Error('商品不存在');
+        const stockBefore = Number(productSnap.data().stock ?? 0);
+        trx.update(productRef, patch);
+        if (targetProduct.isActive && catalogChanged) {
+          trx.set(doc(db, 'orderCatalog', id), {
+            name: normalizedName ?? targetProduct.name,
+            spec: nextSpec ?? targetProduct.spec,
+            price: nextPrice ?? targetProduct.price
+          });
+        }
+        if (newStock !== undefined && newStock !== stockBefore) {
+          trx.set(doc(collection(db, 'productStockAdjustments')), {
+            productId: id,
+            productName: normalizedName ?? targetProduct.name,
+            spec: nextSpec ?? targetProduct.spec,
+            stockBefore,
+            stockAfter: newStock,
+            operatorUid,
+            createdAt: Timestamp.now()
+          });
+        }
+      });
+      showToast(newStock === undefined ? '商品信息修改成功' : '商品信息与库存修改成功');
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `products/${id}`);
+      showToast(actionErrorMessage(error, '商品修改失败，请稍后重试'), 'error');
       return false;
     }
   };
@@ -2352,6 +2406,7 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `products/${id}/isActive`);
+      showToast(actionErrorMessage(error, '上下架失败，请稍后重试'), 'error');
       return false;
     }
   };
@@ -2470,7 +2525,7 @@ export default function App() {
       showToast(
         firestoreCode === 'resource-exhausted' || errorMessage.includes('Quota exceeded')
           ? 'Firestore 今日读取额度已用完，请等待每日配额重置或升级计费方案'
-          : (errorMessage || '流水删除失败，请稍后重试'),
+          : actionErrorMessage(error, '流水删除失败，请稍后重试'),
         'error'
       );
     } finally {
@@ -2549,6 +2604,7 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'transactions/products');
+      showToast(actionErrorMessage(error, `${type === 'in' ? '入库' : '出库'}失败，未写入任何数据`), 'error');
       return false;
     }
   };
@@ -2654,7 +2710,7 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `transactions/batch-${type}`);
-      showToast(error instanceof Error ? error.message : `${type === 'in' ? '批量入库' : '批量出库'}失败，未写入任何数据`, 'error');
+      showToast(actionErrorMessage(error, `${type === 'in' ? '批量入库' : '批量出库'}失败，未写入任何数据`), 'error');
       return false;
     }
   };
@@ -2875,6 +2931,7 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `transactions/${transactionId}`);
+      showToast(actionErrorMessage(error, '流水修改失败，未写入任何数据'), 'error');
       return false;
     }
   };
@@ -2908,6 +2965,7 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'expenses');
+      showToast(actionErrorMessage(error, '支出保存失败，请稍后重试'), 'error');
       return false;
     }
   };
@@ -2932,6 +2990,7 @@ export default function App() {
       setConfirmDeleteExpenseId(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `expenses/${id}`);
+      showToast(actionErrorMessage(error, '支出删除失败，请稍后重试'), 'error');
     }
   };
 
@@ -2958,6 +3017,7 @@ export default function App() {
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'debts');
+      showToast(actionErrorMessage(error, '欠账保存失败，请稍后重试'), 'error');
       return false;
     }
   };
@@ -3025,8 +3085,7 @@ export default function App() {
       showToast('欠账修改成功');
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : '欠账修改失败';
-      showToast(message, 'error');
+      showToast(actionErrorMessage(error, '欠账修改失败'), 'error');
       handleFirestoreError(error, OperationType.UPDATE, `debts/${debtId}`);
       return false;
     }
@@ -3121,7 +3180,7 @@ export default function App() {
     } catch (error) {
       const message = user?.role === 'order'
         ? orderMessage('Échec de l’enregistrement de l’encaissement', '收款保存失败', 'Could not save the payment')
-        : error instanceof Error ? error.message : '收款保存失败';
+        : actionErrorMessage(error, '收款保存失败');
       showToast(message, 'error');
       handleFirestoreError(error, OperationType.WRITE, paymentId ? `debtPayments/${paymentId}` : 'debtPayments');
       return false;
@@ -3188,7 +3247,7 @@ export default function App() {
     } catch (error) {
       const message = user?.role === 'order'
         ? orderMessage('Échec de la suppression de l’encaissement', '删除回款失败', 'Could not delete the payment')
-        : error instanceof Error ? error.message : '删除回款失败';
+        : actionErrorMessage(error, '删除回款失败');
       showToast(message, 'error');
       handleFirestoreError(error, OperationType.DELETE, `debtPayments/${payment.id}`);
       return false;
@@ -3434,6 +3493,7 @@ export default function App() {
                 addProduct={addProduct}
                 deleteProduct={deleteProduct}
                 updateProductStock={updateProductStock}
+                stockAdjustments={productStockAdjustments}
                 toggleProductActive={toggleProductActive}
                 showToast={showToast}
                 formatCurrency={formatCurrency}
